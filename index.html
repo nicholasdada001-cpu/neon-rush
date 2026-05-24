@@ -278,8 +278,9 @@
                         player.coins += 1000;
                         break;
                     case 'evolve':
-                        if (player.evoLevel < EVOLUTIONS.length - 1) {
-                            // Force-evolve by giving enough RC and triggering
+                        // Jump straight to CONVOY (max tier) so testing the
+                        // final-form silhouette doesn't require six clicks.
+                        while (player.evoLevel < EVOLUTIONS.length - 1) {
                             const next = player.evoLevel + 1;
                             player.robotCoins = Math.max(player.robotCoins, EVOLUTIONS[next].rcCost);
                             evolvePlayer(player);

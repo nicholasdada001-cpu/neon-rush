@@ -352,7 +352,7 @@ const EVOLUTIONS = [
         name: 'CONVOY',  rcCost: 80,   hpBonus: 900, dmgBonus: 4.5, speedBonus: 1.9,
         sizeBonus: 16,
         widthBonus: 4,    // narrower body — Convoy is TALL, not bulky
-        heightBonus: 200, // towering — much taller than PRIME (boosted from 130)
+        heightBonus: 320, // towering — way bigger than PRIME (boosted from 200)
         sideArm: 'convoy',
         ability: 'convoyMatrix', abilityKey: 'KeyR',
         description: 'CONVOY frame. Truck-cab shoulders, dual-sword rig, full vehicle plating. Final form.',
