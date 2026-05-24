@@ -5192,6 +5192,97 @@ function updateEnemies() {
                 }
                 // Mark a transition glow timer the boss draw can read
                 e.phaseFlashTimer = 60;
+
+                // === PHASE 2 ENTRANCE ATTACK (taunt) ===
+                // Each boss launches a unique opening salvo when entering
+                // phase 2 so the player feels the gear-shift instantly.
+                const cx2 = e.x + e.w / 2;
+                const cy2 = e.y + e.h / 2;
+                const playerAngle2 = Math.atan2(player.y - e.y, player.x - e.x);
+                if (e.subtype === 'guard') {
+                    // 16-bullet wide cone toward player
+                    for (let a = -7; a <= 8; a++) {
+                        const ang = playerAngle2 + a * 0.05;
+                        enemyBullets.push({
+                            x: cx2, y: cy2, vx: Math.cos(ang) * 6, vy: Math.sin(ang) * 6,
+                            life: 90, damage: 10, color: '#ff66dd', glow: '#ff00aa', size: 5
+                        });
+                    }
+                } else if (e.subtype === 'skyhammer') {
+                    // 5 simultaneous bombs in an arc above the boss
+                    for (let i = -2; i <= 2; i++) {
+                        enemyBullets.push({
+                            x: cx2 + i * 30, y: cy2 - 60,
+                            vx: i * 1.5, vy: 3,
+                            life: 130, damage: 14, color: '#88ddff', glow: '#0088ff',
+                            size: 8, big: true, gravity: 0.12
+                        });
+                    }
+                } else if (e.subtype === 'inferno') {
+                    // Lava ring — 14 globs outward
+                    for (let i = 0; i < 14; i++) {
+                        const ang = (i / 14) * Math.PI * 2;
+                        enemyBullets.push({
+                            x: cx2, y: cy2, vx: Math.cos(ang) * 4, vy: Math.sin(ang) * 4,
+                            life: 100, damage: 12, color: '#ff4400', glow: '#ff8800',
+                            size: 7, big: true, burn: true, burnDmg: 4, burnDur: 50
+                        });
+                    }
+                } else if (e.subtype === 'ravager') {
+                    // Saw-disc burst — 8 spinning projectiles
+                    for (let i = 0; i < 8; i++) {
+                        const ang = (i / 8) * Math.PI * 2 + Math.PI / 8;
+                        enemyBullets.push({
+                            x: cx2, y: cy2, vx: Math.cos(ang) * 5.5, vy: Math.sin(ang) * 5.5,
+                            life: 110, damage: 12, color: '#88ff44', glow: '#22ff00',
+                            size: 6, big: true
+                        });
+                    }
+                } else if (e.subtype === 'cryo') {
+                    // Ice shotgun — 10-bullet narrow cone toward player with slow effect
+                    for (let a = -4; a <= 5; a++) {
+                        const ang = playerAngle2 + a * 0.07;
+                        enemyBullets.push({
+                            x: cx2, y: cy2, vx: Math.cos(ang) * 5, vy: Math.sin(ang) * 5,
+                            life: 100, damage: 10, color: '#aaeeff', glow: '#88ccff',
+                            size: 5, slow: true, slowFactor: 0.6, slowDur: 50
+                        });
+                    }
+                } else if (e.subtype === 'nullifier') {
+                    // Phase-blink rings — 3 small rings spawn around the boss
+                    for (let r = 0; r < 3; r++) {
+                        const orbX = cx2 + Math.cos(r * 2.1) * 80;
+                        const orbY = cy2 + Math.sin(r * 2.1) * 80;
+                        for (let a = 0; a < 6; a++) {
+                            const ang = (a / 6) * Math.PI * 2;
+                            enemyBullets.push({
+                                x: orbX, y: orbY, vx: Math.cos(ang) * 3.5, vy: Math.sin(ang) * 3.5,
+                                life: 90, damage: 10, color: '#cc66ff', glow: '#aa00ff', size: 5
+                            });
+                        }
+                    }
+                } else if (e.subtype === 'omega') {
+                    // Twin laser-eye spread + 8 outer ring
+                    const oL = bossOrigin(e, 'leftEye');
+                    const oR = bossOrigin(e, 'rightEye');
+                    for (const o of [oL, oR]) {
+                        for (let s = -2; s <= 2; s++) {
+                            const ang = playerAngle2 + s * 0.1;
+                            enemyBullets.push({
+                                x: o.x, y: o.y, vx: Math.cos(ang) * 8, vy: Math.sin(ang) * 8,
+                                life: 90, damage: 14, color: '#ffffff', glow: '#ffff00',
+                                size: 5, pierce: true
+                            });
+                        }
+                    }
+                    for (let a = 0; a < 8; a++) {
+                        const ang = (a / 8) * Math.PI * 2;
+                        enemyBullets.push({
+                            x: cx2, y: cy2, vx: Math.cos(ang) * 4, vy: Math.sin(ang) * 4,
+                            life: 100, damage: 10, color: '#ffaaff', glow: '#ff44ff', size: 6
+                        });
+                    }
+                }
             }
             // PHASE 3 — desperate mode at 25% HP. All bosses get a danger
             // glow + faster fire timers + occasional rage-burst signature
@@ -5689,6 +5780,114 @@ function updateEnemies() {
                         '#ff0044', 1, 4
                     );
                 }
+                // === PER-SUBTYPE PHASE 3 SIGNATURE MOVES ===
+                // Each boss has a unique extra attack on a separate timer that
+                // fires alongside their normal patterns during rage. Adds real
+                // variety instead of every boss spamming the same rage burst.
+                e.subRageTimer = (e.subRageTimer || 0) - slowMul;
+                if (e.subRageTimer <= 0 && e.subtype !== 'hydra' && e.subtype !== 'titan') {
+                    const cx = e.x + e.w / 2;
+                    const cy = e.y + e.h / 2;
+                    if (e.subtype === 'guard') {
+                        // GUARD-1: armor crash — slams ground for radial shockwave + 3 angled mortars
+                        spawnShockwave(cx, cy, 180, '#ff66dd');
+                        spawnShockwave(cx, cy, 280, '#ffffff');
+                        for (let a = 0; a < 3; a++) {
+                            const ang = -Math.PI / 2 + (a - 1) * 0.4;
+                            enemyBullets.push({
+                                x: cx, y: cy, vx: Math.cos(ang) * 3, vy: Math.sin(ang) * 3,
+                                life: 140, damage: 18, color: '#ff88dd', glow: '#ff00aa',
+                                size: 10, big: true, gravity: 0.18
+                            });
+                        }
+                        screenShake = Math.max(screenShake, 14);
+                    } else if (e.subtype === 'skyhammer') {
+                        // SKYHAMMER: WAR DRUMS — drop 6 bombs in a horizontal line
+                        const o = bossOrigin(e, 'belly');
+                        for (let i = -2; i <= 3; i++) {
+                            enemyBullets.push({
+                                x: o.x + i * 60, y: o.y, vx: 0, vy: 4,
+                                life: 110, damage: 16, color: '#88ddff', glow: '#0088ff',
+                                size: 9, big: true
+                            });
+                        }
+                        spawnParticles(o.x, o.y, '#88ddff', 30, 8);
+                    } else if (e.subtype === 'inferno') {
+                        // INFERNO-X: LAVA GEYSER — 8 rising lava globs from random ground points
+                        for (let i = 0; i < 8; i++) {
+                            const gx = cx + (i - 3.5) * 60;
+                            enemyBullets.push({
+                                x: gx, y: cy + 100, vx: 0, vy: -7,
+                                life: 130, damage: 20, color: '#ff4400', glow: '#ff8800',
+                                size: 11, big: true, burn: true, burnDmg: 6, burnDur: 60,
+                                gravity: 0.15
+                            });
+                            spawnParticles(gx, cy + 100, '#ff4400', 5, 6);
+                        }
+                        spawnShockwave(cx, cy + 100, 200, '#ff6600');
+                    } else if (e.subtype === 'ravager') {
+                        // RAVAGER: BLADESTORM — 12 fast pellets in a horizontal cone toward player
+                        const ang0 = playerAngle;
+                        for (let i = -5; i <= 6; i++) {
+                            const ang = ang0 + i * 0.06;
+                            enemyBullets.push({
+                                x: cx, y: cy, vx: Math.cos(ang) * 8, vy: Math.sin(ang) * 8,
+                                life: 80, damage: 10, color: '#88ff44', glow: '#22ff00',
+                                size: 5
+                            });
+                        }
+                        spawnParticles(cx, cy, '#88ff44', 24, 8);
+                    } else if (e.subtype === 'cryo') {
+                        // CRYO-LORD: BLIZZARD — 16 slow homing snowflakes that slow the player
+                        for (let i = 0; i < 16; i++) {
+                            const ang = (i / 16) * Math.PI * 2;
+                            enemyBullets.push({
+                                x: cx, y: cy, vx: Math.cos(ang) * 3, vy: Math.sin(ang) * 3,
+                                life: 180, damage: 8, color: '#aaeeff', glow: '#88ccff',
+                                size: 6, big: true,
+                                slow: true, slowFactor: 0.5, slowDur: 60,
+                                homing: 0.04
+                            });
+                        }
+                        spawnShockwave(cx, cy, 220, '#aaeeff');
+                    } else if (e.subtype === 'nullifier') {
+                        // NULLIFIER: PHASE STRIKE — teleport-spawn 4 bullet rings around the player
+                        for (let r = 0; r < 4; r++) {
+                            const orbX = player.x + player.w / 2 + (r - 1.5) * 80;
+                            const orbY = player.y + player.h / 2 + (r % 2 === 0 ? -60 : 60);
+                            spawnShockwave(orbX, orbY, 60, '#aa00ff');
+                            for (let a = 0; a < 6; a++) {
+                                const ang = (a / 6) * Math.PI * 2;
+                                enemyBullets.push({
+                                    x: orbX, y: orbY,
+                                    vx: Math.cos(ang) * 4, vy: Math.sin(ang) * 4,
+                                    life: 90, damage: 12, color: '#cc66ff', glow: '#aa00ff',
+                                    size: 6
+                                });
+                            }
+                        }
+                    } else if (e.subtype === 'omega') {
+                        // OMEGA-PRIME: TWIN LASER EYES — two thick beams sweep the arena
+                        const oL = bossOrigin(e, 'leftEye');
+                        const oR = bossOrigin(e, 'rightEye');
+                        for (const o of [oL, oR]) {
+                            for (let s = 0; s < 8; s++) {
+                                const ang = playerAngle + (s - 3.5) * 0.06;
+                                enemyBullets.push({
+                                    x: o.x, y: o.y,
+                                    vx: Math.cos(ang) * 9, vy: Math.sin(ang) * 9,
+                                    life: 90, damage: 16, color: '#ffffff', glow: '#ffff00',
+                                    size: 5, pierce: true
+                                });
+                            }
+                            spawnParticles(o.x, o.y, '#ffffff', 18, 10);
+                        }
+                        spawnShockwave(cx, cy, 240, '#ffff00');
+                        screenShake = Math.max(screenShake, 18);
+                    }
+                    e.subRageTimer = 240;   // 4 seconds between signature moves
+                }
+
                 // Rage burst — a circle of bullets every 3 seconds. Skips
                 // hydra/titan since those have their own systems.
                 e.rageBurstTimer = (e.rageBurstTimer || 0) - slowMul;
