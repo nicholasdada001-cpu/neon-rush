@@ -329,7 +329,7 @@ const EVOLUTIONS = [
         ]
     },
     {
-        name: 'PRIME',   rcCost: 60,   hpBonus: 600, dmgBonus: 3.4, speedBonus: 1.5,
+        name: 'PRIME',   rcCost: 60,   hpBonus: 400, dmgBonus: 2.6, speedBonus: 0.5,
         sizeBonus: 14,
         widthBonus: 3,    // narrower than APEX — proportional, not fat
         heightBonus: 90,  // way taller — Prime/Convoy proportions, towering (boosted from 70)
@@ -349,10 +349,10 @@ const EVOLUTIONS = [
         ]
     },
     {
-        name: 'CONVOY',  rcCost: 80,   hpBonus: 900, dmgBonus: 4.5, speedBonus: 1.9,
+        name: 'CONVOY',  rcCost: 80,   hpBonus: 600, dmgBonus: 3.5, speedBonus: 0.6,
         sizeBonus: 16,
         widthBonus: 4,    // narrower body — Convoy is TALL, not bulky
-        heightBonus: 480, // NBA-tier Optimus (boosted from 380)
+        heightBonus: 600, // proper Optimus tower (boosted from 480)
         sideArm: 'convoy',
         ability: 'convoyMatrix', abilityKey: 'KeyR',
         description: 'CONVOY frame. Truck-cab shoulders, dual-sword rig, full vehicle plating. Final form.',
@@ -1708,8 +1708,11 @@ function buildBossArena(stageIdx, playerX, boss) {
     // Buff the boss for the arena fight (stronger, more aggressive). Stages
     // 4+ get an EXTRA scaling pass since the cleared arena makes it a 1v1.
     // Bosses now have 3 phases including rage at 25%, so HP is bumped further.
-    const bossHpMul = stageIdx >= 3 ? 2.4 : 1.8;     // was 2.0/1.5
-    const bossFireMul = stageIdx >= 3 ? 0.45 : 0.65;
+    // CONVOY-tier players get an extra buff so the final tier doesn't
+    // trivialize boss fights.
+    const baseBossHpMul = stageIdx >= 3 ? 3.2 : 2.4;     // boosted from 2.4/1.8
+    const bossHpMul = baseBossHpMul * (player.evoLevel >= 6 ? 1.4 : 1.0);
+    const bossFireMul = stageIdx >= 3 ? 0.40 : 0.55;     // boosted from 0.45/0.65
     boss.hp = Math.round(boss.maxHp * bossHpMul);
     boss.maxHp = boss.hp;
     boss.shootTimer = Math.round(boss.shootTimer * bossFireMul);
@@ -6747,7 +6750,10 @@ function drawConvoyOptimus(px, py) {
     const isWalking = player.onGround && moveSpeed > 0.4;
     if (isWalking) player.legPhase += moveSpeed * 0.18;
     const walkSwing = isWalking ? Math.sin(player.legPhase) : 0;
-    const bobY = isWalking ? Math.abs(Math.sin(player.legPhase * 2)) * (h * 0.012) : 0;
+    // Walk bob (active step) + idle breath bob (slow chest rise/fall)
+    const walkBob = isWalking ? Math.abs(Math.sin(player.legPhase * 2)) * (h * 0.012) : 0;
+    const idleBob = !isWalking ? Math.sin(performance.now() * 0.0035) * (h * 0.006) : 0;
+    const bobY = walkBob + idleBob;
 
     // Aim direction
     let aimDx = facing;
@@ -6966,6 +6972,8 @@ function drawConvoyOptimus(px, py) {
                        || (keys && (keys['KeyF'] || keys['KeyJ']));
         const isPunching = meleeActive && !player.meleeAxe;
         let armAng;
+        let elbowBend;
+        let isReadyPose = false;
         if (isPunching) {
             // Arm sweeps down→forward→down. Pose hits forward (0 in local
             // angle space, where blasterSide-aware "forward" is along ±x).
@@ -6973,19 +6981,25 @@ function drawConvoyOptimus(px, py) {
             // Idle hang = pi/2 (down). Punch target = 0 (forward) toward blasterSide.
             const targetForward = blasterSide > 0 ? 0 : Math.PI;
             armAng = (Math.PI / 2) * (1 - eT) + targetForward * eT;
+            elbowBend = 0;
         } else if (isAiming) {
             // Aim direction in WORLD space — convert to local arm angle.
-            // World: facing>0 means forward=+x, facing<0 means forward=-x.
-            // Vertical aim adds pitch. Local angle to put arm along world-aim:
             const worldAng = blasterSide > 0
                 ? Math.atan2(aimDy, Math.abs(aimDx))     // 0..pi/2 down, -pi/2 up
                 : Math.PI - Math.atan2(aimDy, Math.abs(aimDx));   // mirror
             armAng = worldAng;
+            elbowBend = 0;
         } else {
-            // Idle hang (down with subtle walk swing)
-            armAng = Math.PI / 2 + walkSwing * blasterSide * 0.25;
+            // READY POSE — upper arm angled slightly outward and down,
+            // elbow bent so the forearm + blaster sit HORIZONTALLY across
+            // the chest pointing forward (toward facing). Looks like he's
+            // holding the rifle ready, not letting it dangle.
+            // Upper arm angle: 90° down then offset slightly outward
+            armAng = Math.PI / 2 + walkSwing * blasterSide * 0.15;
+            // Bend elbow so forearm rotates ~90° forward toward facing direction
+            elbowBend = blasterSide > 0 ? -Math.PI / 2 : Math.PI / 2;
+            isReadyPose = true;
         }
-        const elbowBend = isAiming ? 0 : 0.12;
         const { wristX, wristY, foreAng } = drawArm(shoulderX, shoulderY, armAng, elbowBend);
 
         // Fist
@@ -7042,27 +7056,29 @@ function drawConvoyOptimus(px, py) {
         const shoulderY = paulY + paulH * 0.45;
         const isAxeSwing = meleeActive && player.meleeAxe;
         let armAng;
+        let elbowBend;
         if (isAxeSwing) {
             // Sweep from "behind/up" to "forward/down" toward facing direction.
-            // For axeSide<0 (left side, facing right), sweep clockwise from
-            // ~-3pi/4 to ~+pi/8. For axeSide>0, mirror it.
             let startAng, endAng;
             if (axeSide < 0) {
-                // Left arm sweeping toward the right
                 startAng = meleeStage === 3 ? -Math.PI * 0.85 : -Math.PI * 0.55;
                 endAng = meleeStage === 3 ? Math.PI * 0.15 : Math.PI * 0.35;
             } else {
-                // Right arm sweeping toward the left (mirror)
                 startAng = meleeStage === 3 ? Math.PI + Math.PI * 0.85 : Math.PI + Math.PI * 0.55;
                 endAng = meleeStage === 3 ? Math.PI - Math.PI * 0.15 : Math.PI - Math.PI * 0.35;
             }
             const eT = 1 - Math.pow(1 - meleeT, 2);
             armAng = startAng + (endAng - startAng) * eT;
+            elbowBend = 0;
         } else {
-            // Idle hang
-            armAng = Math.PI / 2 - walkSwing * axeSide * 0.25;
+            // READY POSE — axe held OVER THE SHOULDER like a soldier on guard.
+            // Upper arm raised forward-up, elbow bent sharply so the forearm
+            // + axe rest pointing UP and slightly back. This is the iconic
+            // "warrior at attention" stance.
+            armAng = -Math.PI / 4 + walkSwing * axeSide * 0.10;   // upper arm angled up-forward
+            // Bend so forearm points further up and slightly behind shoulder
+            elbowBend = axeSide < 0 ? -Math.PI * 0.55 : Math.PI * 0.55;
         }
-        const elbowBend = isAxeSwing ? 0 : 0.15;
         const { wristX, wristY, foreAng } = drawArm(shoulderX, shoulderY, armAng, elbowBend);
 
         // Fist
