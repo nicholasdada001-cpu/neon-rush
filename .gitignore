@@ -1,0 +1,27 @@
+# macOS / OS junk
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Visual / debug screenshots from local testing
+_visual.png
+_smoke.html
+_visual.html
+_bracecount.js
+
+# Logs
+*.log
+
+# Node (just in case anyone adds tooling later)
+node_modules/
+npm-debug.log*
+
+# Build output (none yet, but reserved)
+dist/
+build/

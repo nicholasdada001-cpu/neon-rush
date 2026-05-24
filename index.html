@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEON RUSH - Parkour Shooter</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #0a0a0f;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Courier New', monospace;
+        }
+        canvas {
+            border: 2px solid #00ffaa;
+            box-shadow: 0 0 30px rgba(0, 255, 170, 0.3);
+        }
+        #ui-overlay {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #00ffaa;
+            font-size: 14px;
+            text-align: center;
+            pointer-events: none;
+            text-shadow: 0 0 10px #00ffaa;
+        }
+        #controls-info {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #666;
+            font-size: 12px;
+            text-align: center;
+            pointer-events: none;
+        }
+        /* Developer test panel — jump straight to any boss for testing */
+        #dev-panel {
+            position: absolute;
+            top: 70px;
+            right: 20px;
+            background: rgba(10, 10, 20, 0.92);
+            border: 2px solid #ff8844;
+            border-radius: 6px;
+            padding: 10px 12px;
+            color: #ffaa44;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            box-shadow: 0 0 18px rgba(255, 136, 68, 0.35);
+            z-index: 10;
+            min-width: 200px;
+        }
+        #dev-panel h3 {
+            margin: 0 0 8px 0;
+            color: #ffaa44;
+            font-size: 12px;
+            letter-spacing: 1px;
+            text-shadow: 0 0 6px #ff8844;
+            border-bottom: 1px solid #553a22;
+            padding-bottom: 4px;
+        }
+        #dev-panel .row {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 4px;
+        }
+        #dev-panel button {
+            flex: 1;
+            background: #1a1a28;
+            color: #ffdd66;
+            border: 1px solid #ff8844;
+            border-radius: 3px;
+            padding: 5px 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.15s;
+            text-shadow: 0 0 4px rgba(255, 221, 102, 0.5);
+        }
+        #dev-panel button:hover {
+            background: #ff8844;
+            color: #0a0a0f;
+            box-shadow: 0 0 12px #ff8844;
+        }
+        #dev-panel button:active {
+            transform: translateY(1px);
+        }
+        #dev-panel .stage-btn {
+            text-align: left;
+            padding-left: 8px;
+        }
+        #dev-panel .util-btn {
+            background: #2a1a28;
+            border-color: #aa44ff;
+            color: #cc88ff;
+        }
+        #dev-panel .util-btn:hover {
+            background: #aa44ff;
+            color: #fff;
+            box-shadow: 0 0 12px #aa44ff;
+        }
+        #dev-panel .toggle {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 6px;
+            font-size: 10px;
+            color: #888;
+        }
+        #dev-panel .toggle input { cursor: pointer; }
+        #dev-toggle {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: #ff6644;
+            border: 3px solid #ffaa44;
+            color: #000;
+            padding: 10px 16px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            font-weight: bold;
+            border-radius: 6px;
+            z-index: 11;
+            box-shadow: 0 0 18px rgba(255, 136, 68, 0.7);
+            text-shadow: none;
+        }
+        #dev-toggle:hover {
+            background: #ffaa44;
+            color: #0a0a0f;
+            transform: scale(1.05);
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div id="ui-overlay"></div>
+    <canvas id="game"></canvas>
+    <div id="controls-info">
+        ENTER: Start | A/D: Move | ↑: Jump | SHIFT: Dash | F: Shoot | G: Melee | Q: Ability | TAB: Swap | E: Shop | <span style="color:#66ffff">X: Transform</span><br>
+        <span style="color:#ff8844">[DEV] 1-8: Skip to Boss | 0: Space Battle | 9: God Mode</span>
+    </div>
+
+    <!-- Toggle button (always visible) -->
+    <button id="dev-toggle" type="button">🛠 DEV</button>
+
+    <!-- Dev panel — jump to bosses, restore HP, give RC, etc. -->
+    <div id="dev-panel" class="hidden">
+        <h3>🛠 DEV TEST PANEL</h3>
+        <div class="row"><button class="stage-btn" data-boss="0">▶ STAGE 1 — GUARD-1</button></div>
+        <div class="row"><button class="stage-btn" data-boss="1">▶ STAGE 2 — SKYHAMMER</button></div>
+        <div class="row"><button class="stage-btn" data-boss="2">▶ STAGE 3 — INFERNO-X</button></div>
+        <div class="row"><button class="stage-btn" data-boss="3">▶ STAGE 4 — RAVAGER</button></div>
+        <div class="row"><button class="stage-btn" data-boss="4">▶ STAGE 5 — CRYO-LORD</button></div>
+        <div class="row"><button class="stage-btn" data-boss="5">▶ STAGE 6 — NULLIFIER</button></div>
+        <div class="row"><button class="stage-btn" data-boss="6">▶ STAGE 7 — OMEGA-PRIME</button></div>
+        <div class="row"><button class="stage-btn" data-boss="7">▶ STAGE 8 — TITAN-LORD</button></div>
+        <div class="row" style="margin-top:8px">
+            <button class="util-btn" data-util="space">SPACE BATTLE</button>
+            <button class="util-btn" data-util="heal">FULL HEAL</button>
+        </div>
+        <div class="row">
+            <button class="util-btn" data-util="rc">+50 RC</button>
+            <button class="util-btn" data-util="coins">+1000¢</button>
+        </div>
+        <div class="row">
+            <button class="util-btn" data-util="evolve">EVOLVE</button>
+            <button class="util-btn" data-util="invuln">GOD MODE</button>
+        </div>
+        <div class="row">
+            <button class="util-btn" data-util="killboss">KILL BOSS</button>
+            <button class="util-btn" data-util="unlockall">UNLOCK ALL</button>
+        </div>
+        <div class="toggle">
+            <input type="checkbox" id="dev-godmode-indicator"> <span id="dev-godmode-label">GOD MODE: OFF</span>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
+    <script>
+        // ===== DEV PANEL WIRING =====
+        // All actions reach into the global game state defined in game.js.
+        const devPanel = document.getElementById('dev-panel');
+        const devToggle = document.getElementById('dev-toggle');
+        const godIndicator = document.getElementById('dev-godmode-indicator');
+        const godLabel = document.getElementById('dev-godmode-label');
+
+        let godMode = false;
+
+        devToggle.addEventListener('click', () => {
+            const showing = !devPanel.classList.contains('hidden');
+            if (showing) {
+                devPanel.classList.add('hidden');
+                devToggle.textContent = '🛠 DEV';
+            } else {
+                devPanel.classList.remove('hidden');
+                devToggle.textContent = '✕ CLOSE';
+            }
+        });
+
+        // Helper: drop the player into the chosen stage and skip directly to the
+        // boss arena (sets player x at the boss trigger so the cutscene fires).
+        function devSkipToBoss(stageIdx) {
+            // Make sure character is selected
+            if (typeof gameState !== 'undefined' && gameState === 'intro') {
+                gameState = 'charSelect';
+            }
+            if (typeof selectedChar === 'undefined' || selectedChar === undefined) {
+                applyCharacter(0);
+            }
+            currentStage = stageIdx;
+            // Reset cutscene flags so the boss intro plays again
+            for (const s of STAGES) {
+                s.cutsceneShown = false;
+                s.spaceCutsceneShown = false;
+                s.victoryCutsceneShown = false;
+            }
+            // Clear in-progress combat state
+            cutscene = null;
+            evoTransform = null;
+            throneCutscene = null;
+            if (typeof bossIntro !== 'undefined') bossIntro = null;
+            hitStop = 0;
+            shopOpen = false;
+            spaceState.active = false;
+            spaceState.flyingEnemies = [];
+            spaceState.completing = null;
+            spaceState.intro = null;
+            allies = [];
+            cages = [];
+            damageNumbers = [];
+            shockwaves = [];
+            buildLevel();
+            // Move player just inside the boss trigger so the cutscene fires
+            const stg = STAGES[stageIdx];
+            const triggerX = (stg && stg.bossTriggerX) || 4000;
+            player.x = triggerX - 30;
+            player.y = 400;
+            player.vx = 0; player.vy = 0;
+            player.hp = player.maxHp;
+            player.invincible = 60;
+            // Heal allies if any
+            gameState = 'playing';
+            console.log(`[DEV] Skipped to Stage ${stageIdx + 1} boss (${stg && stg.bossName}).`);
+        }
+
+        // Bind stage buttons
+        for (const btn of document.querySelectorAll('#dev-panel button[data-boss]')) {
+            btn.addEventListener('click', () => {
+                const idx = parseInt(btn.dataset.boss, 10);
+                devSkipToBoss(idx);
+            });
+        }
+
+        // Bind utility buttons
+        for (const btn of document.querySelectorAll('#dev-panel button[data-util]')) {
+            btn.addEventListener('click', () => {
+                const action = btn.dataset.util;
+                switch (action) {
+                    case 'heal':
+                        player.hp = player.maxHp;
+                        break;
+                    case 'rc':
+                        player.robotCoins += 50;
+                        break;
+                    case 'coins':
+                        player.coins += 1000;
+                        break;
+                    case 'evolve':
+                        if (player.evoLevel < EVOLUTIONS.length - 1) {
+                            // Force-evolve by giving enough RC and triggering
+                            const next = player.evoLevel + 1;
+                            player.robotCoins = Math.max(player.robotCoins, EVOLUTIONS[next].rcCost);
+                            evolvePlayer(player);
+                        }
+                        break;
+                    case 'invuln':
+                        godMode = !godMode;
+                        godIndicator.checked = godMode;
+                        godLabel.textContent = `GOD MODE: ${godMode ? 'ON' : 'OFF'}`;
+                        godLabel.style.color = godMode ? '#00ffaa' : '#888';
+                        break;
+                    case 'killboss': {
+                        const boss = enemies.find(e => e.type === 'boss' || e.type === 'miniboss');
+                        if (boss) {
+                            boss.hp = 0;
+                            const idx = enemies.indexOf(boss);
+                            handleEnemyKilled(boss, idx);
+                        }
+                        break;
+                    }
+                    case 'space':
+                        // Skip directly into a space battle for the current stage
+                        if (gameState === 'intro') {
+                            applyCharacter(0);
+                        }
+                        cutscene = null;
+                        startSpaceTransition();
+                        break;
+                    case 'unlockall':
+                        // Unlock all weapons + characters for testing
+                        for (let i = 0; i < player.weaponsUnlocked.length; i++) {
+                            player.weaponsUnlocked[i] = true;
+                        }
+                        for (const c of CHARACTERS) c.unlocked = true;
+                        player.coins += 5000;
+                        player.robotCoins += 100;
+                        break;
+                }
+            });
+        }
+
+        // God mode tick — re-arm invincibility every frame while enabled.
+        // Hooked via requestAnimationFrame so it stays in sync with the game loop.
+        function godModeLoop() {
+            if (godMode && typeof player !== 'undefined') {
+                player.invincible = Math.max(player.invincible, 30);
+                player.hp = Math.min(player.maxHp, player.hp + 0.5);
+            }
+            requestAnimationFrame(godModeLoop);
+        }
+        requestAnimationFrame(godModeLoop);
+
+        // Stop dev panel buttons from stealing keyboard focus from the game
+        for (const btn of document.querySelectorAll('#dev-panel button, #dev-toggle')) {
+            btn.addEventListener('mousedown', e => e.preventDefault());
+        }
+
+        // ===== KEYBOARD SHORTCUTS =====
+        // Press 1-7 to instantly jump to that stage's boss fight.
+        // Press 0 to start a space battle, 9 to toggle god mode.
+        // Use Digit codes so the keys still work even when the canvas has focus.
+        document.addEventListener('keydown', (ev) => {
+            // Don't trigger if user is typing in an input field
+            const tag = (ev.target && ev.target.tagName) || '';
+            if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+            // Only trigger when the regular game shop UI is closed (the shop
+            // also uses 1-9). If shop is open, the player is buying items.
+            if (typeof shopOpen !== 'undefined' && shopOpen) return;
+            // Also not during the intro / char select (those use Enter/Arrows)
+            if (typeof gameState !== 'undefined' &&
+                (gameState === 'intro' || gameState === 'charSelect' || gameState === 'midCharSelect')) {
+                return;
+            }
+
+            switch (ev.code) {
+                case 'Digit1': devSkipToBoss(0); break;   // GUARD-1
+                case 'Digit2': devSkipToBoss(1); break;   // SKYHAMMER
+                case 'Digit3': devSkipToBoss(2); break;   // INFERNO-X
+                case 'Digit4': devSkipToBoss(3); break;   // RAVAGER
+                case 'Digit5': devSkipToBoss(4); break;   // CRYO-LORD
+                case 'Digit6': devSkipToBoss(5); break;   // NULLIFIER
+                case 'Digit7': devSkipToBoss(6); break;   // OMEGA-PRIME
+                case 'Digit8': devSkipToBoss(7); break;   // TITAN-LORD
+                case 'Digit0': {
+                    // Start a space battle for the current sector
+                    cutscene = null;
+                    if (typeof startSpaceTransition === 'function') startSpaceTransition();
+                    break;
+                }
+                case 'Digit9': {
+                    // Toggle god mode + show a brief on-screen banner
+                    godMode = !godMode;
+                    if (godIndicator) godIndicator.checked = godMode;
+                    if (godLabel) {
+                        godLabel.textContent = `GOD MODE: ${godMode ? 'ON' : 'OFF'}`;
+                        godLabel.style.color = godMode ? '#00ffaa' : '#888';
+                    }
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = {
+                            text: `★ GOD MODE ${godMode ? 'ON' : 'OFF'} ★`,
+                            timer: 120,
+                            color: godMode ? '#00ffaa' : '#aaa'
+                        };
+                    }
+                    break;
+                }
+                default: return;
+            }
+            ev.preventDefault();
+        });
+    </script>
+</body>
+</html>
