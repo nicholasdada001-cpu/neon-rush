@@ -329,7 +329,7 @@ const EVOLUTIONS = [
         ]
     },
     {
-        name: 'PRIME',   rcCost: 220,  hpBonus: 600, dmgBonus: 3.4, speedBonus: 1.5,
+        name: 'PRIME',   rcCost: 60,   hpBonus: 600, dmgBonus: 3.4, speedBonus: 1.5,
         sizeBonus: 14,
         widthBonus: 3,    // narrower than APEX — proportional, not fat
         heightBonus: 90,  // way taller — Prime/Convoy proportions, towering (boosted from 70)
@@ -349,7 +349,7 @@ const EVOLUTIONS = [
         ]
     },
     {
-        name: 'CONVOY',  rcCost: 380,  hpBonus: 900, dmgBonus: 4.5, speedBonus: 1.9,
+        name: 'CONVOY',  rcCost: 80,   hpBonus: 900, dmgBonus: 4.5, speedBonus: 1.9,
         sizeBonus: 16,
         widthBonus: 4,    // narrower body — Convoy is TALL, not bulky
         heightBonus: 130, // skyscraper-tall — true Optimus-Convoy proportions (boosted from 100)
@@ -6290,15 +6290,16 @@ function drawTransformerArmor(px, py, evoCol, evoLevel) {
     const facing = player.facing || 1;
 
     // === DOOR-WINGS ON BACK (drawn first so they sit behind body) ===
-    if (evoLevel >= 1) {
+    // CONVOY skips door wings — silhouette stays Prime-clean.
+    if (evoLevel >= 1 && evoLevel < 6) {
         const wingW = 6 + evoLevel;
         const wingH = h * 0.55;
         const sign = facing > 0 ? -1 : 1;     // wings on the back side
         drawTfDoorWing(cx, py + 6, wingW, wingH, armor, glow, sign);
     }
 
-    // === EXTENDED JET WINGS (OMEGA+) — extra fold-out plates on top of doors ===
-    if (evoLevel >= 3) {
+    // === EXTENDED JET WINGS (OMEGA+, but NOT CONVOY) ===
+    if (evoLevel >= 3 && evoLevel < 6) {
         ctx.save();
         for (const sign of [-1, 1]) {
             const wingX = cx + sign * (w / 2 + 2);
@@ -6322,19 +6323,57 @@ function drawTransformerArmor(px, py, evoCol, evoLevel) {
     }
 
     // === PAULDRONS (chunky shoulder pads) — main Transformers signature ===
-    const paulW = 6 + evoLevel * 1.2;
-    const paulH = 12 + evoLevel * 1.5;
-    const paulTop = py + 8;
-    drawTfPauldron(px + 2, paulTop, paulW, paulH, armor, glow, -1);
-    drawTfPauldron(px + w - 2, paulTop, paulW, paulH, armor, glow, +1);
+    // CONVOY gets its own clean red Optimus-style pauldrons drawn below.
+    if (evoLevel < 6) {
+        const paulW = 6 + evoLevel * 1.2;
+        const paulH = 12 + evoLevel * 1.5;
+        const paulTop = py + 8;
+        drawTfPauldron(px + 2, paulTop, paulW, paulH, armor, glow, -1);
+        drawTfPauldron(px + w - 2, paulTop, paulW, paulH, armor, glow, +1);
+    } else {
+        // CONVOY pauldrons: clean red trapezoids, no rivets, no grunge.
+        // These are the Optimus shoulder kibble done minimally.
+        const paulW = 8;
+        const paulH = 18;
+        const paulTop = py + 10;
+        for (const sign of [-1, 1]) {
+            ctx.save();
+            const baseX = sign < 0 ? px + 2 : px + w - 2;
+            ctx.beginPath();
+            ctx.moveTo(baseX + sign * 1, paulTop);
+            ctx.lineTo(baseX + sign * paulW, paulTop + 3);
+            ctx.lineTo(baseX + sign * paulW, paulTop + paulH - 4);
+            ctx.lineTo(baseX + sign * 2, paulTop + paulH);
+            ctx.closePath();
+            // Red gradient
+            const g = ctx.createLinearGradient(0, paulTop, 0, paulTop + paulH);
+            g.addColorStop(0, '#ff5544');
+            g.addColorStop(0.5, '#aa1818');
+            g.addColorStop(1, '#330808');
+            ctx.fillStyle = g;
+            ctx.shadowColor = '#ff8866';
+            ctx.shadowBlur = 8;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // Top chrome highlight
+            ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(baseX + sign * 1, paulTop);
+            ctx.lineTo(baseX + sign * paulW, paulTop + 3);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
 
     // === TRUCK-CAB SHOULDER BLOCKS (PRIME only — CONVOY drops the kibble) ===
     if (evoLevel === 5) {
         // PRIME — moderate truck-cab shoulders
         const cabW = 9;
         const cabH = 16;
-        drawTfTruckCab(px - 2, paulTop - 4, cabW, cabH, armor, glow, -1);
-        drawTfTruckCab(px + w + 2, paulTop - 4, cabW, cabH, armor, glow, +1);
+        const cabTop = py + 8;
+        drawTfTruckCab(px - 2, cabTop - 4, cabW, cabH, armor, glow, -1);
+        drawTfTruckCab(px + w + 2, cabTop - 4, cabW, cabH, armor, glow, +1);
     }
 
     // === CHEST PLATE (vehicle grille style) ===
@@ -6444,8 +6483,8 @@ function drawTransformerArmor(px, py, evoCol, evoLevel) {
         bevelPanel(px + 4, py + h - 16, w - 8, 4, armor, glow, '#0a0a0a');
     }
 
-    // === LEG GREAVES (tank-tread plating) — MK-III+ ===
-    if (evoLevel >= 2) {
+    // === LEG GREAVES (tank-tread plating) — MK-III through PRIME, NOT CONVOY ===
+    if (evoLevel >= 2 && evoLevel < 6) {
         const treadY = py + h - 14;
         // Main dark tread band
         ctx.fillStyle = '#1a1a1a';
@@ -6466,31 +6505,31 @@ function drawTransformerArmor(px, py, evoCol, evoLevel) {
         ctx.shadowBlur = 0;
     }
 
-    // === TIRE KNEECAPS (CONVOY signature) ===
+    // === CONVOY-specific: clean blue boots (no treads, no tires) ===
     if (evoLevel >= 6) {
-        const tireY = py + h - 6;
-        for (const lx of [px + 7, px + w - 9]) {
-            ctx.fillStyle = '#0a0a0a';
-            ctx.beginPath();
-            ctx.arc(lx, tireY, 4, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#444';
-            ctx.beginPath();
-            ctx.arc(lx, tireY, 2.5, 0, Math.PI * 2);
-            ctx.fill();
-            // Hubcap
-            ctx.fillStyle = armor;
-            ctx.shadowColor = glow;
-            ctx.shadowBlur = 6;
-            ctx.beginPath();
-            ctx.arc(lx, tireY, 1.2, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.shadowBlur = 0;
-        }
+        // Single solid blue greave band — clean Optimus boot look
+        const bootY = py + h - 12;
+        const bg = ctx.createLinearGradient(0, bootY, 0, bootY + 10);
+        bg.addColorStop(0, '#5599ff');
+        bg.addColorStop(0.5, '#1a4488');
+        bg.addColorStop(1, '#08183a');
+        ctx.fillStyle = bg;
+        ctx.fillRect(px + 3, bootY, w - 6, 10);
+        // Top chrome rim
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.fillRect(px + 3, bootY, w - 6, 1);
+        // Center red accent stripe (signature Optimus boot detail)
+        ctx.fillStyle = '#aa1818';
+        ctx.fillRect(px + 3, bootY + 4, w - 6, 2);
     }
 
-    // === FOREARM GAUNTLETS (extended arms get plated cuffs) ===
-    if (evoLevel >= 3) {
+    // === TIRE KNEECAPS (CONVOY signature — DISABLED, too kibbley) ===
+    // (Kept disabled. The clean blue boots above replace this look.)
+
+    // === FOREARM GAUNTLETS (extended arms get plated cuffs) — NOT CONVOY ===
+    // CONVOY's forearms are taken up by the axe and ion blaster, so we skip
+    // the generic gauntlet cuffs to keep the silhouette clean.
+    if (evoLevel >= 3 && evoLevel < 6) {
         for (const sign of [-1, 1]) {
             const cuffX = cx + sign * (w / 2 - 2);
             const cuffY = py + 22;
@@ -6498,8 +6537,10 @@ function drawTransformerArmor(px, py, evoCol, evoLevel) {
         }
     }
 
-    // === HALO (OMEGA+) ===
-    if (evoLevel >= 3) {
+    // === HALO (OMEGA/APEX/PRIME, but NOT CONVOY) ===
+    // CONVOY drops the rotating halo — Prime's "leadership" presence comes
+    // from the chest plate + Matrix core, not from a flashy floating ring.
+    if (evoLevel >= 3 && evoLevel < 6) {
         const haloT = performance.now() * 0.005;
         ctx.strokeStyle = armor;
         ctx.shadowColor = glow;
@@ -6519,8 +6560,8 @@ function drawTransformerArmor(px, py, evoCol, evoLevel) {
         ctx.lineWidth = 1;
     }
 
-    // === APEX HALO BLADE RIG (4-point orbital) ===
-    if (evoLevel >= 4) {
+    // === APEX HALO BLADE RIG (4-point orbital, APEX only) ===
+    if (evoLevel === 4) {
         const t = performance.now() * 0.004;
         for (let r = 0; r < 4; r++) {
             const ang = t + r * Math.PI / 2;
@@ -6536,8 +6577,9 @@ function drawTransformerArmor(px, py, evoCol, evoLevel) {
         ctx.shadowBlur = 0;
     }
 
-    // === PRIME: glowing chest reactor + sword hilts ===
-    if (evoLevel >= 5) {
+    // === PRIME-only: glowing chest reactor + sword hilts ===
+    // CONVOY skips this — its Matrix core + dual weapons are drawn separately.
+    if (evoLevel === 5) {
         const pulse = 0.6 + Math.sin(performance.now() * 0.008) * 0.4;
         ctx.fillStyle = '#ff3344';
         ctx.shadowColor = '#ff8866';
@@ -6559,58 +6601,89 @@ function drawTransformerArmor(px, py, evoCol, evoLevel) {
         }
     }
 
-    // === CONVOY: Energon Axe (single, mounted on lead forearm) ===
+    // === CONVOY: Energon Axe + Ion Blaster (always visible silhouette) ===
     if (evoLevel >= 6) {
-        // The axe rig is mounted on the FRONT-FACING forearm. While idle it
-        // sits dormant; during melee swing the renderer extends it into a
-        // full crackling blade. Here we just draw the dormant blade-edge so
-        // it's always visible on the silhouette.
-        const axeSign = facing > 0 ? 1 : -1;
-        const axeBaseX = cx + axeSign * (w / 2 - 1);
-        const axeBaseY = py + 30;
-        // Hilt mount
-        ctx.fillStyle = '#0a0a0a';
-        ctx.fillRect(axeBaseX - 2, axeBaseY, 4, 5);
-        // Glowing energon edge (compact, idle state)
-        ctx.fillStyle = '#88ddff';
-        ctx.shadowColor = '#aaffff';
-        ctx.shadowBlur = 12;
-        ctx.fillRect(axeBaseX + axeSign * 2, axeBaseY + 1, axeSign * 8, 3);
-        // Axe head — wedge shape
+        // The two signature weapons sit on the player's forearms at all times
+        // so they're recognizable in any pose:
+        //   - Energon AXE on the BACK forearm (rear-side hand)
+        //   - Ion BLASTER cannon on the FRONT forearm (the side facing where
+        //     the player is aiming)
+        const frontSign = facing > 0 ? 1 : -1;
+        const backSign  = -frontSign;
+
+        // ----- ENERGON AXE (back forearm) ------------------------------------
+        // Big crackling cyan blade attached to a chunky red+gold hilt. Mounted
+        // on the BACK forearm so it doesn't conflict with the ion blaster.
+        const axeAnchorX = cx + backSign * (w / 2);
+        const axeAnchorY = py + 26;
+        // Hilt
+        ctx.fillStyle = '#aa1818';
+        ctx.fillRect(axeAnchorX - 2, axeAnchorY, 4, 8);
+        ctx.fillStyle = '#ffd744';
+        ctx.fillRect(axeAnchorX - 2, axeAnchorY, 4, 2);   // gold pommel band
+        // Axe blade — large wedge with bright energon glow
+        ctx.fillStyle = '#aaffff';
+        ctx.shadowColor = '#88ddff';
+        ctx.shadowBlur = 16;
         ctx.beginPath();
-        ctx.moveTo(axeBaseX + axeSign * 8, axeBaseY - 1);
-        ctx.lineTo(axeBaseX + axeSign * 14, axeBaseY + 2);
-        ctx.lineTo(axeBaseX + axeSign * 8, axeBaseY + 5);
+        ctx.moveTo(axeAnchorX + backSign * 2, axeAnchorY - 6);
+        ctx.lineTo(axeAnchorX + backSign * 16, axeAnchorY - 2);
+        ctx.lineTo(axeAnchorX + backSign * 16, axeAnchorY + 8);
+        ctx.lineTo(axeAnchorX + backSign * 2, axeAnchorY + 12);
+        ctx.closePath();
+        ctx.fill();
+        // Inner brighter core of the blade
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.moveTo(axeAnchorX + backSign * 4, axeAnchorY - 2);
+        ctx.lineTo(axeAnchorX + backSign * 12, axeAnchorY + 0);
+        ctx.lineTo(axeAnchorX + backSign * 12, axeAnchorY + 6);
+        ctx.lineTo(axeAnchorX + backSign * 4, axeAnchorY + 8);
         ctx.closePath();
         ctx.fill();
         ctx.shadowBlur = 0;
 
-        // === MATRIX of LEADERSHIP — chest core (small but bright) ===
-        // Sits on top of the red chest panel. Pulses gently. Becomes the
-        // visible energy source for both the Energon Axe and the Ion Blaster.
-        const matrixPulse = 0.7 + Math.sin(performance.now() * 0.006) * 0.3;
-        const matrixX = cx;
-        const matrixY = py + 22;
-        ctx.fillStyle = '#ffffff';
-        ctx.shadowColor = '#88ddff';
-        ctx.shadowBlur = 16 * matrixPulse;
-        ctx.beginPath();
-        ctx.arc(matrixX, matrixY, 2.5 + matrixPulse, 0, Math.PI * 2);
-        ctx.fill();
+        // ----- ION BLASTER (front forearm) -----------------------------------
+        // Forearm-mounted cannon barrel. Long chrome barrel with a glowing
+        // energon core stripe down the middle. Charges visibly when shot.
+        const blasterAnchorX = cx + frontSign * (w / 2);
+        const blasterAnchorY = py + 28;
+        const barrelLen = 18;
+        // Forearm cuff (where the blaster mounts)
+        ctx.fillStyle = '#1a3a66';
+        ctx.fillRect(blasterAnchorX - 2, blasterAnchorY - 4, 4, 10);
+        ctx.fillStyle = '#88aaff';
+        ctx.fillRect(blasterAnchorX - 2, blasterAnchorY - 4, 4, 1);   // chrome highlight
+        // Main barrel — dark housing
+        ctx.fillStyle = '#222';
+        ctx.fillRect(blasterAnchorX, blasterAnchorY - 3, frontSign * barrelLen, 6);
+        // Chrome top edge
+        ctx.fillStyle = '#888';
+        ctx.fillRect(blasterAnchorX, blasterAnchorY - 3, frontSign * barrelLen, 1);
+        // Glowing energon core stripe
+        ctx.fillStyle = '#88ddff';
+        ctx.shadowColor = '#aaffff';
+        ctx.shadowBlur = 10;
+        ctx.fillRect(blasterAnchorX, blasterAnchorY - 1, frontSign * barrelLen, 2);
+        // Muzzle ring (gold tip)
+        ctx.fillStyle = '#ffd744';
+        ctx.shadowColor = '#ffaa44';
+        ctx.shadowBlur = 8;
+        ctx.fillRect(blasterAnchorX + frontSign * (barrelLen - 1), blasterAnchorY - 4, frontSign * 2, 8);
         ctx.shadowBlur = 0;
 
-        // === SIMPLE HALO — single thin crown ring overhead ===
-        // No 5-point rotating array, just a clean hovering line above the head
-        // for "leader" presence. Subtle, not flashy.
-        ctx.strokeStyle = '#ffd744';
-        ctx.shadowColor = '#ffaa44';
-        ctx.shadowBlur = 6;
-        ctx.lineWidth = 1.5;
+        // ----- MATRIX OF LEADERSHIP (chest core) -----------------------------
+        // Single small bright dot on the chest. Powers the axe + blaster.
+        // No halo, no aura — keeps the silhouette clean.
+        const matrixPulse = 0.7 + Math.sin(performance.now() * 0.006) * 0.3;
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = '#88ddff';
+        ctx.shadowBlur = 14 * matrixPulse;
         ctx.beginPath();
-        ctx.ellipse(cx, py - 12, 10, 2.5, 0, 0, Math.PI * 2);
-        ctx.stroke();
+        ctx.arc(cx, py + 22, 2.5 + matrixPulse, 0, Math.PI * 2);
+        ctx.fill();
         ctx.shadowBlur = 0;
-        ctx.lineWidth = 1;
     }
 
     // === SMOKESTACKS (CONVOY) ===
@@ -7281,12 +7354,103 @@ function drawPlayer() {
         // Stage 1 (jab): back arm only
         // Stage 2 (cross): front arm
         // Stage 3 (uppercut/AOE): both arms slammed forward+up
+
+        // ----- ENERGON AXE swing (CONVOY only) -----
+        // Replaces the fist visual at CONVOY tier. The axe swings in an arc
+        // matching the punch direction, leaving a glowing crescent trail.
+        if (player.meleeAxe) {
+            const axeAng = punchAng;
+            const axeReach = stage === 3 ? 70 : 56;
+            // Axe pivots from the player's chest area in an arc
+            const arcSpread = stage === 3 ? Math.PI * 0.7 : Math.PI * 0.5;
+            const arcStart = axeAng - arcSpread / 2;
+            const arcEnd   = axeAng + arcSpread / 2;
+            // Crescent trail — multiple arc segments fading out
+            ctx.save();
+            for (let f = 0; f < 4; f++) {
+                const fE = Math.max(0, extend - f * 0.18);
+                if (fE <= 0) continue;
+                const a = arcStart + arcSpread * fE;
+                const r = axeReach * (0.7 + 0.3 * fE);
+                ctx.globalAlpha = 0.35 / (f + 1);
+                ctx.strokeStyle = '#88ddff';
+                ctx.shadowColor = '#aaffff';
+                ctx.shadowBlur = 18;
+                ctx.lineWidth = 6;
+                ctx.beginPath();
+                ctx.arc(torsoCx, py + player.h / 2, r, arcStart, a);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            // Solid axe — drawn at the current swing angle
+            const swingAng = arcStart + arcSpread * extend;
+            const haftX = torsoCx + Math.cos(swingAng) * (axeReach * 0.4);
+            const haftY = py + player.h / 2 + Math.sin(swingAng) * (axeReach * 0.4);
+            const headX = torsoCx + Math.cos(swingAng) * axeReach;
+            const headY = py + player.h / 2 + Math.sin(swingAng) * axeReach;
+            // Haft shaft
+            ctx.strokeStyle = '#aa1818';
+            ctx.lineCap = 'round';
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.moveTo(torsoCx, py + player.h / 2);
+            ctx.lineTo(headX, headY);
+            ctx.stroke();
+            // Gold trim along haft
+            ctx.strokeStyle = '#ffd744';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(torsoCx, py + player.h / 2);
+            ctx.lineTo(headX, headY);
+            ctx.stroke();
+            // Axe head — bright energon blade
+            ctx.save();
+            ctx.translate(headX, headY);
+            ctx.rotate(swingAng + Math.PI / 2);
+            ctx.fillStyle = '#aaffff';
+            ctx.shadowColor = '#88ddff';
+            ctx.shadowBlur = 22;
+            ctx.beginPath();
+            ctx.moveTo(-14, -3);
+            ctx.lineTo(14, -3);
+            ctx.lineTo(18, 3);
+            ctx.lineTo(-18, 3);
+            ctx.closePath();
+            ctx.fill();
+            // Inner brighter core
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.moveTo(-12, -1.5);
+            ctx.lineTo(12, -1.5);
+            ctx.lineTo(14, 1.5);
+            ctx.lineTo(-14, 1.5);
+            ctx.closePath();
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.restore();
+            // Stage 3 finisher — extra shockwave ring
+            if (stage === 3) {
+                const ringR = 30 + extend * 90;
+                ctx.save();
+                ctx.globalAlpha = (1 - t) * 0.7;
+                ctx.strokeStyle = '#88ddff';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.arc(torsoCx, py + player.h / 2, ringR, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+            ctx.restore();
+        } else {
         if (arm === 'back' || arm === 'both') {
             drawArm(torsoCx - 8, torsoY - (stage === 3 ? 4 : 0));
         }
         if (arm === 'front' || arm === 'both') {
             drawArm(torsoCx + 8, torsoY - (stage === 3 ? 4 : 0));
         }
+        }   // close the else branch (non-axe)
 
         // Stage 3 finisher — radial shockwave indicator.
         // No blur to keep it readable.
