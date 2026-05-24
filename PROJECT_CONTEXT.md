@@ -2,13 +2,119 @@
 
 A 2D action platformer + space dogfighter built in vanilla HTML5 Canvas + JavaScript. Inspired by Mega Man, Dead Cells, Hades, **Transformers**, and modern PS-style action platformers. Heavy emphasis on cinematics, screen-juice (hitstop, shake, flashes, shockwaves), varied combat moves (dash, dodge roll, parry, ground pound, melee combo), and **vehicle transformation**.
 
+---
+
+## ⚡ MOST RECENT SESSION (May 24, 2026)
+
+This block is the freshest context — read this first if dropping into a new chat. Older history is below in "Recent Major Additions" + the rest of the doc.
+
+### Project on GitHub
+
+- Pushed to `https://github.com/nicholasdada001-cpu/neon-rush` (new account, no Amazon identity)
+- Branch: `main`. Commits use `nicholasdada001-cpu <nicholasdada001@gmail.com>` (local-only git config — global Amazon identity untouched)
+- `credential.helper=""` is set locally so macOS Keychain doesn't auto-supply Amazon GitHub creds
+- `.gitignore` excludes `_visual.png`, `_smoke.html`, `_visual.html`, `_bracecount.js`, OS junk, editor folders
+
+### What changed in this session (in order)
+
+1. **Transformer-look armor + fake-3D depth pass** for evolution tiers (helpers above `drawPlayer`):
+   - `bevelPanel(x,y,w,h, base, hi, sh)` — reusable beveled metal panel
+   - `drawTfPauldron`, `drawTfDoorWing`, `drawTfTruckCab`, `drawTfGrilleChest`, `drawTfHelmet`, `drawTfBackPack` (now a no-op)
+   - `drawTransformerArmor(px, py, evoCol, evoLevel)` — top-level dispatcher
+   - Stronger `drawFogOverlay` (vignette + bottom tint + edge chromatic aura)
+   - True vanishing-point perspective floor grid in `drawBackground`
+   - Height-aware drop shadow on the player (projects onto nearest platform top, shrinks/fades while airborne)
+
+2. **CONVOY tier completely rewritten** as a dedicated G1 Optimus Prime drawer that **bypasses the normal armor stack** at evoLevel 6:
+   - `drawConvoyOptimus(px, py)` lives just above `drawPlayer`. Front-facing body, both eyes lit, both pauldrons visible (Mega Man style — NOT side profile).
+   - **Helmet**: blue trapezoid shell, light-blue forehead crest, twin silver antennae, blue side ear-plates with yellow dots, cyan eyebar visor with twin pupils, chrome faceplate (single hairline seam, NO 3-slit grille — that earlier mistake is gone)
+   - **Truck-cab chest**: red shell with twin cyan windshield panels (white shine streaks), white vertical grille below with chromeShd slats, Autobot emblem on the right pane
+   - **Pauldrons**: chunky red shoulder cubes (cleaner trapezoids at CONVOY tier than the generic `drawTfPauldron`)
+   - **Arms**:
+     - **Ion Blaster** on the side matching `player.facing` (front arm). Idle pose: forearm horizontal across the chest. Aiming: forearm rotates to aim direction with recoil + muzzle flash.
+     - **Energon Axe** on the opposite side (back arm). Idle pose: forearm angled UP with axe held over the shoulder. Swing: forward-down arc with glowing crescent trail. Stage-3 finisher does a wider overhead chop.
+   - **Belt**: white waist with gold buckle bar
+   - **Legs**: blue thighs with center groove, white knee caps with red dot, blue boots with darker side panel inset
+   - **Animation hooks**: `player.legPhase` drives walk swing (legs alternate vertical lift), `player.gunRecoil` drives blaster recoil, `player.meleeAnimTimer/meleeAnimStage/meleeAxe` drive the axe swing, idle breath bob (~3.5Hz, 0.6% of sprite height)
+   - **drawPlayer short-circuit**: at `player.evoLevel >= 6 && !transformed && !sliding && !rolling && !parrying && !pounding`, calls `drawConvoyOptimus(px, py); ctx.restore(); return;` so the old armor stack never paints over CONVOY
+
+3. **CONVOY signature gear**:
+   - Vehicle form is **`'hovertank'`** (NOT recycled starfighter). Dispatched in the `vTypes` array as the tier-6 entry. Has its own render block in `drawVehiclePlayer` (chrome chassis, blue cab, red rear pods, ion cannon, hover underglow disc, side hover-vents) and physics (25% gravity, gentle hover bob, max fall speed 8) in the player update.
+   - **Matrix Ion Blast** projectile when shooting in hovertank form: 180-dmg pierce + 130-radius AOE main shot + 3 trailing energy comets, big white-blue muzzle flash, double shockwave, 18-frame screen shake. Cooldown 38f.
+   - **Energon Axe melee** at CONVOY tier (`isAxe = player.evoLevel >= 6` in `executeMelee`): 75/100/200 dmg per hit (vs 30/40/80 for normal punches), 100/130 range, 14/22 knockback, finisher does extra 120-dmg AOE with 160px radius, double shockwave, 6-frame hitstop.
+   - The melee renderer detects `player.meleeAxe` and draws a swinging axe (crescent trail + blade) instead of fists during the swing animation.
+
+4. **Stats balance** (last balance pass):
+   - PRIME: rcCost 220→60, hpBonus 600→400, dmgBonus 3.4→2.6, speedBonus 1.5→0.5
+   - CONVOY: rcCost 380→80, hpBonus 900→600, dmgBonus 4.5→3.5, speedBonus 1.9→0.6
+   - Heightbonuses bumped: OMEGA 26→38, APEX 34→50, PRIME 70→90, CONVOY 100→**600** (cumulative climb from BASE → CONVOY adds ~808px so the sprite stands ~848px tall on a 600px canvas — properly towering)
+
+5. **Boss buffs**:
+   - Stage 1-3 arena HP multiplier: 1.8 → 2.4
+   - Stage 4-8 arena HP multiplier: 2.4 → 3.2 (further × 1.4 if `player.evoLevel >= 6`)
+   - Fire timers: 0.65 → 0.55 (stages 1-3), 0.45 → 0.40 (stages 4-8)
+
+6. **Per-subtype boss attack expansion** (every boss except hydra/titan):
+   - **Phase 2 entrance attack** (fires immediately when boss drops to 50% HP): GUARD 16-cone, SKYHAMMER 5-bomb arc, INFERNO 14-globule lava ring, RAVAGER 8-saw spinning radial, CRYO 10-bullet ice cone (slow), NULLIFIER 3 phase-blink rings, OMEGA twin laser-eye spread + 8-bullet outer ring
+   - **Phase 3 signature** (every 4s during rage on `e.subRageTimer`): GUARD armor crash + 3 mortars, SKYHAMMER WAR DRUMS (6-bomb line), INFERNO LAVA GEYSER (8 rising globs), RAVAGER BLADESTORM (12-bullet cone), CRYO BLIZZARD (16 homing snowflakes that slow), NULLIFIER PHASE STRIKE (4 rings teleport-spawn at player), OMEGA TWIN LASER EYES (16 piercing bullets + ring)
+   - These run *alongside* the existing generic 12-bullet rage burst on `e.rageBurstTimer` (180f cooldown)
+
+7. **GUARD-1 boss transformation** (proof of concept — same pattern as TITAN-LORD):
+   - Phase 2 entrance now sets `e.transformed = true` and `e.transformTimer = 1`
+   - 90-frame fold-down animation (energy core + spinning ring + sparks)
+   - **Riot Tank** silhouette: wide trapezoid hull, full-width treads with alternating segments, fortified armor dome, pulsing red sensor eye, twin forward cannons that flip toward the player, side spike-bumpers
+   - **AI override** when `e.transformed && e.transformTimer >= 90`: tank glides side-to-side along the ground tracking the player, sits at `baseY + 24`, fires twin cannon volleys (6 bullets total, slight cone) on a 35f/55f timer
+   - **Origin slots** added in `bossOrigin()`: `cannonTop`, `cannonBot`, `eye`, plus humanoid slots that fall back when not transformed
+   - **Drawer**: `drawBossGuardTank(ex, ey, e)` lives between `drawBossGuard` and `drawBossSkyhammer`. `drawBossGuard` checks `e.transformed` and routes to it.
+   - Banner: `'⚠ GUARD-1: RIOT TANK MODE ⚠'` shown for 240 frames
+   - **Other bosses still need their transformations** — pending work
+
+8. **Cinematic upgrades**:
+   - Boss intro: full-screen impact flash on the landing beat, pre-landing red warning, 110→120px letterbox with chrome edge lines, energy lightning bolts arcing from bars to center, 76→84px boss name with double-pass stamping for chunkiness, name-scale bounce + vertical wobble at landing, diagonal corner accents, hitstop punches doubled, multi-color shockwaves
+   - Phase 2 transition: 3 multi-color shockwaves, 80-150 particles, cone-of-sparks, 28 screenshake, 10-frame hitstop, critFlash overlay, 60-frame `phaseFlashTimer` for boss body halo
+   - Phase 3 transition: 3 shockwaves (red/orange/white), 100+ particles, 24-point radial burst, 36 screenshake, 14-frame hitstop, full red `hitFlash`, 80-frame `phaseFlashTimer`
+   - Evolution cutscene: 5 scripted beats with cumulative particle bursts at 30/55/80/85/95% of duration, helmet snap-down screenshake + critFlash at 85%, final pose explosion with 24-point radial burst at 95%
+
+9. **Polish caps**:
+   - `MAX_PARTICLES = 280` — `spawnParticles` drops new requests beyond this so screen stays readable in busy fights
+   - `MAX_SHOCKWAVES = 24` — same pattern for `spawnShockwave`
+   - Boss intro spark rate halved (every 4f → 8f), ring rate slowed (every 30f → 40f)
+
+10. **HUD upgrade**:
+    - Evolution tier badge in upper-left under HP bar (`TIER N: NAME`) tinted by EVO_COLOR
+
+11. **Dev panel**:
+    - The 🛠 → **EVOLVE** button now jumps STRAIGHT to CONVOY (loops `evolvePlayer` until max tier) instead of one tier per click — needed because the cumulative height bonus only applies if you go through every tier
+
+### Pending work (good prompts for the next session)
+
+1. **Remaining boss transformations** — 6 of 8 bosses still need their phase-2 transform: SKYHAMMER (full jet — already a winged form, just need full-jet drawer), INFERNO-X (lava beast / fire elemental), RAVAGER (scorpion tank), CRYO-LORD (ice golem), NULLIFIER (void rift), OMEGA-PRIME (winged demon). Each follows the GUARD-1 pattern: trigger in phase-2 entrance, origin slots in `bossOrigin`, alternate drawer routed from `drawBoss<Subtype>`, AI override when transformed.
+2. **New enemy types** (originally planned: SCREAMER kamikaze diver, SENTINEL laser-tripod). Each needs an AI block + draw block + spawn integration (~150-200 lines per type). Skipped this session — 2 per session is realistic.
+3. **More stages** — 1-2 new stages reusing existing bosses with new themes is doable in 1 turn. Brand-new stage with new boss is multi-session (new STAGES entry, build function, dispatch, space cutscene, victory dialogue, dev panel update).
+4. **More obstacles in existing stages** — bump density in `addExtraHazards`, add a CRUSHER vertical-platform hazard, conveyor belts, falling debris.
+5. **Sound effects** — game is fully silent; Web Audio API would significantly enhance feel.
+6. **Save system** — localStorage for unlocked characters/weapons/evolutions.
+
+### Notable code pointers (current state)
+
+- `drawConvoyOptimus(px, py)` — front-facing G1 Optimus drawer (~430 lines)
+- `drawBossGuardTank(ex, ey, e)` — riot-tank phase-2 form (~150 lines)
+- `executeMelee()` — `isAxe = player.evoLevel >= 6` flag drives the energon axe damage profile
+- `shootVehicleProjectile()` — `'hovertank'` branch fires Matrix Ion Blast
+- `drawVehiclePlayer()` — `'hovertank'` branch renders Optimus-tank vehicle silhouette
+- Per-subtype phase-2 entrance + phase-3 signature attacks live in the `updateEnemies` boss block; phase-2 around `e.phaseFlashTimer = 60`, phase-3 around `e.subRageTimer`
+- Boss transformations wire `e.transformed`, `e.transformTimer`. The drawers check `e.transformed` and route to the alternate form.
+
+---
+
 ## Files
 
 ```
 /Users/darrwang/Downloads/nicholas/
-├── index.html          # Page wrapper, canvas, dev panel + keyboard shortcuts (~396 lines)
-├── game.js             # Entire game (~13,859 lines)
-└── PROJECT_CONTEXT.md  # This file
+├── index.html          # Page wrapper, canvas, dev panel + keyboard shortcuts (~397 lines)
+├── game.js             # Entire game (~16,161 lines)
+├── README.md           # GitHub-facing readme (~75 lines)
+└── PROJECT_CONTEXT.md  # This file (~729 lines)
 ```
 
 Run by opening `index.html` in a browser. No build step, no dependencies.
