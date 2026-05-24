@@ -6690,6 +6690,361 @@ function drawTransformerArmor(px, py, evoCol, evoLevel) {
     drawTfBackPack(px, py, w, h, evoLevel, armor, glow);
 }
 
+// =====================================================================
+// CONVOY (Optimus Prime) full-body drawer.
+// Used at evoLevel >= 6 — bypasses the normal body/armor/helmet/arms/legs
+// stack and renders a complete G1-style Optimus instead. Scales the static
+// design from _convoy_preview.html to fit the player's actual sprite size.
+// All coordinates are computed relative to (px, py) which is the top-left
+// of the player bounding box in screen space.
+// =====================================================================
+function drawConvoyOptimus(px, py) {
+    const w = player.w;
+    const h = player.h;
+    const cx = px + w / 2;
+    const groundY = py + h;
+    const facing = player.facing || 1;
+
+    // Color palette (matches the preview)
+    const C = {
+        blueDark:  '#1a3a99',
+        blueMid:   '#2a55c8',
+        blueLight: '#5588e8',
+        blueHL:    '#88aaff',
+        red:       '#cc1818',
+        redMid:    '#e83030',
+        redLight:  '#ff5544',
+        chrome:    '#d8d8e4',
+        chromeDk:  '#888896',
+        chromeShd: '#444452',
+        glass:     '#88c4ff',
+        glassHL:   '#ddeeff',
+        glassDk:   '#1a4488',
+        visor:     '#88f0ff',
+        yellow:    '#ffc800',
+        yellowDk:  '#cc8800',
+        outline:   '#0a0a14'
+    };
+
+    // Helper: beveled block (top highlight, body fill, bottom shadow + outline)
+    function block(x, y, bw, bh, base, hi, sh) {
+        if (bw < 1 || bh < 1) return;
+        const g = ctx.createLinearGradient(x, y, x, y + bh);
+        g.addColorStop(0, hi);
+        g.addColorStop(0.4, base);
+        g.addColorStop(1, sh);
+        ctx.fillStyle = g;
+        ctx.fillRect(x, y, bw, bh);
+        ctx.strokeStyle = C.outline;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, bw, bh);
+    }
+
+    // ---------------------------------------------------------------------
+    // PROPORTION TARGETS (as fractions of the sprite height H)
+    //   Helmet:   0.00 .. 0.22  (top)
+    //   Neck:     0.22 .. 0.25
+    //   Chest:    0.25 .. 0.55
+    //   Belt:     0.55 .. 0.62
+    //   Thighs:   0.62 .. 0.78
+    //   Knees:    0.78 .. 0.82
+    //   Boots:    0.82 .. 1.00
+    // ---------------------------------------------------------------------
+
+    // ----- BOOTS -----
+    const bootBaseY = py + h;
+    const bootH = h * 0.18;
+    const bootW = w * 0.30;
+    const bootGap = w * 0.06;
+    for (const sign of [-1, 1]) {
+        const bx = cx + sign * (bootGap + bootW / 2);
+        // Sole (dark band under the boot)
+        ctx.fillStyle = C.outline;
+        ctx.fillRect(bx - bootW / 2 - 2, bootBaseY - 3, bootW + 4, 3);
+        // Boot shaft
+        block(bx - bootW / 2, bootBaseY - bootH, bootW, bootH - 3,
+              C.blueMid, C.blueLight, C.blueDark);
+        // Inset side panel detail
+        if (bootW > 8) {
+            ctx.fillStyle = C.blueDark;
+            ctx.fillRect(bx + sign * (bootW * 0.18), bootBaseY - bootH * 0.85,
+                         bootW * 0.32, bootH * 0.55);
+        }
+    }
+
+    // ----- KNEES (white caps) -----
+    const kneeY = bootBaseY - bootH - h * 0.04;
+    const kneeH = h * 0.04;
+    for (const sign of [-1, 1]) {
+        const kx = cx + sign * (bootGap + bootW / 2);
+        block(kx - bootW * 0.45, kneeY, bootW * 0.9, kneeH,
+              C.chrome, '#ffffff', C.chromeDk);
+        // Center red dot
+        ctx.fillStyle = C.redMid;
+        ctx.beginPath();
+        ctx.arc(kx, kneeY + kneeH / 2, Math.max(1.2, kneeH * 0.3), 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // ----- THIGHS -----
+    const thighH = h * 0.16;
+    const thighY = kneeY - thighH;
+    const thighW = bootW * 0.85;
+    for (const sign of [-1, 1]) {
+        const tx = cx + sign * (bootGap + bootW / 2);
+        block(tx - thighW / 2, thighY, thighW, thighH,
+              C.blueMid, C.blueLight, C.blueDark);
+        // Vertical center groove
+        if (thighW > 6) {
+            ctx.fillStyle = C.blueDark;
+            ctx.fillRect(tx - 1, thighY + thighH * 0.15, 2, thighH * 0.7);
+        }
+    }
+
+    // ----- BELT -----
+    const beltH = h * 0.07;
+    const beltY = thighY - beltH;
+    const beltW = w * 0.62;
+    block(cx - beltW / 2, beltY, beltW, beltH,
+          C.chrome, '#ffffff', C.chromeDk);
+    // Gold buckle
+    const buckleW = beltW * 0.55;
+    const buckleH = beltH * 0.55;
+    ctx.fillStyle = C.yellow;
+    ctx.fillRect(cx - buckleW / 2, beltY + beltH * 0.25, buckleW, buckleH);
+    ctx.strokeStyle = C.outline;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(cx - buckleW / 2, beltY + beltH * 0.25, buckleW, buckleH);
+
+    // ----- TORSO / TRUCK-CAB CHEST -----
+    const chestH = h * 0.30;
+    const chestW = w * 0.78;
+    const chestY = beltY - chestH;
+    block(cx - chestW / 2, chestY, chestW, chestH,
+          C.redMid, C.redLight, C.red);
+
+    // Twin windshield panels — tucked inside the top half of the chest
+    const wsY = chestY + chestH * 0.08;
+    const wsH = chestH * 0.42;
+    const wsTotalW = chestW * 0.78;
+    const wsGap = Math.max(1, chestW * 0.025);
+    const wsW = (wsTotalW - wsGap) / 2;
+    const wsBaseX = cx - wsTotalW / 2;
+    for (let i = 0; i < 2; i++) {
+        const wsX = wsBaseX + i * (wsW + wsGap);
+        // Chrome frame
+        ctx.fillStyle = C.chromeDk;
+        ctx.fillRect(wsX - 1, wsY - 1, wsW + 2, wsH + 2);
+        // Glass gradient
+        const wg = ctx.createLinearGradient(0, wsY, 0, wsY + wsH);
+        wg.addColorStop(0, C.glassHL);
+        wg.addColorStop(0.4, C.glass);
+        wg.addColorStop(1, C.glassDk);
+        ctx.fillStyle = wg;
+        ctx.fillRect(wsX, wsY, wsW, wsH);
+        // White streak highlight
+        if (wsW > 4 && wsH > 6) {
+            ctx.fillStyle = 'rgba(255,255,255,0.55)';
+            ctx.beginPath();
+            ctx.moveTo(wsX + wsW * 0.15, wsY + wsH * 0.15);
+            ctx.lineTo(wsX + wsW * 0.65, wsY + wsH * 0.20);
+            ctx.lineTo(wsX + wsW * 0.75, wsY + wsH * 0.75);
+            ctx.lineTo(wsX + wsW * 0.25, wsY + wsH * 0.85);
+            ctx.closePath();
+            ctx.fill();
+        }
+    }
+
+    // White vertical grille below the windshields
+    const grilleY = wsY + wsH + chestH * 0.05;
+    const grilleH = chestY + chestH - grilleY - chestH * 0.08;
+    const grilleW = chestW * 0.32;
+    if (grilleH > 4) {
+        block(cx - grilleW / 2, grilleY, grilleW, grilleH,
+              C.chrome, '#ffffff', C.chromeDk);
+        // Vertical slats
+        ctx.fillStyle = C.chromeShd;
+        const slatCount = Math.max(3, Math.floor(grilleW / 3));
+        const slatSpacing = grilleW / (slatCount + 1);
+        for (let i = 1; i <= slatCount; i++) {
+            ctx.fillRect(cx - grilleW / 2 + i * slatSpacing - 0.5,
+                         grilleY + 1, 1, grilleH - 2);
+        }
+    }
+
+    // Autobot emblem on the right cab pane (small red disc with yellow dot)
+    const emblemX = wsBaseX + wsW + wsGap + wsW * 0.5;
+    const emblemY = wsY + wsH * 0.5;
+    const emblemR = Math.max(2, wsW * 0.18);
+    ctx.fillStyle = C.redLight;
+    ctx.beginPath();
+    ctx.arc(emblemX, emblemY, emblemR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = C.yellow;
+    ctx.beginPath();
+    ctx.arc(emblemX, emblemY, emblemR * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ----- PAULDRONS (red shoulder cubes) -----
+    const paulH = chestH * 0.45;
+    const paulW = w * 0.22;
+    const paulY = chestY + 1;
+    for (const sign of [-1, 1]) {
+        const ppx = cx + sign * (chestW / 2 + paulW / 2 - 1);
+        block(ppx - paulW / 2, paulY, paulW, paulH,
+              C.redMid, C.redLight, C.red);
+    }
+
+    // ----- ARMS (both down at the sides) -----
+    // Upper arm = red (hangs from pauldron); forearm = blue; fist = blue cube.
+    function drawArm(rootX, rootY) {
+        const uaW = paulW * 0.85;
+        const uaH = chestH * 0.5;
+        const uaY = rootY;
+        // Upper arm
+        block(rootX - uaW / 2, uaY, uaW, uaH,
+              C.redMid, C.redLight, C.red);
+        // Forearm (blue)
+        const faH = chestH * 0.55;
+        const faY = uaY + uaH - 1;
+        const faW = uaW * 0.95;
+        block(rootX - faW / 2, faY, faW, faH,
+              C.blueMid, C.blueLight, C.blueDark);
+        // Fist (blue cube) — bigger than the forearm to look chunky
+        const fistSize = paulW * 1.0;
+        const fistX = rootX;
+        const fistY = faY + faH - 1;
+        block(fistX - fistSize / 2, fistY, fistSize, fistSize,
+              C.blueMid, C.blueLight, C.blueDark);
+        // Knuckle ridges — only if there's room
+        if (fistSize > 10) {
+            ctx.fillStyle = C.blueDark;
+            const knuckleCount = 4;
+            const ks = fistSize / (knuckleCount + 1);
+            for (let i = 0; i < knuckleCount; i++) {
+                ctx.fillRect(fistX - fistSize / 2 + ks * (i + 0.6),
+                             fistY + fistSize * 0.18, ks * 0.4, fistSize * 0.18);
+            }
+        }
+    }
+
+    // Both arms anchored just inside the pauldron blocks
+    const armRootY = paulY + paulH * 0.4;
+    drawArm(cx - chestW / 2 - paulW / 2 + 1, armRootY);
+    drawArm(cx + chestW / 2 + paulW / 2 - 1, armRootY);
+
+    // ----- NECK -----
+    const neckH = h * 0.03;
+    const neckY = chestY - neckH;
+    const neckW = w * 0.18;
+    block(cx - neckW / 2, neckY, neckW, neckH,
+          C.chromeDk, C.chrome, C.chromeShd);
+
+    // ----- HELMET -----
+    const helmetH = h * 0.22;
+    const helmetW = w * 0.62;
+    const helmetY = neckY - helmetH;
+    // Main shell — slightly tapered toward the jaw
+    ctx.beginPath();
+    ctx.moveTo(cx - helmetW / 2 + 2, helmetY + helmetH * 0.10);
+    ctx.lineTo(cx - helmetW / 2,     helmetY + helmetH * 0.04);
+    ctx.lineTo(cx + helmetW / 2,     helmetY + helmetH * 0.04);
+    ctx.lineTo(cx + helmetW / 2 - 2, helmetY + helmetH * 0.10);
+    ctx.lineTo(cx + helmetW / 2 - 4, helmetY + helmetH * 0.55);
+    ctx.lineTo(cx + helmetW / 2 - 8, helmetY + helmetH);
+    ctx.lineTo(cx - helmetW / 2 + 8, helmetY + helmetH);
+    ctx.lineTo(cx - helmetW / 2 + 4, helmetY + helmetH * 0.55);
+    ctx.closePath();
+    const hg = ctx.createLinearGradient(0, helmetY, 0, helmetY + helmetH);
+    hg.addColorStop(0, C.blueLight);
+    hg.addColorStop(0.4, C.blueMid);
+    hg.addColorStop(1, C.blueDark);
+    ctx.fillStyle = hg;
+    ctx.fill();
+    ctx.strokeStyle = C.outline;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Forehead crest (light-blue trapezoid)
+    const crestW = helmetW * 0.32;
+    ctx.beginPath();
+    ctx.moveTo(cx - crestW / 2, helmetY + helmetH * 0.04);
+    ctx.lineTo(cx + crestW / 2, helmetY + helmetH * 0.04);
+    ctx.lineTo(cx + crestW * 0.4, helmetY + helmetH * 0.32);
+    ctx.lineTo(cx - crestW * 0.4, helmetY + helmetH * 0.32);
+    ctx.closePath();
+    const cg = ctx.createLinearGradient(0, helmetY, 0, helmetY + helmetH * 0.32);
+    cg.addColorStop(0, C.blueHL);
+    cg.addColorStop(1, C.blueLight);
+    ctx.fillStyle = cg;
+    ctx.fill();
+
+    // Antennae — thin silver bars sticking up from the helmet sides
+    for (const sign of [-1, 1]) {
+        const aX = cx + sign * helmetW * 0.30;
+        const aH = helmetH * 0.55;
+        ctx.fillStyle = C.chromeDk;
+        ctx.fillRect(aX - 0.5, helmetY - aH, 1.5, aH + 4);
+        ctx.fillStyle = C.chrome;
+        ctx.fillRect(aX - 0.5, helmetY - aH, 1.5, 2);
+    }
+
+    // Side ear plates with yellow dots
+    for (const sign of [-1, 1]) {
+        const eX = cx + sign * (helmetW / 2 - 2);
+        const eY = helmetY + helmetH * 0.35;
+        const eW = helmetW * 0.10;
+        const eH = helmetH * 0.22;
+        block(eX - eW / 2, eY, eW, eH,
+              C.blueMid, C.blueLight, C.blueDark);
+        if (eW > 3 && eH > 3) {
+            ctx.fillStyle = C.yellow;
+            ctx.beginPath();
+            ctx.arc(eX, eY + eH * 0.45, Math.max(1, eW * 0.25), 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    // EYEBAR / VISOR (cyan glow strip)
+    const visorY = helmetY + helmetH * 0.36;
+    const visorH = Math.max(2, helmetH * 0.10);
+    const visorW = helmetW * 0.62;
+    // Recessed dark backing
+    ctx.fillStyle = C.outline;
+    ctx.fillRect(cx - visorW / 2 - 1, visorY - 1, visorW + 2, visorH + 2);
+    // Cyan glow
+    ctx.fillStyle = C.visor;
+    ctx.shadowColor = C.visor;
+    ctx.shadowBlur = 8;
+    ctx.fillRect(cx - visorW / 2, visorY, visorW, visorH);
+    ctx.shadowBlur = 0;
+    // Bright eye dots inside the visor
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(cx - visorW * 0.28, visorY + visorH * 0.25, visorW * 0.16, visorH * 0.5);
+    ctx.fillRect(cx + visorW * 0.12, visorY + visorH * 0.25, visorW * 0.16, visorH * 0.5);
+
+    // CHROME FACEPLATE (lower mask)
+    const fpY = visorY + visorH + 1;
+    const fpH = helmetH * 0.32;
+    const fpW = helmetW * 0.55;
+    ctx.beginPath();
+    ctx.moveTo(cx - fpW / 2, fpY);
+    ctx.lineTo(cx + fpW / 2, fpY);
+    ctx.lineTo(cx + fpW * 0.4, fpY + fpH);
+    ctx.lineTo(cx - fpW * 0.4, fpY + fpH);
+    ctx.closePath();
+    const fg = ctx.createLinearGradient(0, fpY, 0, fpY + fpH);
+    fg.addColorStop(0, C.chrome);
+    fg.addColorStop(0.4, C.chromeDk);
+    fg.addColorStop(1, C.chromeShd);
+    ctx.fillStyle = fg;
+    ctx.fill();
+
+    // Faceplate top chrome rim
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillRect(cx - fpW / 2, fpY, fpW, 1);
+}
+
 // Drawing functions
 function drawPlayer() {
     ctx.save();
@@ -6831,6 +7186,17 @@ function drawPlayer() {
         ctx.fillRect(-6, player.h / 2 - 4, 12, 6);
         ctx.restore();
         ctx.restore();   // closes drawPlayer top-level save
+        return;
+    }
+
+    // === CONVOY (evoLevel 6) — full Optimus Prime override ===
+    // Bypasses the normal body + armor + helmet + arms + legs pipeline so
+    // we don't end up layering generic plates on top of the Optimus design.
+    // The robot mode at this tier is one cohesive G1-style figure.
+    if (player.evoLevel >= 6 && !player.transformed && player.transformAnim <= 0
+        && !player.sliding && !player.rolling && !player.parrying && !player.pounding) {
+        drawConvoyOptimus(px, py);
+        ctx.restore();
         return;
     }
 
