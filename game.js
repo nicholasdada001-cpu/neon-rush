@@ -352,7 +352,7 @@ const EVOLUTIONS = [
         name: 'CONVOY',  rcCost: 80,   hpBonus: 900, dmgBonus: 4.5, speedBonus: 1.9,
         sizeBonus: 16,
         widthBonus: 4,    // narrower body — Convoy is TALL, not bulky
-        heightBonus: 380, // bigger again per user request (boosted from 320)
+        heightBonus: 480, // NBA-tier Optimus (boosted from 380)
         sideArm: 'convoy',
         ability: 'convoyMatrix', abilityKey: 'KeyR',
         description: 'CONVOY frame. Truck-cab shoulders, dual-sword rig, full vehicle plating. Final form.',
@@ -6691,18 +6691,17 @@ function drawTransformerArmor(px, py, evoCol, evoLevel) {
 }
 
 // =====================================================================
-// CONVOY (Optimus Prime) full-body drawer.
-// SIDE VIEW that flips on player.facing. Walk/shoot/punch/axe-swing all
-// hook into existing player animation timers (legPhase, gunRecoil,
-// meleeAnimTimer, meleeAxe, shootCooldown). The player keeps a 3/4-side
-// stance: helmet shows its eye on the facing side, front arm holds the
-// ion blaster, back arm holds the energon axe.
+// CONVOY (Optimus Prime) FRONT-FACING drawer.
+// The torso, helmet, and chest face the camera (Mega Man style). Limbs
+// animate with proper walk cycle, ion-blaster aim/recoil, and energon
+// axe swing. The character's `facing` direction only flips the BLASTER
+// arm and AXE arm so weapons always extend in the direction the player
+// is aiming/moving — but the body silhouette stays front-facing.
 // =====================================================================
 function drawConvoyOptimus(px, py) {
     const w = player.w;
     const h = player.h;
     const cx = px + w / 2;
-    const groundY = py + h;
     const facing = player.facing >= 0 ? 1 : -1;
 
     // Color palette
@@ -6728,7 +6727,7 @@ function drawConvoyOptimus(px, py) {
         outline:   '#0a0a14'
     };
 
-    // -------- Bevel block helper (with outline) --------
+    // -------- Bevel block helper --------
     function block(x, y, bw, bh, base, hi, sh) {
         if (bw < 1 || bh < 1) return;
         const g = ctx.createLinearGradient(x, y, x, y + bh);
@@ -6742,81 +6741,73 @@ function drawConvoyOptimus(px, py) {
         ctx.strokeRect(x, y, bw, bh);
     }
 
-    // -------- Animation state --------
+    // -------- Walk + animation state --------
     if (player.legPhase === undefined) player.legPhase = 0;
     const moveSpeed = Math.abs(player.vx || 0);
-    if (player.onGround && moveSpeed > 0.4) {
-        player.legPhase += moveSpeed * 0.18;
-    }
-    // Walk swing: positive when front leg forward, negative when back forward.
-    // Used to offset both legs and the swinging arm.
-    const walkSwing = player.onGround && moveSpeed > 0.4
-        ? Math.sin(player.legPhase) : 0;
-    const bobY = player.onGround && moveSpeed > 0.4
-        ? Math.abs(Math.sin(player.legPhase * 2)) * (h * 0.012)
-        : 0;
+    const isWalking = player.onGround && moveSpeed > 0.4;
+    if (isWalking) player.legPhase += moveSpeed * 0.18;
+    const walkSwing = isWalking ? Math.sin(player.legPhase) : 0;
+    const bobY = isWalking ? Math.abs(Math.sin(player.legPhase * 2)) * (h * 0.012) : 0;
 
-    // Aim direction (mirror of shootBullet logic)
+    // Aim direction
     let aimDx = facing;
     let aimDy = 0;
     if (keys && (keys['ArrowUp'] || keys['KeyW'])) aimDy = -0.5;
     if (keys && (keys['ArrowDown'] || keys['KeyS'])) aimDy = 0.5;
     const aimLen = Math.sqrt(aimDx * aimDx + aimDy * aimDy) || 1;
     aimDx /= aimLen; aimDy /= aimLen;
-    const aimAng = Math.atan2(aimDy, aimDx);    // signed: 0 = forward, -pi/2 = up
+    const aimAngFlat = Math.atan2(aimDy, Math.abs(aimDx));   // pitch only (always forward in local space)
 
     // Recoil
     if (player.gunRecoil === undefined) player.gunRecoil = 0;
     if (player.gunRecoil > 0) player.gunRecoil = Math.max(0, player.gunRecoil - 0.6);
     const recoil = player.gunRecoil;
 
-    // Melee swing state
+    // Melee state
     const meleeActive = player.meleeAnimTimer > 0;
     const meleeMax = player.meleeAnimMax || 14;
     const meleeT = meleeActive ? (meleeMax - player.meleeAnimTimer) / meleeMax : 0;
     const meleeStage = player.meleeAnimStage || 0;
 
-    // -------- Mirror coordinate system based on facing --------
-    // Everything below is drawn in "logical" space where +x = forward.
-    // ctx.scale(facing, 1) flips the whole sprite when facing left.
+    // -------- Local coordinate system (front-facing) --------
+    // Origin at top-center of the sprite. y increases downward.
+    // x is left/right WITHOUT mirroring — body is symmetric front-on.
+    // Weapon arms then use `facing` to position themselves on the side
+    // where the player wants to aim.
     ctx.save();
-    ctx.translate(cx, py + bobY);   // origin at top-center, with bob
-    ctx.scale(facing, 1);
-    // Now we draw with x in [-w/2, w/2] and y in [0, h].
+    ctx.translate(cx, py + bobY);
 
-    // Reusable proportion table (fractions of total height)
     const H = h;
     const W = w;
-    const hipW = W * 0.35;            // distance between thighs
+    const hipGap = W * 0.12;          // distance between thighs (small gap)
 
-    // ---------- BOOTS (lower legs) ----------
-    const bootH = H * 0.18;
-    const bootW = W * 0.30;
+    // ---------- LEGS (front-on, walking with vertical thigh-lift) ----------
+    // Each leg lifts when its sin phase is positive. Both legs draw
+    // symmetrically about the center; the front-on view shows them
+    // marching in place, just like classic Mega Man.
     const bootBaseY = H;
-    // Walk: each leg lifts and swings. front leg = +walkSwing, back = -walkSwing
-    function drawLeg(side) {
-        // side: +1 front leg (matches facing), -1 back leg
-        const swing = walkSwing * side;
-        const lift = (player.onGround && moveSpeed > 0.4 && side > 0 && walkSwing > 0)
-            ? walkSwing * (H * 0.04) : 0;
-        const liftB = (player.onGround && moveSpeed > 0.4 && side < 0 && walkSwing < 0)
-            ? -walkSwing * (H * 0.04) : 0;
-        const stepLift = (side > 0 ? lift : liftB);
-        const xOff = side * (hipW / 2 + bootW * 0.10) + swing * (W * 0.12);
-        const bootTopY = bootBaseY - bootH;
-        const bootDrawY = bootTopY - stepLift;
+    const bootH = H * 0.18;
+    const bootW = W * 0.32;
+    const kneeH = H * 0.04;
+    const thighH = H * 0.16;
+
+    function drawLegFront(side, swingPhase) {
+        // side: -1 left, +1 right. swingPhase: -1..1 (positive = lifted)
+        const lift = isWalking && swingPhase > 0 ? swingPhase * (H * 0.04) : 0;
+        const xOff = side * (hipGap / 2 + bootW / 2);
+        const bootTopY = bootBaseY - bootH - lift;
         // Sole
         ctx.fillStyle = C.outline;
-        ctx.fillRect(xOff - bootW / 2 - 1, bootBaseY - 2 - stepLift, bootW + 2, 2);
+        ctx.fillRect(xOff - bootW / 2 - 1, bootBaseY - 2 - lift, bootW + 2, 2);
         // Boot shaft
-        block(xOff - bootW / 2, bootDrawY, bootW, bootH - 2,
+        block(xOff - bootW / 2, bootTopY, bootW, bootH - 2,
               C.blueMid, C.blueLight, C.blueDark);
         // Inset side panel
         ctx.fillStyle = C.blueDark;
-        ctx.fillRect(xOff - bootW * 0.05, bootDrawY + bootH * 0.18, bootW * 0.4, bootH * 0.55);
-        // Knee cap (white) — sits ABOVE the boot
-        const kneeH = H * 0.04;
-        const kneeY = bootDrawY - kneeH;
+        ctx.fillRect(xOff - bootW * 0.05, bootTopY + bootH * 0.18,
+                     bootW * 0.4, bootH * 0.55);
+        // Knee cap
+        const kneeY = bootTopY - kneeH;
         block(xOff - bootW * 0.42, kneeY, bootW * 0.84, kneeH,
               C.chrome, '#ffffff', C.chromeDk);
         // Red knee dot
@@ -6824,8 +6815,7 @@ function drawConvoyOptimus(px, py) {
         ctx.beginPath();
         ctx.arc(xOff, kneeY + kneeH * 0.5, Math.max(1.2, kneeH * 0.32), 0, Math.PI * 2);
         ctx.fill();
-        // Thigh (blue)
-        const thighH = H * 0.16;
+        // Thigh
         const thighY = kneeY - thighH;
         const thighW = bootW * 0.85;
         block(xOff - thighW / 2, thighY, thighW, thighH,
@@ -6833,14 +6823,14 @@ function drawConvoyOptimus(px, py) {
         ctx.fillStyle = C.blueDark;
         ctx.fillRect(xOff - 1, thighY + thighH * 0.15, 2, thighH * 0.7);
     }
-    // Draw back leg first (behind) then front leg (on top)
-    drawLeg(-1);
-    drawLeg(+1);
+    // Legs alternate — left lifts on positive sin, right on negative
+    drawLegFront(-1, walkSwing);
+    drawLegFront(+1, -walkSwing);
 
     // ---------- BELT ----------
     const beltH = H * 0.07;
     const beltW = W * 0.62;
-    const beltY = H - bootH - H * 0.04 - H * 0.16;   // top of thighs
+    const beltY = bootBaseY - bootH - kneeH - thighH - beltH;
     block(-beltW / 2, beltY, beltW, beltH,
           C.chrome, '#ffffff', C.chromeDk);
     ctx.fillStyle = C.yellow;
@@ -6849,42 +6839,46 @@ function drawConvoyOptimus(px, py) {
     ctx.lineWidth = 1;
     ctx.strokeRect(-beltW * 0.32, beltY + beltH * 0.25, beltW * 0.64, beltH * 0.55);
 
-    // ---------- TORSO / TRUCK-CAB CHEST ----------
-    // Side view of the truck cab — most of the windshield is shown angled
-    // toward the front. We draw a single front-leaning windshield + grille.
+    // ---------- TRUCK-CAB CHEST (front-facing, twin windshields) ----------
     const chestH = H * 0.30;
     const chestW = W * 0.78;
     const chestY = beltY - chestH;
     block(-chestW / 2, chestY, chestW, chestH,
           C.redMid, C.redLight, C.red);
 
-    // Single tilted windshield (front-facing, narrowed because we're side-view)
-    const wsX = -chestW * 0.05;
-    const wsY = chestY + chestH * 0.10;
-    const wsW = chestW * 0.55;
+    // Twin windshield panels (side by side, symmetric)
+    const wsY = chestY + chestH * 0.08;
     const wsH = chestH * 0.42;
-    // Chrome frame
-    ctx.fillStyle = C.chromeDk;
-    ctx.fillRect(wsX - 1, wsY - 1, wsW + 2, wsH + 2);
-    // Glass gradient
-    const wg = ctx.createLinearGradient(0, wsY, 0, wsY + wsH);
-    wg.addColorStop(0, C.glassHL);
-    wg.addColorStop(0.5, C.glass);
-    wg.addColorStop(1, C.glassDk);
-    ctx.fillStyle = wg;
-    ctx.fillRect(wsX, wsY, wsW, wsH);
-    // White streak highlight
-    if (wsW > 4 && wsH > 6) {
-        ctx.fillStyle = 'rgba(255,255,255,0.55)';
-        ctx.beginPath();
-        ctx.moveTo(wsX + wsW * 0.15, wsY + wsH * 0.15);
-        ctx.lineTo(wsX + wsW * 0.7,  wsY + wsH * 0.20);
-        ctx.lineTo(wsX + wsW * 0.8,  wsY + wsH * 0.75);
-        ctx.lineTo(wsX + wsW * 0.25, wsY + wsH * 0.85);
-        ctx.closePath();
-        ctx.fill();
+    const wsTotalW = chestW * 0.78;
+    const wsGap = Math.max(1, chestW * 0.025);
+    const wsW = (wsTotalW - wsGap) / 2;
+    const wsBaseX = -wsTotalW / 2;
+    for (let i = 0; i < 2; i++) {
+        const wsX = wsBaseX + i * (wsW + wsGap);
+        // Chrome frame
+        ctx.fillStyle = C.chromeDk;
+        ctx.fillRect(wsX - 1, wsY - 1, wsW + 2, wsH + 2);
+        // Glass gradient
+        const wg = ctx.createLinearGradient(0, wsY, 0, wsY + wsH);
+        wg.addColorStop(0, C.glassHL);
+        wg.addColorStop(0.4, C.glass);
+        wg.addColorStop(1, C.glassDk);
+        ctx.fillStyle = wg;
+        ctx.fillRect(wsX, wsY, wsW, wsH);
+        // White streak highlight
+        if (wsW > 4 && wsH > 6) {
+            ctx.fillStyle = 'rgba(255,255,255,0.55)';
+            ctx.beginPath();
+            ctx.moveTo(wsX + wsW * 0.15, wsY + wsH * 0.15);
+            ctx.lineTo(wsX + wsW * 0.65, wsY + wsH * 0.20);
+            ctx.lineTo(wsX + wsW * 0.75, wsY + wsH * 0.75);
+            ctx.lineTo(wsX + wsW * 0.25, wsY + wsH * 0.85);
+            ctx.closePath();
+            ctx.fill();
+        }
     }
-    // Vertical grille (white slats) below windshield
+
+    // White vertical grille (radiator slats) below windshields
     const grilleY = wsY + wsH + chestH * 0.04;
     const grilleH = chestY + chestH - grilleY - chestH * 0.06;
     const grilleW = chestW * 0.32;
@@ -6899,8 +6893,9 @@ function drawConvoyOptimus(px, py) {
                          grilleY + 1, 1, grilleH - 2);
         }
     }
-    // Autobot emblem (front-side of the chest)
-    const emblemX = wsX + wsW * 0.5;
+
+    // Autobot emblem on the right cab
+    const emblemX = wsBaseX + wsW + wsGap + wsW * 0.5;
     const emblemY = wsY + wsH * 0.5;
     const emblemR = Math.max(2, wsW * 0.22);
     ctx.fillStyle = C.redLight;
@@ -6912,198 +6907,86 @@ function drawConvoyOptimus(px, py) {
     ctx.arc(emblemX, emblemY, emblemR * 0.55, 0, Math.PI * 2);
     ctx.fill();
 
-    // ---------- PAULDRONS (red shoulder cubes) ----------
+    // ---------- PAULDRONS (red shoulder cubes, both visible) ----------
     const paulH = chestH * 0.5;
     const paulW = W * 0.22;
     const paulY = chestY + 1;
-    // Back pauldron (drawn first, behind)
-    block(-chestW / 2 - paulW + 2, paulY, paulW, paulH,
-          C.red, C.redMid, '#660808');
-    // Front pauldron (drawn after, on top)
-    block(chestW / 2 - 2, paulY, paulW, paulH,
-          C.redMid, C.redLight, C.red);
-
-    // ---------- ARMS ----------
-    // Side view: ONE front arm and ONE back arm. Front arm holds ion blaster
-    // and aims; back arm holds energon axe and either rests at the side or
-    // swings during melee.
-    const shoulderFrontX = chestW / 2 + paulW * 0.1;
-    const shoulderBackX  = -chestW / 2 - paulW * 0.1;
-    const shoulderY = paulY + paulH * 0.45;
-
-    // === BACK ARM with ENERGON AXE ===
-    // During melee swing, the back arm rotates from rest position (pointing
-    // down) to a forward-up arc. Otherwise it hangs at the side with a small
-    // walk-cycle swing.
-    {
-        const ax = shoulderBackX;
-        const ay = shoulderY;
-        // Angle in our local space: 0 = forward (right), pi/2 = down, -pi/2 = up
-        let armAng;
-        if (meleeActive && player.meleeAxe) {
-            // Big overhead chop arc: starts behind/up, sweeps forward/down.
-            // Stage 3 (uppercut) sweeps higher.
-            const startAng = meleeStage === 3 ? -Math.PI * 0.85 : -Math.PI * 0.55;
-            const endAng = meleeStage === 3 ? Math.PI * 0.15 : Math.PI * 0.35;
-            // Ease-out for the strike
-            const eT = 1 - Math.pow(1 - meleeT, 2);
-            armAng = startAng + (endAng - startAng) * eT;
-        } else {
-            // Idle: hang at side with tiny walk swing
-            armAng = Math.PI / 2 + walkSwing * 0.25;
-        }
-        const upperLen = chestH * 0.5;
-        const elbowX = ax + Math.cos(armAng) * upperLen;
-        const elbowY = ay + Math.sin(armAng) * upperLen;
-        // Forearm angle continues a bit past upper arm direction
-        const foreLen = chestH * 0.55;
-        // Slight elbow bend for personality
-        const elbowBend = meleeActive && player.meleeAxe ? 0 : 0.15;
-        const foreAng = armAng + elbowBend;
-        const wristX = elbowX + Math.cos(foreAng) * foreLen;
-        const wristY = elbowY + Math.sin(foreAng) * foreLen;
-
-        // Upper arm (RED) — drawn as a rotated rectangle along the upper segment
-        ctx.save();
-        ctx.translate(ax, ay);
-        ctx.rotate(armAng);
-        const uaW = paulW * 0.85;
-        block(0, -uaW / 2, upperLen, uaW, C.red, C.redMid, '#660808');
-        ctx.restore();
-
-        // Forearm (BLUE)
-        ctx.save();
-        ctx.translate(elbowX, elbowY);
-        ctx.rotate(foreAng);
-        const faW = paulW * 0.78;
-        block(0, -faW / 2, foreLen, faW, C.blueMid, C.blueLight, C.blueDark);
-        ctx.restore();
-
-        // Fist + ENERGON AXE at wrist
-        const fistSize = paulW * 0.95;
-        block(wristX - fistSize / 2, wristY - fistSize / 2,
-              fistSize, fistSize,
-              C.blueMid, C.blueLight, C.blueDark);
-
-        // Energon axe — extends out PERPENDICULAR to the forearm
-        // Direction = foreAng + pi/2 (i.e. away from the body's underside)
-        const axeAng = foreAng;
-        const axeLen = chestH * 0.7;
-        ctx.save();
-        ctx.translate(wristX, wristY);
-        ctx.rotate(axeAng);
-        // Haft (red+gold pole)
-        ctx.fillStyle = '#aa1818';
-        ctx.fillRect(0, -3, axeLen * 0.5, 6);
-        ctx.fillStyle = C.yellow;
-        ctx.fillRect(0, -2, axeLen * 0.5, 1);
-        // Axe head — wedge at the end of the haft
-        const headX = axeLen * 0.5;
-        ctx.fillStyle = C.energon;
-        ctx.shadowColor = C.energon;
-        ctx.shadowBlur = 18;
-        ctx.beginPath();
-        ctx.moveTo(headX, -axeLen * 0.18);
-        ctx.lineTo(headX + axeLen * 0.4, -axeLen * 0.12);
-        ctx.lineTo(headX + axeLen * 0.5, 0);
-        ctx.lineTo(headX + axeLen * 0.4, axeLen * 0.12);
-        ctx.lineTo(headX, axeLen * 0.18);
-        ctx.closePath();
-        ctx.fill();
-        // Inner brighter core
-        ctx.fillStyle = C.energonHL;
-        ctx.shadowBlur = 10;
-        ctx.beginPath();
-        ctx.moveTo(headX + 2, -axeLen * 0.08);
-        ctx.lineTo(headX + axeLen * 0.32, -axeLen * 0.05);
-        ctx.lineTo(headX + axeLen * 0.4, 0);
-        ctx.lineTo(headX + axeLen * 0.32, axeLen * 0.05);
-        ctx.lineTo(headX + 2, axeLen * 0.08);
-        ctx.closePath();
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.restore();
-
-        // Energon trail during the swing
-        if (meleeActive && player.meleeAxe) {
-            ctx.save();
-            for (let f = 1; f <= 3; f++) {
-                const fT = Math.max(0, meleeT - f * 0.10);
-                if (fT <= 0) continue;
-                const startAng = meleeStage === 3 ? -Math.PI * 0.85 : -Math.PI * 0.55;
-                const endAng = meleeStage === 3 ? Math.PI * 0.15 : Math.PI * 0.35;
-                const arcAng = startAng + (endAng - startAng) * (1 - Math.pow(1 - fT, 2));
-                const trailEx = ax + Math.cos(arcAng) * upperLen;
-                const trailEy = ay + Math.sin(arcAng) * upperLen;
-                const trailWx = trailEx + Math.cos(arcAng + elbowBend) * foreLen;
-                const trailWy = trailEy + Math.sin(arcAng + elbowBend) * foreLen;
-                ctx.globalAlpha = 0.30 / f;
-                ctx.strokeStyle = C.energon;
-                ctx.shadowColor = C.energon;
-                ctx.shadowBlur = 16;
-                ctx.lineWidth = 8;
-                ctx.beginPath();
-                ctx.moveTo(trailWx, trailWy);
-                const trailEndAng = arcAng + elbowBend;
-                ctx.lineTo(trailWx + Math.cos(trailEndAng) * (chestH * 0.7),
-                           trailWy + Math.sin(trailEndAng) * (chestH * 0.7));
-                ctx.stroke();
-            }
-            ctx.shadowBlur = 0;
-            ctx.globalAlpha = 1;
-            ctx.restore();
-        }
+    for (const side of [-1, 1]) {
+        const ppx = side * (chestW / 2 + paulW / 2 - 1);
+        block(ppx - paulW / 2, paulY, paulW, paulH,
+              C.redMid, C.redLight, C.red);
     }
 
-    // === FRONT ARM with ION BLASTER ===
-    // Aims along aimAng. During melee (non-axe punch), the arm thrusts
-    // forward. Otherwise rests at side with walk swing.
-    {
-        const ax = shoulderFrontX;
-        const ay = shoulderY;
+    // ---------- ARMS ----------
+    // Front-on view: BOTH arms are visible. The IDLE/back arm holds the
+    // axe and arm-swings during walk; the AIMING arm holds the ion blaster
+    // and rotates toward `facing` direction.
+    // Arm assignment: blaster goes on the side matching `facing` (so it
+    // aims forward). Axe goes on the opposite side.
+    const blasterSide = facing;        // +1 = right, -1 = left
+    const axeSide = -facing;
 
-        let armAng;
-        if (meleeActive && !player.meleeAxe) {
-            // Punch thrust — forward and slight up
-            const eT = meleeT < 0.5
-                ? meleeT / 0.5
-                : 1 - (meleeT - 0.5) / 0.5;
-            armAng = (Math.PI / 2 + walkSwing * 0.25)
-                   + ((aimAng + Math.PI / 2 * 0) - (Math.PI / 2)) * eT * (-1);
-            // Simpler: blend toward aim during punch
-            armAng = (Math.PI / 2) * (1 - eT) + aimAng * eT;
-        } else if (player.shootCooldown > 0 || recoil > 0 || (keys && (keys['KeyF'] || keys['KeyJ']))) {
-            // Aiming/shooting pose — arm follows aim direction
-            armAng = aimAng;
-        } else {
-            // Idle: hang at side with tiny walk swing
-            armAng = Math.PI / 2 - walkSwing * 0.25;
-        }
-
+    // Generic arm renderer drawn from a shoulder anchor at a given angle.
+    // Returns the wrist position so weapons can attach.
+    function drawArm(shoulderX, shoulderY, armAng, elbowBend, drawSeg = 'both') {
         const upperLen = chestH * 0.5;
-        const elbowX = ax + Math.cos(armAng) * upperLen;
-        const elbowY = ay + Math.sin(armAng) * upperLen;
+        const elbowX = shoulderX + Math.cos(armAng) * upperLen;
+        const elbowY = shoulderY + Math.sin(armAng) * upperLen;
         const foreLen = chestH * 0.55;
-        const elbowBend = (player.shootCooldown > 0 || recoil > 0) ? 0 : 0.10;
         const foreAng = armAng + elbowBend;
         const wristX = elbowX + Math.cos(foreAng) * foreLen;
         const wristY = elbowY + Math.sin(foreAng) * foreLen;
-
         // Upper arm (RED)
-        ctx.save();
-        ctx.translate(ax, ay);
-        ctx.rotate(armAng);
-        const uaW = paulW * 0.85;
-        block(0, -uaW / 2, upperLen, uaW, C.redMid, C.redLight, C.red);
-        ctx.restore();
+        if (drawSeg !== 'fistOnly') {
+            ctx.save();
+            ctx.translate(shoulderX, shoulderY);
+            ctx.rotate(armAng);
+            const uaW = paulW * 0.85;
+            block(0, -uaW / 2, upperLen, uaW, C.redMid, C.redLight, C.red);
+            ctx.restore();
+            // Forearm (BLUE)
+            ctx.save();
+            ctx.translate(elbowX, elbowY);
+            ctx.rotate(foreAng);
+            const faW = paulW * 0.78;
+            block(0, -faW / 2, foreLen, faW, C.blueMid, C.blueLight, C.blueDark);
+            ctx.restore();
+        }
+        return { wristX, wristY, foreAng };
+    }
 
-        // Forearm (BLUE)
-        ctx.save();
-        ctx.translate(elbowX, elbowY);
-        ctx.rotate(foreAng);
-        const faW = paulW * 0.78;
-        block(0, -faW / 2, foreLen, faW, C.blueMid, C.blueLight, C.blueDark);
-        ctx.restore();
+    // ----- BLASTER ARM (aiming side) -----
+    // Idle: hangs at side with mild walk swing
+    // Shooting: arm rotated to match aim direction (with vertical aim)
+    // Punching (non-axe): arm thrusts forward
+    {
+        const shoulderX = blasterSide * (chestW / 2 + paulW * 0.3);
+        const shoulderY = paulY + paulH * 0.45;
+        const isAiming = recoil > 0 || player.shootCooldown > 0
+                       || (keys && (keys['KeyF'] || keys['KeyJ']));
+        const isPunching = meleeActive && !player.meleeAxe;
+        let armAng;
+        if (isPunching) {
+            // Arm sweeps down→forward→down. Pose hits forward (0 in local
+            // angle space, where blasterSide-aware "forward" is along ±x).
+            const eT = meleeT < 0.5 ? meleeT / 0.5 : 1 - (meleeT - 0.5) / 0.5;
+            // Idle hang = pi/2 (down). Punch target = 0 (forward) toward blasterSide.
+            const targetForward = blasterSide > 0 ? 0 : Math.PI;
+            armAng = (Math.PI / 2) * (1 - eT) + targetForward * eT;
+        } else if (isAiming) {
+            // Aim direction in WORLD space — convert to local arm angle.
+            // World: facing>0 means forward=+x, facing<0 means forward=-x.
+            // Vertical aim adds pitch. Local angle to put arm along world-aim:
+            const worldAng = blasterSide > 0
+                ? Math.atan2(aimDy, Math.abs(aimDx))     // 0..pi/2 down, -pi/2 up
+                : Math.PI - Math.atan2(aimDy, Math.abs(aimDx));   // mirror
+            armAng = worldAng;
+        } else {
+            // Idle hang (down with subtle walk swing)
+            armAng = Math.PI / 2 + walkSwing * blasterSide * 0.25;
+        }
+        const elbowBend = isAiming ? 0 : 0.12;
+        const { wristX, wristY, foreAng } = drawArm(shoulderX, shoulderY, armAng, elbowBend);
 
         // Fist
         const fistSize = paulW * 0.95;
@@ -7111,14 +6994,12 @@ function drawConvoyOptimus(px, py) {
               fistSize, fistSize,
               C.blueMid, C.blueLight, C.blueDark);
 
-        // ION BLASTER — extends from the wrist along aim direction.
-        // Recoil pulls it back briefly.
-        const blasterAng = (player.shootCooldown > 0 || recoil > 0) ? aimAng : foreAng;
+        // ION BLASTER barrel
         const barrelLen = chestH * 0.55;
         const barrelOffset = -recoil * 1.5;
         ctx.save();
         ctx.translate(wristX, wristY);
-        ctx.rotate(blasterAng);
+        ctx.rotate(foreAng);
         ctx.translate(barrelOffset, 0);
         // Dark housing
         ctx.fillStyle = '#1a1a22';
@@ -7134,23 +7015,135 @@ function drawConvoyOptimus(px, py) {
         ctx.shadowColor = C.energon;
         ctx.shadowBlur = 10;
         ctx.fillRect(2, -2, barrelLen - 4, 4);
-        // Muzzle ring (gold)
+        // Muzzle
         ctx.fillStyle = C.yellow;
         ctx.shadowColor = C.yellowDk;
         ctx.shadowBlur = 8;
         ctx.fillRect(barrelLen - 2, -8, 3, 16);
         ctx.shadowBlur = 0;
-        // Muzzle flash on shot
-        if (player.shootCooldown > Math.max(2, (player.shootCooldown || 0) * 0.7)) {
+        // Muzzle flash
+        if (recoil > 1.5) {
             ctx.fillStyle = '#ffffaa';
             ctx.shadowColor = '#ffff00';
-            ctx.shadowBlur = 14;
+            ctx.shadowBlur = 16;
             ctx.beginPath();
-            ctx.arc(barrelLen + 4, 0, 7, 0, Math.PI * 2);
+            ctx.arc(barrelLen + 4, 0, 8, 0, Math.PI * 2);
             ctx.fill();
             ctx.shadowBlur = 0;
         }
         ctx.restore();
+    }
+
+    // ----- AXE ARM (opposite side) -----
+    // Idle: hangs at side with mild walk swing
+    // Axe-swing combo: arm sweeps in a forward-down arc with energon trail
+    {
+        const shoulderX = axeSide * (chestW / 2 + paulW * 0.3);
+        const shoulderY = paulY + paulH * 0.45;
+        const isAxeSwing = meleeActive && player.meleeAxe;
+        let armAng;
+        if (isAxeSwing) {
+            // Sweep from "behind/up" to "forward/down" toward facing direction.
+            // For axeSide<0 (left side, facing right), sweep clockwise from
+            // ~-3pi/4 to ~+pi/8. For axeSide>0, mirror it.
+            let startAng, endAng;
+            if (axeSide < 0) {
+                // Left arm sweeping toward the right
+                startAng = meleeStage === 3 ? -Math.PI * 0.85 : -Math.PI * 0.55;
+                endAng = meleeStage === 3 ? Math.PI * 0.15 : Math.PI * 0.35;
+            } else {
+                // Right arm sweeping toward the left (mirror)
+                startAng = meleeStage === 3 ? Math.PI + Math.PI * 0.85 : Math.PI + Math.PI * 0.55;
+                endAng = meleeStage === 3 ? Math.PI - Math.PI * 0.15 : Math.PI - Math.PI * 0.35;
+            }
+            const eT = 1 - Math.pow(1 - meleeT, 2);
+            armAng = startAng + (endAng - startAng) * eT;
+        } else {
+            // Idle hang
+            armAng = Math.PI / 2 - walkSwing * axeSide * 0.25;
+        }
+        const elbowBend = isAxeSwing ? 0 : 0.15;
+        const { wristX, wristY, foreAng } = drawArm(shoulderX, shoulderY, armAng, elbowBend);
+
+        // Fist
+        const fistSize = paulW * 0.95;
+        block(wristX - fistSize / 2, wristY - fistSize / 2,
+              fistSize, fistSize,
+              C.blueMid, C.blueLight, C.blueDark);
+
+        // ENERGON AXE — extends past the wrist along forearm direction
+        const axeLen = chestH * 0.7;
+        ctx.save();
+        ctx.translate(wristX, wristY);
+        ctx.rotate(foreAng);
+        // Haft (red+gold pole)
+        ctx.fillStyle = '#aa1818';
+        ctx.fillRect(0, -3, axeLen * 0.5, 6);
+        ctx.fillStyle = C.yellow;
+        ctx.fillRect(0, -2, axeLen * 0.5, 1);
+        // Axe head (energon wedge)
+        const headStart = axeLen * 0.5;
+        ctx.fillStyle = C.energon;
+        ctx.shadowColor = C.energon;
+        ctx.shadowBlur = 18;
+        ctx.beginPath();
+        ctx.moveTo(headStart, -axeLen * 0.18);
+        ctx.lineTo(headStart + axeLen * 0.4, -axeLen * 0.12);
+        ctx.lineTo(headStart + axeLen * 0.5, 0);
+        ctx.lineTo(headStart + axeLen * 0.4, axeLen * 0.12);
+        ctx.lineTo(headStart, axeLen * 0.18);
+        ctx.closePath();
+        ctx.fill();
+        // Inner bright core
+        ctx.fillStyle = C.energonHL;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.moveTo(headStart + 2, -axeLen * 0.08);
+        ctx.lineTo(headStart + axeLen * 0.32, -axeLen * 0.05);
+        ctx.lineTo(headStart + axeLen * 0.4, 0);
+        ctx.lineTo(headStart + axeLen * 0.32, axeLen * 0.05);
+        ctx.lineTo(headStart + 2, axeLen * 0.08);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+
+        // Energon trail during the swing
+        if (isAxeSwing) {
+            for (let f = 1; f <= 3; f++) {
+                const fT = Math.max(0, meleeT - f * 0.10);
+                if (fT <= 0) continue;
+                let startAng, endAng;
+                if (axeSide < 0) {
+                    startAng = meleeStage === 3 ? -Math.PI * 0.85 : -Math.PI * 0.55;
+                    endAng = meleeStage === 3 ? Math.PI * 0.15 : Math.PI * 0.35;
+                } else {
+                    startAng = meleeStage === 3 ? Math.PI + Math.PI * 0.85 : Math.PI + Math.PI * 0.55;
+                    endAng = meleeStage === 3 ? Math.PI - Math.PI * 0.15 : Math.PI - Math.PI * 0.35;
+                }
+                const trailAng = startAng + (endAng - startAng) * (1 - Math.pow(1 - fT, 2));
+                const upperLen = chestH * 0.5;
+                const foreLen = chestH * 0.55;
+                const tEx = shoulderX + Math.cos(trailAng) * upperLen;
+                const tEy = shoulderY + Math.sin(trailAng) * upperLen;
+                const tFa = trailAng;   // ignore elbow bend for trail
+                const tWx = tEx + Math.cos(tFa) * foreLen;
+                const tWy = tEy + Math.sin(tFa) * foreLen;
+                ctx.save();
+                ctx.globalAlpha = 0.30 / f;
+                ctx.strokeStyle = C.energon;
+                ctx.shadowColor = C.energon;
+                ctx.shadowBlur = 16;
+                ctx.lineWidth = 8;
+                ctx.beginPath();
+                ctx.moveTo(tWx, tWy);
+                ctx.lineTo(tWx + Math.cos(tFa) * (chestH * 0.7),
+                           tWy + Math.sin(tFa) * (chestH * 0.7));
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            }
+        }
     }
 
     // ---------- NECK ----------
@@ -7160,7 +7153,7 @@ function drawConvoyOptimus(px, py) {
     block(-neckW / 2, neckY, neckW, neckH,
           C.chromeDk, C.chrome, C.chromeShd);
 
-    // ---------- HELMET (side-3/4 view, eye on facing side) ----------
+    // ---------- HELMET (front-facing) ----------
     const helmetH = H * 0.22;
     const helmetW = W * 0.62;
     const helmetY = neckY - helmetH;
@@ -7185,7 +7178,7 @@ function drawConvoyOptimus(px, py) {
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Forehead crest (centered)
+    // Forehead crest
     const crestW = helmetW * 0.32;
     ctx.beginPath();
     ctx.moveTo(-crestW / 2, helmetY + helmetH * 0.04);
@@ -7209,7 +7202,7 @@ function drawConvoyOptimus(px, py) {
         ctx.fillRect(aX - 0.5, helmetY - aH, 1.5, 2);
     }
 
-    // Side ear plates (one shows on each side from this 3/4 view)
+    // Side ear plates with yellow dots (both sides — front-facing)
     for (const sign of [-1, 1]) {
         const eX = sign * (helmetW / 2 - 2);
         const eY = helmetY + helmetH * 0.35;
@@ -7223,35 +7216,30 @@ function drawConvoyOptimus(px, py) {
         ctx.fill();
     }
 
-    // EYEBAR / VISOR — single bright eye on the FRONT (facing) side, dimmer
-    // on the back side. Looks more like a head-turn read than a fully-front
-    // visor.
+    // EYEBAR — both eyes lit symmetrically (front view).
     const visorY = helmetY + helmetH * 0.36;
     const visorH = Math.max(2, helmetH * 0.10);
     const visorW = helmetW * 0.62;
     // Recessed dark backing
     ctx.fillStyle = C.outline;
     ctx.fillRect(-visorW / 2 - 1, visorY - 1, visorW + 2, visorH + 2);
-    // Cyan glow (full bar)
+    // Cyan glow strip
     ctx.fillStyle = C.visor;
     ctx.shadowColor = C.visor;
     ctx.shadowBlur = 10;
     ctx.fillRect(-visorW / 2, visorY, visorW, visorH);
     ctx.shadowBlur = 0;
-    // BRIGHT EYE on the front side (the side facing aim direction)
+    // Twin bright eye dots (left and right)
     ctx.fillStyle = '#ffffff';
     ctx.shadowColor = C.visor;
-    ctx.shadowBlur = 12;
-    ctx.fillRect(visorW * 0.10, visorY + visorH * 0.20,
-                 visorW * 0.22, visorH * 0.6);
-    // Dimmer eye dot on the back side
-    ctx.shadowBlur = 6;
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillRect(-visorW * 0.32, visorY + visorH * 0.20,
+    ctx.shadowBlur = 10;
+    ctx.fillRect(-visorW * 0.26, visorY + visorH * 0.20,
+                 visorW * 0.18, visorH * 0.6);
+    ctx.fillRect(visorW * 0.08, visorY + visorH * 0.20,
                  visorW * 0.18, visorH * 0.6);
     ctx.shadowBlur = 0;
 
-    // Chrome faceplate (lower mask)
+    // Chrome faceplate
     const fpY = visorY + visorH + 1;
     const fpH = helmetH * 0.32;
     const fpW = helmetW * 0.55;
@@ -7270,7 +7258,7 @@ function drawConvoyOptimus(px, py) {
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
     ctx.fillRect(-fpW / 2, fpY, fpW, 1);
 
-    ctx.restore();   // closes ctx.scale(facing, 1)
+    ctx.restore();
 }
 
 // Drawing functions
@@ -11673,6 +11661,25 @@ function drawHUD() {
     ctx.fillStyle = '#ffffff';
     ctx.font = '12px Courier New';
     ctx.fillText(`HP: ${player.hp}/${player.maxHp}`, 25, 35);
+
+    // === EVOLUTION TIER BADGE (so you can verify what tier you're on) ===
+    {
+        const evoName = (EVOLUTIONS[player.evoLevel] && EVOLUTIONS[player.evoLevel].name) || '?';
+        const evoCol = EVO_COLORS[player.evoLevel];
+        const badgeColor = (evoCol && evoCol.armor) || '#88ddff';
+        ctx.fillStyle = '#0a0a14';
+        ctx.fillRect(20, 46, 200, 18);
+        ctx.strokeStyle = badgeColor;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(20, 46, 200, 18);
+        ctx.fillStyle = badgeColor;
+        ctx.shadowColor = badgeColor;
+        ctx.shadowBlur = 6;
+        ctx.font = 'bold 11px Courier New';
+        ctx.fillText(`TIER ${player.evoLevel}: ${evoName}`, 26, 58);
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = 1;
+    }
 
     // Mission key indicator — small icon top-left when player carries a key
     if (player.keysHeld && player.keysHeld.length > 0) {
