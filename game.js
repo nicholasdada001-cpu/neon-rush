@@ -352,7 +352,7 @@ const EVOLUTIONS = [
         name: 'CONVOY',  rcCost: 80,   hpBonus: 900, dmgBonus: 4.5, speedBonus: 1.9,
         sizeBonus: 16,
         widthBonus: 4,    // narrower body — Convoy is TALL, not bulky
-        heightBonus: 320, // towering — way bigger than PRIME (boosted from 200)
+        heightBonus: 380, // bigger again per user request (boosted from 320)
         sideArm: 'convoy',
         ability: 'convoyMatrix', abilityKey: 'KeyR',
         description: 'CONVOY frame. Truck-cab shoulders, dual-sword rig, full vehicle plating. Final form.',
@@ -6692,20 +6692,20 @@ function drawTransformerArmor(px, py, evoCol, evoLevel) {
 
 // =====================================================================
 // CONVOY (Optimus Prime) full-body drawer.
-// Used at evoLevel >= 6 — bypasses the normal body/armor/helmet/arms/legs
-// stack and renders a complete G1-style Optimus instead. Scales the static
-// design from _convoy_preview.html to fit the player's actual sprite size.
-// All coordinates are computed relative to (px, py) which is the top-left
-// of the player bounding box in screen space.
+// SIDE VIEW that flips on player.facing. Walk/shoot/punch/axe-swing all
+// hook into existing player animation timers (legPhase, gunRecoil,
+// meleeAnimTimer, meleeAxe, shootCooldown). The player keeps a 3/4-side
+// stance: helmet shows its eye on the facing side, front arm holds the
+// ion blaster, back arm holds the energon axe.
 // =====================================================================
 function drawConvoyOptimus(px, py) {
     const w = player.w;
     const h = player.h;
     const cx = px + w / 2;
     const groundY = py + h;
-    const facing = player.facing || 1;
+    const facing = player.facing >= 0 ? 1 : -1;
 
-    // Color palette (matches the preview)
+    // Color palette
     const C = {
         blueDark:  '#1a3a99',
         blueMid:   '#2a55c8',
@@ -6723,10 +6723,12 @@ function drawConvoyOptimus(px, py) {
         visor:     '#88f0ff',
         yellow:    '#ffc800',
         yellowDk:  '#cc8800',
+        energon:   '#aaffff',
+        energonHL: '#ffffff',
         outline:   '#0a0a14'
     };
 
-    // Helper: beveled block (top highlight, body fill, bottom shadow + outline)
+    // -------- Bevel block helper (with outline) --------
     function block(x, y, bw, bh, base, hi, sh) {
         if (bw < 1 || bh < 1) return;
         const g = ctx.createLinearGradient(x, y, x, y + bh);
@@ -6740,142 +6742,167 @@ function drawConvoyOptimus(px, py) {
         ctx.strokeRect(x, y, bw, bh);
     }
 
-    // ---------------------------------------------------------------------
-    // PROPORTION TARGETS (as fractions of the sprite height H)
-    //   Helmet:   0.00 .. 0.22  (top)
-    //   Neck:     0.22 .. 0.25
-    //   Chest:    0.25 .. 0.55
-    //   Belt:     0.55 .. 0.62
-    //   Thighs:   0.62 .. 0.78
-    //   Knees:    0.78 .. 0.82
-    //   Boots:    0.82 .. 1.00
-    // ---------------------------------------------------------------------
-
-    // ----- BOOTS -----
-    const bootBaseY = py + h;
-    const bootH = h * 0.18;
-    const bootW = w * 0.30;
-    const bootGap = w * 0.06;
-    for (const sign of [-1, 1]) {
-        const bx = cx + sign * (bootGap + bootW / 2);
-        // Sole (dark band under the boot)
-        ctx.fillStyle = C.outline;
-        ctx.fillRect(bx - bootW / 2 - 2, bootBaseY - 3, bootW + 4, 3);
-        // Boot shaft
-        block(bx - bootW / 2, bootBaseY - bootH, bootW, bootH - 3,
-              C.blueMid, C.blueLight, C.blueDark);
-        // Inset side panel detail
-        if (bootW > 8) {
-            ctx.fillStyle = C.blueDark;
-            ctx.fillRect(bx + sign * (bootW * 0.18), bootBaseY - bootH * 0.85,
-                         bootW * 0.32, bootH * 0.55);
-        }
+    // -------- Animation state --------
+    if (player.legPhase === undefined) player.legPhase = 0;
+    const moveSpeed = Math.abs(player.vx || 0);
+    if (player.onGround && moveSpeed > 0.4) {
+        player.legPhase += moveSpeed * 0.18;
     }
+    // Walk swing: positive when front leg forward, negative when back forward.
+    // Used to offset both legs and the swinging arm.
+    const walkSwing = player.onGround && moveSpeed > 0.4
+        ? Math.sin(player.legPhase) : 0;
+    const bobY = player.onGround && moveSpeed > 0.4
+        ? Math.abs(Math.sin(player.legPhase * 2)) * (h * 0.012)
+        : 0;
 
-    // ----- KNEES (white caps) -----
-    const kneeY = bootBaseY - bootH - h * 0.04;
-    const kneeH = h * 0.04;
-    for (const sign of [-1, 1]) {
-        const kx = cx + sign * (bootGap + bootW / 2);
-        block(kx - bootW * 0.45, kneeY, bootW * 0.9, kneeH,
+    // Aim direction (mirror of shootBullet logic)
+    let aimDx = facing;
+    let aimDy = 0;
+    if (keys && (keys['ArrowUp'] || keys['KeyW'])) aimDy = -0.5;
+    if (keys && (keys['ArrowDown'] || keys['KeyS'])) aimDy = 0.5;
+    const aimLen = Math.sqrt(aimDx * aimDx + aimDy * aimDy) || 1;
+    aimDx /= aimLen; aimDy /= aimLen;
+    const aimAng = Math.atan2(aimDy, aimDx);    // signed: 0 = forward, -pi/2 = up
+
+    // Recoil
+    if (player.gunRecoil === undefined) player.gunRecoil = 0;
+    if (player.gunRecoil > 0) player.gunRecoil = Math.max(0, player.gunRecoil - 0.6);
+    const recoil = player.gunRecoil;
+
+    // Melee swing state
+    const meleeActive = player.meleeAnimTimer > 0;
+    const meleeMax = player.meleeAnimMax || 14;
+    const meleeT = meleeActive ? (meleeMax - player.meleeAnimTimer) / meleeMax : 0;
+    const meleeStage = player.meleeAnimStage || 0;
+
+    // -------- Mirror coordinate system based on facing --------
+    // Everything below is drawn in "logical" space where +x = forward.
+    // ctx.scale(facing, 1) flips the whole sprite when facing left.
+    ctx.save();
+    ctx.translate(cx, py + bobY);   // origin at top-center, with bob
+    ctx.scale(facing, 1);
+    // Now we draw with x in [-w/2, w/2] and y in [0, h].
+
+    // Reusable proportion table (fractions of total height)
+    const H = h;
+    const W = w;
+    const hipW = W * 0.35;            // distance between thighs
+
+    // ---------- BOOTS (lower legs) ----------
+    const bootH = H * 0.18;
+    const bootW = W * 0.30;
+    const bootBaseY = H;
+    // Walk: each leg lifts and swings. front leg = +walkSwing, back = -walkSwing
+    function drawLeg(side) {
+        // side: +1 front leg (matches facing), -1 back leg
+        const swing = walkSwing * side;
+        const lift = (player.onGround && moveSpeed > 0.4 && side > 0 && walkSwing > 0)
+            ? walkSwing * (H * 0.04) : 0;
+        const liftB = (player.onGround && moveSpeed > 0.4 && side < 0 && walkSwing < 0)
+            ? -walkSwing * (H * 0.04) : 0;
+        const stepLift = (side > 0 ? lift : liftB);
+        const xOff = side * (hipW / 2 + bootW * 0.10) + swing * (W * 0.12);
+        const bootTopY = bootBaseY - bootH;
+        const bootDrawY = bootTopY - stepLift;
+        // Sole
+        ctx.fillStyle = C.outline;
+        ctx.fillRect(xOff - bootW / 2 - 1, bootBaseY - 2 - stepLift, bootW + 2, 2);
+        // Boot shaft
+        block(xOff - bootW / 2, bootDrawY, bootW, bootH - 2,
+              C.blueMid, C.blueLight, C.blueDark);
+        // Inset side panel
+        ctx.fillStyle = C.blueDark;
+        ctx.fillRect(xOff - bootW * 0.05, bootDrawY + bootH * 0.18, bootW * 0.4, bootH * 0.55);
+        // Knee cap (white) — sits ABOVE the boot
+        const kneeH = H * 0.04;
+        const kneeY = bootDrawY - kneeH;
+        block(xOff - bootW * 0.42, kneeY, bootW * 0.84, kneeH,
               C.chrome, '#ffffff', C.chromeDk);
-        // Center red dot
+        // Red knee dot
         ctx.fillStyle = C.redMid;
         ctx.beginPath();
-        ctx.arc(kx, kneeY + kneeH / 2, Math.max(1.2, kneeH * 0.3), 0, Math.PI * 2);
+        ctx.arc(xOff, kneeY + kneeH * 0.5, Math.max(1.2, kneeH * 0.32), 0, Math.PI * 2);
         ctx.fill();
-    }
-
-    // ----- THIGHS -----
-    const thighH = h * 0.16;
-    const thighY = kneeY - thighH;
-    const thighW = bootW * 0.85;
-    for (const sign of [-1, 1]) {
-        const tx = cx + sign * (bootGap + bootW / 2);
-        block(tx - thighW / 2, thighY, thighW, thighH,
+        // Thigh (blue)
+        const thighH = H * 0.16;
+        const thighY = kneeY - thighH;
+        const thighW = bootW * 0.85;
+        block(xOff - thighW / 2, thighY, thighW, thighH,
               C.blueMid, C.blueLight, C.blueDark);
-        // Vertical center groove
-        if (thighW > 6) {
-            ctx.fillStyle = C.blueDark;
-            ctx.fillRect(tx - 1, thighY + thighH * 0.15, 2, thighH * 0.7);
-        }
+        ctx.fillStyle = C.blueDark;
+        ctx.fillRect(xOff - 1, thighY + thighH * 0.15, 2, thighH * 0.7);
     }
+    // Draw back leg first (behind) then front leg (on top)
+    drawLeg(-1);
+    drawLeg(+1);
 
-    // ----- BELT -----
-    const beltH = h * 0.07;
-    const beltY = thighY - beltH;
-    const beltW = w * 0.62;
-    block(cx - beltW / 2, beltY, beltW, beltH,
+    // ---------- BELT ----------
+    const beltH = H * 0.07;
+    const beltW = W * 0.62;
+    const beltY = H - bootH - H * 0.04 - H * 0.16;   // top of thighs
+    block(-beltW / 2, beltY, beltW, beltH,
           C.chrome, '#ffffff', C.chromeDk);
-    // Gold buckle
-    const buckleW = beltW * 0.55;
-    const buckleH = beltH * 0.55;
     ctx.fillStyle = C.yellow;
-    ctx.fillRect(cx - buckleW / 2, beltY + beltH * 0.25, buckleW, buckleH);
+    ctx.fillRect(-beltW * 0.32, beltY + beltH * 0.25, beltW * 0.64, beltH * 0.55);
     ctx.strokeStyle = C.outline;
     ctx.lineWidth = 1;
-    ctx.strokeRect(cx - buckleW / 2, beltY + beltH * 0.25, buckleW, buckleH);
+    ctx.strokeRect(-beltW * 0.32, beltY + beltH * 0.25, beltW * 0.64, beltH * 0.55);
 
-    // ----- TORSO / TRUCK-CAB CHEST -----
-    const chestH = h * 0.30;
-    const chestW = w * 0.78;
+    // ---------- TORSO / TRUCK-CAB CHEST ----------
+    // Side view of the truck cab — most of the windshield is shown angled
+    // toward the front. We draw a single front-leaning windshield + grille.
+    const chestH = H * 0.30;
+    const chestW = W * 0.78;
     const chestY = beltY - chestH;
-    block(cx - chestW / 2, chestY, chestW, chestH,
+    block(-chestW / 2, chestY, chestW, chestH,
           C.redMid, C.redLight, C.red);
 
-    // Twin windshield panels — tucked inside the top half of the chest
-    const wsY = chestY + chestH * 0.08;
+    // Single tilted windshield (front-facing, narrowed because we're side-view)
+    const wsX = -chestW * 0.05;
+    const wsY = chestY + chestH * 0.10;
+    const wsW = chestW * 0.55;
     const wsH = chestH * 0.42;
-    const wsTotalW = chestW * 0.78;
-    const wsGap = Math.max(1, chestW * 0.025);
-    const wsW = (wsTotalW - wsGap) / 2;
-    const wsBaseX = cx - wsTotalW / 2;
-    for (let i = 0; i < 2; i++) {
-        const wsX = wsBaseX + i * (wsW + wsGap);
-        // Chrome frame
-        ctx.fillStyle = C.chromeDk;
-        ctx.fillRect(wsX - 1, wsY - 1, wsW + 2, wsH + 2);
-        // Glass gradient
-        const wg = ctx.createLinearGradient(0, wsY, 0, wsY + wsH);
-        wg.addColorStop(0, C.glassHL);
-        wg.addColorStop(0.4, C.glass);
-        wg.addColorStop(1, C.glassDk);
-        ctx.fillStyle = wg;
-        ctx.fillRect(wsX, wsY, wsW, wsH);
-        // White streak highlight
-        if (wsW > 4 && wsH > 6) {
-            ctx.fillStyle = 'rgba(255,255,255,0.55)';
-            ctx.beginPath();
-            ctx.moveTo(wsX + wsW * 0.15, wsY + wsH * 0.15);
-            ctx.lineTo(wsX + wsW * 0.65, wsY + wsH * 0.20);
-            ctx.lineTo(wsX + wsW * 0.75, wsY + wsH * 0.75);
-            ctx.lineTo(wsX + wsW * 0.25, wsY + wsH * 0.85);
-            ctx.closePath();
-            ctx.fill();
-        }
+    // Chrome frame
+    ctx.fillStyle = C.chromeDk;
+    ctx.fillRect(wsX - 1, wsY - 1, wsW + 2, wsH + 2);
+    // Glass gradient
+    const wg = ctx.createLinearGradient(0, wsY, 0, wsY + wsH);
+    wg.addColorStop(0, C.glassHL);
+    wg.addColorStop(0.5, C.glass);
+    wg.addColorStop(1, C.glassDk);
+    ctx.fillStyle = wg;
+    ctx.fillRect(wsX, wsY, wsW, wsH);
+    // White streak highlight
+    if (wsW > 4 && wsH > 6) {
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.beginPath();
+        ctx.moveTo(wsX + wsW * 0.15, wsY + wsH * 0.15);
+        ctx.lineTo(wsX + wsW * 0.7,  wsY + wsH * 0.20);
+        ctx.lineTo(wsX + wsW * 0.8,  wsY + wsH * 0.75);
+        ctx.lineTo(wsX + wsW * 0.25, wsY + wsH * 0.85);
+        ctx.closePath();
+        ctx.fill();
     }
-
-    // White vertical grille below the windshields
-    const grilleY = wsY + wsH + chestH * 0.05;
-    const grilleH = chestY + chestH - grilleY - chestH * 0.08;
+    // Vertical grille (white slats) below windshield
+    const grilleY = wsY + wsH + chestH * 0.04;
+    const grilleH = chestY + chestH - grilleY - chestH * 0.06;
     const grilleW = chestW * 0.32;
     if (grilleH > 4) {
-        block(cx - grilleW / 2, grilleY, grilleW, grilleH,
+        block(-grilleW / 2, grilleY, grilleW, grilleH,
               C.chrome, '#ffffff', C.chromeDk);
-        // Vertical slats
         ctx.fillStyle = C.chromeShd;
         const slatCount = Math.max(3, Math.floor(grilleW / 3));
         const slatSpacing = grilleW / (slatCount + 1);
         for (let i = 1; i <= slatCount; i++) {
-            ctx.fillRect(cx - grilleW / 2 + i * slatSpacing - 0.5,
+            ctx.fillRect(-grilleW / 2 + i * slatSpacing - 0.5,
                          grilleY + 1, 1, grilleH - 2);
         }
     }
-
-    // Autobot emblem on the right cab pane (small red disc with yellow dot)
-    const emblemX = wsBaseX + wsW + wsGap + wsW * 0.5;
+    // Autobot emblem (front-side of the chest)
+    const emblemX = wsX + wsW * 0.5;
     const emblemY = wsY + wsH * 0.5;
-    const emblemR = Math.max(2, wsW * 0.18);
+    const emblemR = Math.max(2, wsW * 0.22);
     ctx.fillStyle = C.redLight;
     ctx.beginPath();
     ctx.arc(emblemX, emblemY, emblemR, 0, Math.PI * 2);
@@ -6885,75 +6912,268 @@ function drawConvoyOptimus(px, py) {
     ctx.arc(emblemX, emblemY, emblemR * 0.55, 0, Math.PI * 2);
     ctx.fill();
 
-    // ----- PAULDRONS (red shoulder cubes) -----
-    const paulH = chestH * 0.45;
-    const paulW = w * 0.22;
+    // ---------- PAULDRONS (red shoulder cubes) ----------
+    const paulH = chestH * 0.5;
+    const paulW = W * 0.22;
     const paulY = chestY + 1;
-    for (const sign of [-1, 1]) {
-        const ppx = cx + sign * (chestW / 2 + paulW / 2 - 1);
-        block(ppx - paulW / 2, paulY, paulW, paulH,
-              C.redMid, C.redLight, C.red);
-    }
+    // Back pauldron (drawn first, behind)
+    block(-chestW / 2 - paulW + 2, paulY, paulW, paulH,
+          C.red, C.redMid, '#660808');
+    // Front pauldron (drawn after, on top)
+    block(chestW / 2 - 2, paulY, paulW, paulH,
+          C.redMid, C.redLight, C.red);
 
-    // ----- ARMS (both down at the sides) -----
-    // Upper arm = red (hangs from pauldron); forearm = blue; fist = blue cube.
-    function drawArm(rootX, rootY) {
+    // ---------- ARMS ----------
+    // Side view: ONE front arm and ONE back arm. Front arm holds ion blaster
+    // and aims; back arm holds energon axe and either rests at the side or
+    // swings during melee.
+    const shoulderFrontX = chestW / 2 + paulW * 0.1;
+    const shoulderBackX  = -chestW / 2 - paulW * 0.1;
+    const shoulderY = paulY + paulH * 0.45;
+
+    // === BACK ARM with ENERGON AXE ===
+    // During melee swing, the back arm rotates from rest position (pointing
+    // down) to a forward-up arc. Otherwise it hangs at the side with a small
+    // walk-cycle swing.
+    {
+        const ax = shoulderBackX;
+        const ay = shoulderY;
+        // Angle in our local space: 0 = forward (right), pi/2 = down, -pi/2 = up
+        let armAng;
+        if (meleeActive && player.meleeAxe) {
+            // Big overhead chop arc: starts behind/up, sweeps forward/down.
+            // Stage 3 (uppercut) sweeps higher.
+            const startAng = meleeStage === 3 ? -Math.PI * 0.85 : -Math.PI * 0.55;
+            const endAng = meleeStage === 3 ? Math.PI * 0.15 : Math.PI * 0.35;
+            // Ease-out for the strike
+            const eT = 1 - Math.pow(1 - meleeT, 2);
+            armAng = startAng + (endAng - startAng) * eT;
+        } else {
+            // Idle: hang at side with tiny walk swing
+            armAng = Math.PI / 2 + walkSwing * 0.25;
+        }
+        const upperLen = chestH * 0.5;
+        const elbowX = ax + Math.cos(armAng) * upperLen;
+        const elbowY = ay + Math.sin(armAng) * upperLen;
+        // Forearm angle continues a bit past upper arm direction
+        const foreLen = chestH * 0.55;
+        // Slight elbow bend for personality
+        const elbowBend = meleeActive && player.meleeAxe ? 0 : 0.15;
+        const foreAng = armAng + elbowBend;
+        const wristX = elbowX + Math.cos(foreAng) * foreLen;
+        const wristY = elbowY + Math.sin(foreAng) * foreLen;
+
+        // Upper arm (RED) — drawn as a rotated rectangle along the upper segment
+        ctx.save();
+        ctx.translate(ax, ay);
+        ctx.rotate(armAng);
         const uaW = paulW * 0.85;
-        const uaH = chestH * 0.5;
-        const uaY = rootY;
-        // Upper arm
-        block(rootX - uaW / 2, uaY, uaW, uaH,
-              C.redMid, C.redLight, C.red);
-        // Forearm (blue)
-        const faH = chestH * 0.55;
-        const faY = uaY + uaH - 1;
-        const faW = uaW * 0.95;
-        block(rootX - faW / 2, faY, faW, faH,
+        block(0, -uaW / 2, upperLen, uaW, C.red, C.redMid, '#660808');
+        ctx.restore();
+
+        // Forearm (BLUE)
+        ctx.save();
+        ctx.translate(elbowX, elbowY);
+        ctx.rotate(foreAng);
+        const faW = paulW * 0.78;
+        block(0, -faW / 2, foreLen, faW, C.blueMid, C.blueLight, C.blueDark);
+        ctx.restore();
+
+        // Fist + ENERGON AXE at wrist
+        const fistSize = paulW * 0.95;
+        block(wristX - fistSize / 2, wristY - fistSize / 2,
+              fistSize, fistSize,
               C.blueMid, C.blueLight, C.blueDark);
-        // Fist (blue cube) — bigger than the forearm to look chunky
-        const fistSize = paulW * 1.0;
-        const fistX = rootX;
-        const fistY = faY + faH - 1;
-        block(fistX - fistSize / 2, fistY, fistSize, fistSize,
-              C.blueMid, C.blueLight, C.blueDark);
-        // Knuckle ridges — only if there's room
-        if (fistSize > 10) {
-            ctx.fillStyle = C.blueDark;
-            const knuckleCount = 4;
-            const ks = fistSize / (knuckleCount + 1);
-            for (let i = 0; i < knuckleCount; i++) {
-                ctx.fillRect(fistX - fistSize / 2 + ks * (i + 0.6),
-                             fistY + fistSize * 0.18, ks * 0.4, fistSize * 0.18);
+
+        // Energon axe — extends out PERPENDICULAR to the forearm
+        // Direction = foreAng + pi/2 (i.e. away from the body's underside)
+        const axeAng = foreAng;
+        const axeLen = chestH * 0.7;
+        ctx.save();
+        ctx.translate(wristX, wristY);
+        ctx.rotate(axeAng);
+        // Haft (red+gold pole)
+        ctx.fillStyle = '#aa1818';
+        ctx.fillRect(0, -3, axeLen * 0.5, 6);
+        ctx.fillStyle = C.yellow;
+        ctx.fillRect(0, -2, axeLen * 0.5, 1);
+        // Axe head — wedge at the end of the haft
+        const headX = axeLen * 0.5;
+        ctx.fillStyle = C.energon;
+        ctx.shadowColor = C.energon;
+        ctx.shadowBlur = 18;
+        ctx.beginPath();
+        ctx.moveTo(headX, -axeLen * 0.18);
+        ctx.lineTo(headX + axeLen * 0.4, -axeLen * 0.12);
+        ctx.lineTo(headX + axeLen * 0.5, 0);
+        ctx.lineTo(headX + axeLen * 0.4, axeLen * 0.12);
+        ctx.lineTo(headX, axeLen * 0.18);
+        ctx.closePath();
+        ctx.fill();
+        // Inner brighter core
+        ctx.fillStyle = C.energonHL;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.moveTo(headX + 2, -axeLen * 0.08);
+        ctx.lineTo(headX + axeLen * 0.32, -axeLen * 0.05);
+        ctx.lineTo(headX + axeLen * 0.4, 0);
+        ctx.lineTo(headX + axeLen * 0.32, axeLen * 0.05);
+        ctx.lineTo(headX + 2, axeLen * 0.08);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.restore();
+
+        // Energon trail during the swing
+        if (meleeActive && player.meleeAxe) {
+            ctx.save();
+            for (let f = 1; f <= 3; f++) {
+                const fT = Math.max(0, meleeT - f * 0.10);
+                if (fT <= 0) continue;
+                const startAng = meleeStage === 3 ? -Math.PI * 0.85 : -Math.PI * 0.55;
+                const endAng = meleeStage === 3 ? Math.PI * 0.15 : Math.PI * 0.35;
+                const arcAng = startAng + (endAng - startAng) * (1 - Math.pow(1 - fT, 2));
+                const trailEx = ax + Math.cos(arcAng) * upperLen;
+                const trailEy = ay + Math.sin(arcAng) * upperLen;
+                const trailWx = trailEx + Math.cos(arcAng + elbowBend) * foreLen;
+                const trailWy = trailEy + Math.sin(arcAng + elbowBend) * foreLen;
+                ctx.globalAlpha = 0.30 / f;
+                ctx.strokeStyle = C.energon;
+                ctx.shadowColor = C.energon;
+                ctx.shadowBlur = 16;
+                ctx.lineWidth = 8;
+                ctx.beginPath();
+                ctx.moveTo(trailWx, trailWy);
+                const trailEndAng = arcAng + elbowBend;
+                ctx.lineTo(trailWx + Math.cos(trailEndAng) * (chestH * 0.7),
+                           trailWy + Math.sin(trailEndAng) * (chestH * 0.7));
+                ctx.stroke();
             }
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1;
+            ctx.restore();
         }
     }
 
-    // Both arms anchored just inside the pauldron blocks
-    const armRootY = paulY + paulH * 0.4;
-    drawArm(cx - chestW / 2 - paulW / 2 + 1, armRootY);
-    drawArm(cx + chestW / 2 + paulW / 2 - 1, armRootY);
+    // === FRONT ARM with ION BLASTER ===
+    // Aims along aimAng. During melee (non-axe punch), the arm thrusts
+    // forward. Otherwise rests at side with walk swing.
+    {
+        const ax = shoulderFrontX;
+        const ay = shoulderY;
 
-    // ----- NECK -----
-    const neckH = h * 0.03;
+        let armAng;
+        if (meleeActive && !player.meleeAxe) {
+            // Punch thrust — forward and slight up
+            const eT = meleeT < 0.5
+                ? meleeT / 0.5
+                : 1 - (meleeT - 0.5) / 0.5;
+            armAng = (Math.PI / 2 + walkSwing * 0.25)
+                   + ((aimAng + Math.PI / 2 * 0) - (Math.PI / 2)) * eT * (-1);
+            // Simpler: blend toward aim during punch
+            armAng = (Math.PI / 2) * (1 - eT) + aimAng * eT;
+        } else if (player.shootCooldown > 0 || recoil > 0 || (keys && (keys['KeyF'] || keys['KeyJ']))) {
+            // Aiming/shooting pose — arm follows aim direction
+            armAng = aimAng;
+        } else {
+            // Idle: hang at side with tiny walk swing
+            armAng = Math.PI / 2 - walkSwing * 0.25;
+        }
+
+        const upperLen = chestH * 0.5;
+        const elbowX = ax + Math.cos(armAng) * upperLen;
+        const elbowY = ay + Math.sin(armAng) * upperLen;
+        const foreLen = chestH * 0.55;
+        const elbowBend = (player.shootCooldown > 0 || recoil > 0) ? 0 : 0.10;
+        const foreAng = armAng + elbowBend;
+        const wristX = elbowX + Math.cos(foreAng) * foreLen;
+        const wristY = elbowY + Math.sin(foreAng) * foreLen;
+
+        // Upper arm (RED)
+        ctx.save();
+        ctx.translate(ax, ay);
+        ctx.rotate(armAng);
+        const uaW = paulW * 0.85;
+        block(0, -uaW / 2, upperLen, uaW, C.redMid, C.redLight, C.red);
+        ctx.restore();
+
+        // Forearm (BLUE)
+        ctx.save();
+        ctx.translate(elbowX, elbowY);
+        ctx.rotate(foreAng);
+        const faW = paulW * 0.78;
+        block(0, -faW / 2, foreLen, faW, C.blueMid, C.blueLight, C.blueDark);
+        ctx.restore();
+
+        // Fist
+        const fistSize = paulW * 0.95;
+        block(wristX - fistSize / 2, wristY - fistSize / 2,
+              fistSize, fistSize,
+              C.blueMid, C.blueLight, C.blueDark);
+
+        // ION BLASTER — extends from the wrist along aim direction.
+        // Recoil pulls it back briefly.
+        const blasterAng = (player.shootCooldown > 0 || recoil > 0) ? aimAng : foreAng;
+        const barrelLen = chestH * 0.55;
+        const barrelOffset = -recoil * 1.5;
+        ctx.save();
+        ctx.translate(wristX, wristY);
+        ctx.rotate(blasterAng);
+        ctx.translate(barrelOffset, 0);
+        // Dark housing
+        ctx.fillStyle = '#1a1a22';
+        ctx.fillRect(0, -7, barrelLen, 14);
+        ctx.strokeStyle = C.outline;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(0, -7, barrelLen, 14);
+        // Chrome top edge
+        ctx.fillStyle = '#888';
+        ctx.fillRect(0, -7, barrelLen, 2);
+        // Energon core stripe
+        ctx.fillStyle = C.energon;
+        ctx.shadowColor = C.energon;
+        ctx.shadowBlur = 10;
+        ctx.fillRect(2, -2, barrelLen - 4, 4);
+        // Muzzle ring (gold)
+        ctx.fillStyle = C.yellow;
+        ctx.shadowColor = C.yellowDk;
+        ctx.shadowBlur = 8;
+        ctx.fillRect(barrelLen - 2, -8, 3, 16);
+        ctx.shadowBlur = 0;
+        // Muzzle flash on shot
+        if (player.shootCooldown > Math.max(2, (player.shootCooldown || 0) * 0.7)) {
+            ctx.fillStyle = '#ffffaa';
+            ctx.shadowColor = '#ffff00';
+            ctx.shadowBlur = 14;
+            ctx.beginPath();
+            ctx.arc(barrelLen + 4, 0, 7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+        ctx.restore();
+    }
+
+    // ---------- NECK ----------
+    const neckH = H * 0.03;
     const neckY = chestY - neckH;
-    const neckW = w * 0.18;
-    block(cx - neckW / 2, neckY, neckW, neckH,
+    const neckW = W * 0.18;
+    block(-neckW / 2, neckY, neckW, neckH,
           C.chromeDk, C.chrome, C.chromeShd);
 
-    // ----- HELMET -----
-    const helmetH = h * 0.22;
-    const helmetW = w * 0.62;
+    // ---------- HELMET (side-3/4 view, eye on facing side) ----------
+    const helmetH = H * 0.22;
+    const helmetW = W * 0.62;
     const helmetY = neckY - helmetH;
-    // Main shell — slightly tapered toward the jaw
+    // Main shell
     ctx.beginPath();
-    ctx.moveTo(cx - helmetW / 2 + 2, helmetY + helmetH * 0.10);
-    ctx.lineTo(cx - helmetW / 2,     helmetY + helmetH * 0.04);
-    ctx.lineTo(cx + helmetW / 2,     helmetY + helmetH * 0.04);
-    ctx.lineTo(cx + helmetW / 2 - 2, helmetY + helmetH * 0.10);
-    ctx.lineTo(cx + helmetW / 2 - 4, helmetY + helmetH * 0.55);
-    ctx.lineTo(cx + helmetW / 2 - 8, helmetY + helmetH);
-    ctx.lineTo(cx - helmetW / 2 + 8, helmetY + helmetH);
-    ctx.lineTo(cx - helmetW / 2 + 4, helmetY + helmetH * 0.55);
+    ctx.moveTo(-helmetW / 2 + 2, helmetY + helmetH * 0.10);
+    ctx.lineTo(-helmetW / 2,     helmetY + helmetH * 0.04);
+    ctx.lineTo(helmetW / 2,      helmetY + helmetH * 0.04);
+    ctx.lineTo(helmetW / 2 - 2,  helmetY + helmetH * 0.10);
+    ctx.lineTo(helmetW / 2 - 4,  helmetY + helmetH * 0.55);
+    ctx.lineTo(helmetW / 2 - 8,  helmetY + helmetH);
+    ctx.lineTo(-helmetW / 2 + 8, helmetY + helmetH);
+    ctx.lineTo(-helmetW / 2 + 4, helmetY + helmetH * 0.55);
     ctx.closePath();
     const hg = ctx.createLinearGradient(0, helmetY, 0, helmetY + helmetH);
     hg.addColorStop(0, C.blueLight);
@@ -6965,13 +7185,13 @@ function drawConvoyOptimus(px, py) {
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // Forehead crest (light-blue trapezoid)
+    // Forehead crest (centered)
     const crestW = helmetW * 0.32;
     ctx.beginPath();
-    ctx.moveTo(cx - crestW / 2, helmetY + helmetH * 0.04);
-    ctx.lineTo(cx + crestW / 2, helmetY + helmetH * 0.04);
-    ctx.lineTo(cx + crestW * 0.4, helmetY + helmetH * 0.32);
-    ctx.lineTo(cx - crestW * 0.4, helmetY + helmetH * 0.32);
+    ctx.moveTo(-crestW / 2, helmetY + helmetH * 0.04);
+    ctx.lineTo(crestW / 2, helmetY + helmetH * 0.04);
+    ctx.lineTo(crestW * 0.4, helmetY + helmetH * 0.32);
+    ctx.lineTo(-crestW * 0.4, helmetY + helmetH * 0.32);
     ctx.closePath();
     const cg = ctx.createLinearGradient(0, helmetY, 0, helmetY + helmetH * 0.32);
     cg.addColorStop(0, C.blueHL);
@@ -6979,9 +7199,9 @@ function drawConvoyOptimus(px, py) {
     ctx.fillStyle = cg;
     ctx.fill();
 
-    // Antennae — thin silver bars sticking up from the helmet sides
+    // Twin antennae
     for (const sign of [-1, 1]) {
-        const aX = cx + sign * helmetW * 0.30;
+        const aX = sign * helmetW * 0.30;
         const aH = helmetH * 0.55;
         ctx.fillStyle = C.chromeDk;
         ctx.fillRect(aX - 0.5, helmetY - aH, 1.5, aH + 4);
@@ -6989,49 +7209,57 @@ function drawConvoyOptimus(px, py) {
         ctx.fillRect(aX - 0.5, helmetY - aH, 1.5, 2);
     }
 
-    // Side ear plates with yellow dots
+    // Side ear plates (one shows on each side from this 3/4 view)
     for (const sign of [-1, 1]) {
-        const eX = cx + sign * (helmetW / 2 - 2);
+        const eX = sign * (helmetW / 2 - 2);
         const eY = helmetY + helmetH * 0.35;
         const eW = helmetW * 0.10;
         const eH = helmetH * 0.22;
         block(eX - eW / 2, eY, eW, eH,
               C.blueMid, C.blueLight, C.blueDark);
-        if (eW > 3 && eH > 3) {
-            ctx.fillStyle = C.yellow;
-            ctx.beginPath();
-            ctx.arc(eX, eY + eH * 0.45, Math.max(1, eW * 0.25), 0, Math.PI * 2);
-            ctx.fill();
-        }
+        ctx.fillStyle = C.yellow;
+        ctx.beginPath();
+        ctx.arc(eX, eY + eH * 0.45, Math.max(1, eW * 0.25), 0, Math.PI * 2);
+        ctx.fill();
     }
 
-    // EYEBAR / VISOR (cyan glow strip)
+    // EYEBAR / VISOR — single bright eye on the FRONT (facing) side, dimmer
+    // on the back side. Looks more like a head-turn read than a fully-front
+    // visor.
     const visorY = helmetY + helmetH * 0.36;
     const visorH = Math.max(2, helmetH * 0.10);
     const visorW = helmetW * 0.62;
     // Recessed dark backing
     ctx.fillStyle = C.outline;
-    ctx.fillRect(cx - visorW / 2 - 1, visorY - 1, visorW + 2, visorH + 2);
-    // Cyan glow
+    ctx.fillRect(-visorW / 2 - 1, visorY - 1, visorW + 2, visorH + 2);
+    // Cyan glow (full bar)
     ctx.fillStyle = C.visor;
     ctx.shadowColor = C.visor;
-    ctx.shadowBlur = 8;
-    ctx.fillRect(cx - visorW / 2, visorY, visorW, visorH);
+    ctx.shadowBlur = 10;
+    ctx.fillRect(-visorW / 2, visorY, visorW, visorH);
     ctx.shadowBlur = 0;
-    // Bright eye dots inside the visor
+    // BRIGHT EYE on the front side (the side facing aim direction)
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(cx - visorW * 0.28, visorY + visorH * 0.25, visorW * 0.16, visorH * 0.5);
-    ctx.fillRect(cx + visorW * 0.12, visorY + visorH * 0.25, visorW * 0.16, visorH * 0.5);
+    ctx.shadowColor = C.visor;
+    ctx.shadowBlur = 12;
+    ctx.fillRect(visorW * 0.10, visorY + visorH * 0.20,
+                 visorW * 0.22, visorH * 0.6);
+    // Dimmer eye dot on the back side
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillRect(-visorW * 0.32, visorY + visorH * 0.20,
+                 visorW * 0.18, visorH * 0.6);
+    ctx.shadowBlur = 0;
 
-    // CHROME FACEPLATE (lower mask)
+    // Chrome faceplate (lower mask)
     const fpY = visorY + visorH + 1;
     const fpH = helmetH * 0.32;
     const fpW = helmetW * 0.55;
     ctx.beginPath();
-    ctx.moveTo(cx - fpW / 2, fpY);
-    ctx.lineTo(cx + fpW / 2, fpY);
-    ctx.lineTo(cx + fpW * 0.4, fpY + fpH);
-    ctx.lineTo(cx - fpW * 0.4, fpY + fpH);
+    ctx.moveTo(-fpW / 2, fpY);
+    ctx.lineTo(fpW / 2, fpY);
+    ctx.lineTo(fpW * 0.4, fpY + fpH);
+    ctx.lineTo(-fpW * 0.4, fpY + fpH);
     ctx.closePath();
     const fg = ctx.createLinearGradient(0, fpY, 0, fpY + fpH);
     fg.addColorStop(0, C.chrome);
@@ -7039,10 +7267,10 @@ function drawConvoyOptimus(px, py) {
     fg.addColorStop(1, C.chromeShd);
     ctx.fillStyle = fg;
     ctx.fill();
-
-    // Faceplate top chrome rim
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillRect(cx - fpW / 2, fpY, fpW, 1);
+    ctx.fillRect(-fpW / 2, fpY, fpW, 1);
+
+    ctx.restore();   // closes ctx.scale(facing, 1)
 }
 
 // Drawing functions
