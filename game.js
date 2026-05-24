@@ -4601,6 +4601,21 @@ function bossOrigin(e, slot) {
     const cy = e.y + e.h / 2;
     switch (e.subtype) {
         case 'guard':
+            // Phase-2 transformed (riot tank) — cannons forward of dome
+            if (e.transformed) {
+                const cyT = e.y + e.h * 0.50;   // dome eye Y
+                const fwd = (player.x + player.w / 2) > (e.x + e.w / 2) ? 1 : -1;
+                const cannonX = e.x + e.w / 2 + fwd * (e.w * 0.55);
+                if (slot === 'cannonTop')   return { x: cannonX, y: cyT - 8 };
+                if (slot === 'cannonBot')   return { x: cannonX, y: cyT + 8 };
+                if (slot === 'eye')         return { x: e.x + e.w / 2, y: cyT };
+                if (slot === 'leftHand')    return { x: cannonX, y: cyT };
+                if (slot === 'rightHand')   return { x: cannonX, y: cyT };
+                if (slot === 'leftShoulder')  return { x: e.x + 6, y: e.y + e.h * 0.35 };
+                if (slot === 'rightShoulder') return { x: e.x + e.w - 6, y: e.y + e.h * 0.35 };
+                if (slot === 'eyes')        return { x: e.x + e.w / 2, y: cyT };
+                break;
+            }
             if (slot === 'leftHand')   return { x: e.x - 14, y: e.y + 88 };
             if (slot === 'rightHand')  return { x: e.x + e.w + 14, y: e.y + 78 };
             if (slot === 'leftShoulder')  return { x: e.x + 8, y: e.y + 28 };
@@ -5200,6 +5215,14 @@ function updateEnemies() {
                 const cy2 = e.y + e.h / 2;
                 const playerAngle2 = Math.atan2(player.y - e.y, player.x - e.x);
                 if (e.subtype === 'guard') {
+                    // GUARD-1 → RIOT TANK transformation. Folds into a treaded
+                    // riot-tank body. Body proportions stay at the same bounding
+                    // box but the visual silhouette dramatically changes.
+                    e.transformed = true;
+                    e.transformTimer = 1;
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: '⚠ GUARD-1: RIOT TANK MODE ⚠', timer: 240, color: '#ff44dd' };
+                    }
                     // 16-bullet wide cone toward player
                     for (let a = -7; a <= 8; a++) {
                         const ang = playerAngle2 + a * 0.05;
@@ -5325,22 +5348,62 @@ function updateEnemies() {
             const playerAngle = Math.atan2(player.y - e.y, player.x - e.x);
 
             if (e.subtype === 'guard') {
-                // GUARD-1: standard movement, spread shots
-                e.y = e.baseY + Math.sin(e.moveTimer * 0.02) * 40;
-                e.x = e.baseX + Math.sin(e.moveTimer * 0.015) * 70;
-                e.shootTimer -= slowMul;
-                if (e.shootTimer <= 0) {
-                    if (e.phase === 1) {
-                        for (let a = -2; a <= 2; a++) {
-                            const angle = playerAngle + a * 0.25;
-                            enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(angle) * 4, vy: Math.sin(angle) * 4, life: 100 });
+                // Decrement the riot-tank transform timer so the fold-down
+                // anim ends and attacks can resume.
+                if (e.transformTimer > 0 && e.transformTimer < 90) {
+                    e.transformTimer++;
+                    e.shootTimer = 30;     // pause attacks during fold
+                }
+                // ===== TANK MODE override =====
+                // When transformed, GUARD-1 sits low to the ground and fires
+                // twin cannon volleys plus a charging plowing attack.
+                if (e.transformed && e.transformTimer >= 90) {
+                    // Glide left/right along the ground tracking the player
+                    const targetX = player.x + player.w / 2;
+                    const tankSpd = 1.4 * slowMul;
+                    if (Math.abs((e.x + e.w / 2) - targetX) > 80) {
+                        e.x += Math.sign(targetX - (e.x + e.w / 2)) * tankSpd;
+                    }
+                    e.y = e.baseY + 24;     // sit lower than humanoid form
+                    e.shootTimer -= slowMul;
+                    if (e.shootTimer <= 0) {
+                        // Twin cannon volley
+                        const oTop = bossOrigin(e, 'cannonTop');
+                        const oBot = bossOrigin(e, 'cannonBot');
+                        muzzleFlash(oTop.x, oTop.y, '#ff66dd', '#ff00aa', true);
+                        muzzleFlash(oBot.x, oBot.y, '#ff66dd', '#ff00aa', true);
+                        for (const o of [oTop, oBot]) {
+                            for (let s = -1; s <= 1; s++) {
+                                const ang = playerAngle + s * 0.1;
+                                enemyBullets.push({
+                                    x: o.x, y: o.y, vx: Math.cos(ang) * 7, vy: Math.sin(ang) * 7,
+                                    life: 90, damage: 12, color: '#ff88ee', glow: '#ff44aa',
+                                    size: 6, big: true
+                                });
+                            }
                         }
-                        e.shootTimer = 75;
-                    } else {
-                        for (let i = 0; i < 3; i++) {
-                            enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(playerAngle) * (4 + i * 0.5), vy: Math.sin(playerAngle) * (4 + i * 0.5), life: 100 });
+                        screenShake = Math.max(screenShake, 8);
+                        e.shootTimer = e.phase === 3 ? 35 : 55;
+                    }
+                } else {
+                    // ===== HUMANOID MODE (untransformed) =====
+                    // GUARD-1: standard movement, spread shots
+                    e.y = e.baseY + Math.sin(e.moveTimer * 0.02) * 40;
+                    e.x = e.baseX + Math.sin(e.moveTimer * 0.015) * 70;
+                    e.shootTimer -= slowMul;
+                    if (e.shootTimer <= 0) {
+                        if (e.phase === 1) {
+                            for (let a = -2; a <= 2; a++) {
+                                const angle = playerAngle + a * 0.25;
+                                enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(angle) * 4, vy: Math.sin(angle) * 4, life: 100 });
+                            }
+                            e.shootTimer = 75;
+                        } else {
+                            for (let i = 0; i < 3; i++) {
+                                enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(playerAngle) * (4 + i * 0.5), vy: Math.sin(playerAngle) * (4 + i * 0.5), life: 100 });
+                            }
+                            e.shootTimer = 30;
                         }
-                        e.shootTimer = 30;
                     }
                 }
             } else if (e.subtype === 'skyhammer') {
@@ -9095,7 +9158,12 @@ function drawBossHpCore(ex, ey, e, color, radius) {
 }
 
 // Boxy security guard with riot shield + shoulder cannons -----------------
+// Phase 2 transformation routes to the riot-tank drawer.
 function drawBossGuard(ex, ey, e) {
+    if (e.transformed) {
+        drawBossGuardTank(ex, ey, e);
+        return;
+    }
     const swing = bossLimbSwing(e);
     const phase2 = e.phase === 2;
     const main = phase2 ? '#ff44aa' : '#ff66dd';
@@ -9161,6 +9229,158 @@ function drawBossGuard(ex, ey, e) {
     ctx.fillStyle = main;
     ctx.fillRect(ex + 12, ey - 10, 2, 12);
     ctx.fillRect(ex + e.w - 14, ey - 10, 2, 12);
+    drawBossHpCore(ex, ey, e, main, 12);
+}
+
+// =====================================================================
+// GUARD-1 phase-2 transformation: RIOT TANK
+// Body folds into a wide treaded tank with a forward-mounted twin cannon
+// and a fortified armor dome. Drawn at the same e.x/e.y bounding box but
+// the visual silhouette is dramatically different.
+// =====================================================================
+function drawBossGuardTank(ex, ey, e) {
+    const phase3 = e.phase === 3;
+    const main = phase3 ? '#ff0044' : '#ff44aa';
+    const accent = phase3 ? '#ff8844' : '#ff88dd';
+
+    // Mid-transform fold-down animation
+    if (e.transformTimer > 0 && e.transformTimer < 90) {
+        const t = e.transformTimer / 90;
+        ctx.save();
+        ctx.translate(ex + e.w / 2, ey + e.h / 2);
+        const coreR = 20 + t * 60;
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = '#ff66dd';
+        ctx.shadowBlur = 30;
+        ctx.beginPath();
+        ctx.arc(0, 0, coreR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.rotate(t * Math.PI * 1.5);
+        ctx.strokeStyle = accent;
+        ctx.shadowBlur = 14;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(0, 0, 60 + t * 30, 0, Math.PI * 1.5);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+        ctx.shadowBlur = 0;
+        ctx.restore();
+        if (e.transformTimer % 4 === 0) {
+            spawnParticles(ex + Math.random() * e.w, ey + Math.random() * e.h, accent, 2, 5);
+        }
+        return;
+    }
+
+    // ===== TANK BODY =====
+    // Main hull — wide trapezoid, bottom-anchored
+    const hullY = ey + e.h * 0.35;
+    const hullH = e.h * 0.55;
+    ctx.fillStyle = '#0a0a14';
+    ctx.fillRect(ex - 4, hullY - 1, e.w + 8, hullH + 2);
+    // Hull gradient
+    const hg = ctx.createLinearGradient(0, hullY, 0, hullY + hullH);
+    hg.addColorStop(0, accent);
+    hg.addColorStop(0.4, main);
+    hg.addColorStop(1, '#330022');
+    ctx.fillStyle = hg;
+    ctx.fillRect(ex, hullY, e.w, hullH);
+    // Top chrome rim
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillRect(ex, hullY, e.w, 2);
+
+    // Treads — full-width strips along the bottom on each side
+    ctx.fillStyle = '#1a1a22';
+    ctx.fillRect(ex - 6, hullY + hullH - 14, e.w + 12, 16);
+    // Tread segments (alternating bumps)
+    ctx.fillStyle = '#444';
+    for (let tx = -4; tx < e.w + 6; tx += 8) {
+        ctx.fillRect(ex + tx, hullY + hullH - 12, 4, 10);
+    }
+    // Tread top chrome highlight
+    ctx.fillStyle = '#888';
+    ctx.fillRect(ex - 6, hullY + hullH - 14, e.w + 12, 1);
+
+    // Armor dome on top — squat fortified turret shell
+    const domeW = e.w * 0.7;
+    const domeH = e.h * 0.32;
+    const domeX = ex + (e.w - domeW) / 2;
+    const domeY = hullY - domeH + 2;
+    ctx.fillStyle = '#0a0a14';
+    ctx.fillRect(domeX - 1, domeY - 1, domeW + 2, domeH + 2);
+    const dg = ctx.createLinearGradient(0, domeY, 0, domeY + domeH);
+    dg.addColorStop(0, accent);
+    dg.addColorStop(0.5, main);
+    dg.addColorStop(1, '#220011');
+    ctx.fillStyle = dg;
+    ctx.fillRect(domeX, domeY, domeW, domeH);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillRect(domeX, domeY, domeW, 1);
+
+    // Sensor eye on the dome — pulsing red
+    const pulse = 0.6 + Math.sin(performance.now() * 0.008) * 0.4;
+    const eyeX = ex + e.w / 2;
+    const eyeY = domeY + domeH * 0.45;
+    ctx.fillStyle = '#ff0044';
+    ctx.shadowColor = '#ff66dd';
+    ctx.shadowBlur = 16 * pulse;
+    ctx.beginPath();
+    ctx.arc(eyeX, eyeY, 5 + pulse * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(eyeX, eyeY, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Twin forward cannons — extend FORWARD from the dome
+    // Forward direction = toward player (use bossOrigin trick)
+    const forward = (player.x + player.w / 2) > eyeX ? 1 : -1;
+    for (const offY of [-8, 8]) {
+        const barrelX = eyeX + forward * domeW * 0.3;
+        const barrelY = eyeY + offY;
+        const barrelLen = e.w * 0.35;
+        // Dark housing
+        ctx.fillStyle = '#222';
+        ctx.fillRect(barrelX, barrelY - 4, forward * barrelLen, 8);
+        ctx.strokeStyle = '#0a0a14';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(barrelX, barrelY - 4, forward * barrelLen, 8);
+        // Chrome top
+        ctx.fillStyle = '#888';
+        ctx.fillRect(barrelX, barrelY - 4, forward * barrelLen, 2);
+        // Glowing core stripe
+        ctx.fillStyle = accent;
+        ctx.shadowColor = accent;
+        ctx.shadowBlur = 10;
+        ctx.fillRect(barrelX + forward * 2, barrelY - 1, forward * (barrelLen - 4), 2);
+        ctx.shadowBlur = 0;
+    }
+
+    // Side spike-bumpers (riot tank flair) — small triangular plates on the front
+    ctx.fillStyle = main;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 6;
+    for (const sign of [-1, 1]) {
+        const baseX = ex + (sign < 0 ? 0 : e.w);
+        const baseY = hullY + hullH * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY - 6);
+        ctx.lineTo(baseX + sign * 10, baseY);
+        ctx.lineTo(baseX, baseY + 6);
+        ctx.closePath();
+        ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+
+    // Phase 3 rage glow
+    if (phase3) {
+        ctx.save();
+        ctx.globalAlpha = 0.4 + Math.sin(performance.now() * 0.012) * 0.2;
+        ctx.fillStyle = '#ff0044';
+        ctx.fillRect(ex - 8, ey - 8, e.w + 16, e.h + 16);
+        ctx.restore();
+    }
+
     drawBossHpCore(ex, ey, e, main, 12);
 }
 
