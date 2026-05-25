@@ -5664,10 +5664,10 @@ function updateBullets() {
                             w: 80, h: 100
                         });
                     } else {
-                        // Final stage - immediate win after rescue (90 frames ~= 1.5s).
-                        // Uses frame-counted timer so the transition respects
-                        // hitstop, pause, and tab-out.
-                        deferFrames(90, () => { gameState = 'won'; });
+                        // Final stage - go straight into the FINALE giant-robot
+                        // fight after a brief beat (90 frames ~= 1.5s). The
+                        // finale routes into 'won' once EARTHBREAKER falls.
+                        deferFrames(90, () => { startFinale(); });
                     }
                 }
                 hitCage = true;
@@ -6022,7 +6022,11 @@ function handleEnemyKilled(e, j) {
         }
         // If no cage, advance immediately (final stage). Otherwise wait for rescue.
         if (currentStage >= STAGES.length - 1 && !allyDef) {
-            gameState = 'won';
+            // Final stage clear → kick off the FINALE: giant-vs-giant
+            // robot fight against EARTHBREAKER. (Replaces immediate win
+            // jump.) startFinale handles its own state setup and gates
+            // into 'won' when the player triumphs.
+            startFinale();
         } else if (!allyDef) {
             gameState = 'stageComplete';
         }
@@ -17643,6 +17647,876 @@ function restart() {
     buildLevel();
 }
 
+// ============================================================================
+// FINALE — GIANT-ROBOT FINAL CONFRONTATION
+// ============================================================================
+// After Titan-Lord falls, the player ascends to giant scale and fights
+// EARTHBREAKER, a planet-sized mech, to save the world.
+//
+// Self-contained module with its own bullets/enemies/particles arrays so
+// it doesn't leak into normal-stage state. State machine has three phases:
+//
+//   1. 'intro'   — 240-frame cinematic. Player rises and grows; the
+//                  EARTHBREAKER lands from orbit. Banner reveal.
+//   2. 'battle'  — actual fight. Hero (giant) on the left, boss (giant)
+//                  on the right. Player F shoots; movement W/A/S/D.
+//                  Boss has 4 attack patterns + a phase 2 at 50% HP.
+//   3. 'victory' — 240-frame epilogue. EARTHBREAKER explodes, hero
+//                  poses, "WORLD SAVED" banner. Then routes to 'won'.
+//
+// Coordinate space: simple screen-space (0,0 top-left) — no world camera.
+// Player x clamped to [60, 400], boss x clamped to [560, 900], both share
+// y at GROUND_Y (~520). Big sprite scale (~3x normal player size).
+let finale = null;
+
+function startFinale() {
+    finale = {
+        phase: 'intro',
+        timer: 0,
+        // Giant player — scaled-up evolution sprite. HP independent of
+        // normal player HP so we don't carry damage in from stage 8.
+        player: {
+            x: 200, y: 380,
+            vx: 0, vy: 0,
+            w: 70, h: 140,
+            hp: 1500, maxHp: 1500,
+            facing: 1,
+            shootTimer: 0,
+            invincible: 90,        // grace at battle start
+            scaleAnim: 0,          // 0..1 grows during intro
+            evoLevel: player.evoLevel || 0,
+            charColor: player.charColor || '#00ddff',
+            charAccent: player.charAccent || '#00ffaa',
+            walkPhase: 0,
+            shootHeld: false,
+            recoil: 0
+        },
+        // Boss — EARTHBREAKER. Bigger than the player. Has its own state.
+        boss: {
+            x: 760, y: 320,
+            w: 130, h: 220,
+            hp: 4500, maxHp: 4500,
+            phase: 1,
+            attackTimer: 200,      // first attack delay
+            attackPattern: 0,
+            telegraphTimer: 0,
+            spawnY: -300,          // starts off-screen above
+            landed: false,
+            phase2Triggered: false,
+            walkPhase: 0,
+            facing: -1,
+            armSwing: 0
+        },
+        bullets: [],               // hero shots (giant-scale)
+        enemyBullets: [],          // boss shots
+        particles: [],             // local FX
+        shockwaves: [],
+        // Parallax skyline behind the fight — tinted city silhouettes.
+        skyline: buildFinaleSkyline(),
+        bannerTimer: 180,
+        winTimer: 0,
+        introBeat: 0
+    };
+    gameState = 'finale';
+    audio.play('bossIntro');
+}
+
+function buildFinaleSkyline() {
+    // Procedural city silhouette — 3 layers of buildings at increasing
+    // depth, deterministic via simple PRNG so it looks the same each run.
+    const layers = [];
+    let seed = 7777;
+    function rnd() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }
+    for (let layer = 0; layer < 3; layer++) {
+        const buildings = [];
+        let x = -50;
+        const tint = ['#0a1530', '#152040', '#1f2a55'][layer];
+        const maxH = [80, 120, 170][layer];
+        while (x < 1100) {
+            const w = 40 + rnd() * 70;
+            const h = 30 + rnd() * (maxH - 30);
+            buildings.push({ x, y: 600 - h, w, h });
+            x += w + 4 + rnd() * 18;
+        }
+        layers.push({ buildings, tint });
+    }
+    return layers;
+}
+
+// ============================================================================
+// FINALE — UPDATE
+// ============================================================================
+function updateFinale() {
+    if (!finale) return;
+    finale.timer++;
+    if (finale.bannerTimer > 0) finale.bannerTimer--;
+    if (finale.phase === 'intro')   updateFinaleIntro();
+    else if (finale.phase === 'battle')  updateFinaleBattle();
+    else if (finale.phase === 'victory') updateFinaleVictory();
+    // Phase update may have nulled finale (e.g. victory→won), so bail early
+    // before touching its particle/shockwave arrays.
+    if (!finale) return;
+
+    for (let i = finale.particles.length - 1; i >= 0; i--) {
+        const p = finale.particles[i];
+        p.x += p.vx; p.y += p.vy;
+        p.vy += 0.15; p.life -= 1 / (p.maxLife || 30);
+        if (p.life <= 0) finale.particles.splice(i, 1);
+    }
+    for (let i = finale.shockwaves.length - 1; i >= 0; i--) {
+        const s = finale.shockwaves[i];
+        s.r += (s.maxR - s.r) * 0.18;
+        s.life -= 1 / 30;
+        if (s.life <= 0) finale.shockwaves.splice(i, 1);
+    }
+}
+
+function updateFinaleIntro() {
+    const f = finale;
+    f.player.scaleAnim = Math.min(1, f.timer / 120);
+    if (f.timer < 120 && f.timer % 4 === 0) {
+        spawnFinaleParticle(f.player.x + (Math.random() - 0.5) * 80,
+            f.player.y + 100 + Math.random() * 40, f.player.charColor,
+            0, -3 - Math.random() * 2, 30);
+    } else if (f.timer === 120) {
+        spawnFinaleShockwave(f.player.x, f.player.y + f.player.h, 200, '#ffffff', 1.0);
+        screenShake = 16;
+        audio.play('transform');
+    }
+    if (f.timer < 220) {
+        const t = Math.max(0, (f.timer - 100) / 120);
+        f.boss.y = f.boss.spawnY + (320 - f.boss.spawnY) * t;
+    } else if (!f.boss.landed) {
+        f.boss.landed = true;
+        f.boss.y = 320;
+        spawnFinaleShockwave(f.boss.x, f.boss.y + f.boss.h, 280, '#ff4422', 1.0);
+        spawnFinaleShockwave(f.boss.x, f.boss.y + f.boss.h, 380, '#ff8844', 1.0);
+        for (let k = 0; k < 50; k++) {
+            spawnFinaleParticle(f.boss.x + (Math.random() - 0.5) * 100,
+                f.boss.y + f.boss.h, '#ff4422',
+                (Math.random() - 0.5) * 8, -Math.random() * 5, 60);
+        }
+        screenShake = 28;
+        hitStop = 6;
+        audio.play('explosion');
+    }
+    if (f.timer >= 240) {
+        f.phase = 'battle';
+        f.timer = 0;
+        f.bannerTimer = 200;
+        audio.play('bossIntro');
+    }
+}
+
+function updateFinaleBattle() {
+    const f = finale;
+    const p = f.player;
+    const b = f.boss;
+    if (p.invincible > 0) p.invincible--;
+    if (p.shootTimer > 0) p.shootTimer--;
+    if (p.recoil > 0) p.recoil--;
+    let dx = 0;
+    if (keys['KeyA'] || keys['ArrowLeft'])  { dx = -1; p.facing = -1; }
+    if (keys['KeyD'] || keys['ArrowRight']) { dx =  1; p.facing =  1; }
+    p.vx = dx * 4;
+    p.x += p.vx;
+    if (p.x < 60) p.x = 60;
+    if (p.x > 400) p.x = 400;
+    if (Math.abs(dx) > 0) p.walkPhase += 0.2;
+    if ((keys['KeyW'] || keys['ArrowUp'] || keys['Space']) && p.vy === 0 && p.y >= 380) {
+        p.vy = -10;
+    }
+    p.vy += 0.5;
+    p.y += p.vy;
+    if (p.y >= 380) { p.y = 380; p.vy = 0; }
+    if ((keys['KeyF'] || keys['KeyJ']) && p.shootTimer <= 0) {
+        finaleShoot();
+        p.shootTimer = 8;
+        p.recoil = 5;
+        audio.play('shoot', { throttle: 60 });
+    }
+    b.walkPhase += 0.04;
+    b.attackTimer--;
+    if (b.armSwing > 0) b.armSwing -= 0.05;
+    if (!b.phase2Triggered && b.hp <= b.maxHp * 0.5) {
+        b.phase2Triggered = true;
+        b.phase = 2;
+        spawnFinaleShockwave(b.x, b.y + b.h / 2, 240, '#ff44ff', 1.0);
+        spawnFinaleShockwave(b.x, b.y + b.h / 2, 360, '#ff8844', 1.0);
+        for (let k = 0; k < 40; k++) {
+            const ang = Math.random() * Math.PI * 2;
+            spawnFinaleParticle(b.x, b.y + b.h / 2, '#ff44ff',
+                Math.cos(ang) * 6, Math.sin(ang) * 6, 50);
+        }
+        screenShake = 24;
+        hitStop = 8;
+        f.bannerTimer = 200;
+        audio.play('explosion');
+    }
+    if (b.attackTimer <= 0) finaleBossAttack();
+    if (b.telegraphTimer > 0) b.telegraphTimer--;
+    for (let i = f.bullets.length - 1; i >= 0; i--) {
+        const bu = f.bullets[i];
+        bu.x += bu.vx; bu.y += bu.vy;
+        bu.life--;
+        if (bu.life <= 0 || bu.x < -50 || bu.x > 1050 || bu.y < -50 || bu.y > 650) {
+            f.bullets.splice(i, 1); continue;
+        }
+        if (bu.x > b.x - b.w / 2 && bu.x < b.x + b.w / 2 &&
+            bu.y > b.y && bu.y < b.y + b.h) {
+            b.hp -= bu.damage;
+            spawnFinaleParticle(bu.x, bu.y, '#ffffff', 0, 0, 20);
+            for (let k = 0; k < 4; k++) {
+                spawnFinaleParticle(bu.x, bu.y, p.charColor,
+                    (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, 24);
+            }
+            f.bullets.splice(i, 1);
+            screenShake = Math.max(screenShake, 4);
+            audio.play('hit', { throttle: 40 });
+            if (b.hp <= 0) {
+                b.hp = 0;
+                f.phase = 'victory';
+                f.timer = 0;
+                f.bannerTimer = 240;
+                spawnFinaleShockwave(b.x, b.y + b.h / 2, 400, '#ffffff', 1.0);
+                spawnFinaleShockwave(b.x, b.y + b.h / 2, 600, '#ffaa00', 1.0);
+                for (let k = 0; k < 100; k++) {
+                    const ang = Math.random() * Math.PI * 2;
+                    spawnFinaleParticle(b.x, b.y + b.h / 2,
+                        ['#ffffff', '#ffaa00', '#ff4422'][k % 3],
+                        Math.cos(ang) * (4 + Math.random() * 6),
+                        Math.sin(ang) * (4 + Math.random() * 6), 80);
+                }
+                screenShake = 40;
+                hitStop = 14;
+                audio.play('bossKill');
+                return;
+            }
+        }
+    }
+    for (let i = f.enemyBullets.length - 1; i >= 0; i--) {
+        const bu = f.enemyBullets[i];
+        bu.x += bu.vx; bu.y += bu.vy;
+        if (bu.gravity) bu.vy += 0.18;
+        bu.life--;
+        if (bu.life <= 0 || bu.x < -50 || bu.x > 1050 || bu.y < -50 || bu.y > 650) {
+            f.enemyBullets.splice(i, 1); continue;
+        }
+        if (p.invincible <= 0 &&
+            bu.x > p.x - p.w / 2 && bu.x < p.x + p.w / 2 &&
+            bu.y > p.y && bu.y < p.y + p.h) {
+            p.hp -= bu.damage;
+            p.invincible = 30;
+            hitFlash = Math.min(1, hitFlash + 0.6);
+            for (let k = 0; k < 8; k++) {
+                spawnFinaleParticle(bu.x, bu.y, '#ff3333',
+                    (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6, 30);
+            }
+            f.enemyBullets.splice(i, 1);
+            screenShake = Math.max(screenShake, 8);
+            audio.play('hurt');
+            if (p.hp <= 0) {
+                p.hp = 0;
+                gameState = 'dead';
+                spawnExplosion(p.x, p.y + p.h / 2);
+                return;
+            }
+        }
+    }
+}
+
+function finaleShoot() {
+    const f = finale;
+    const p = f.player;
+    const muzzleX = p.x + p.facing * 24;
+    const muzzleY = p.y + 40;
+    for (let i = 0; i < 2; i++) {
+        f.bullets.push({
+            x: muzzleX, y: muzzleY + i * 14 - 7,
+            vx: p.facing * 14, vy: 0,
+            life: 60, damage: 30,
+            color: p.charAccent || '#88ffff'
+        });
+    }
+    for (let k = 0; k < 6; k++) {
+        spawnFinaleParticle(muzzleX, muzzleY,
+            p.charAccent || '#88ffff',
+            p.facing * (1 + Math.random() * 3),
+            (Math.random() - 0.5) * 3, 18);
+    }
+}
+
+function finaleBossAttack() {
+    const f = finale;
+    const b = f.boss;
+    const p = f.player;
+    const phase2 = b.phase === 2;
+    const pool = phase2 ? 5 : 4;
+    let next;
+    do { next = Math.floor(Math.random() * pool); }
+    while (next === b.attackPattern && Math.random() > 0.2);
+    b.attackPattern = next;
+    b.armSwing = 1;
+    const muzzleX = b.x;
+    const muzzleY = b.y + 80;
+    if (next === 0) {
+        for (let i = -2; i <= 3; i++) {
+            const aimAng = Math.atan2(p.y - muzzleY, p.x - muzzleX);
+            const ang = aimAng + i * 0.06;
+            f.enemyBullets.push({
+                x: muzzleX, y: muzzleY,
+                vx: Math.cos(ang) * 8, vy: Math.sin(ang) * 8,
+                life: 70, damage: 22,
+                color: '#ff44ff', big: true
+            });
+        }
+        spawnFinaleShockwave(muzzleX, muzzleY, 50, '#ff44ff', 0.8);
+        b.attackTimer = phase2 ? 75 : 110;
+    } else if (next === 1) {
+        b.telegraphTimer = 40;
+        for (let i = 0; i < 12; i++) {
+            const ang = Math.PI + (i / 12) * Math.PI;
+            f.enemyBullets.push({
+                x: b.x, y: b.y + b.h - 20,
+                vx: Math.cos(ang) * 5,
+                vy: Math.sin(ang) * 5 - 2,
+                life: 100, damage: 18, gravity: true,
+                color: '#ff8844', big: true
+            });
+        }
+        spawnFinaleShockwave(b.x, b.y + b.h, 250, '#ff8844', 0.8);
+        screenShake = Math.max(screenShake, 12);
+        b.attackTimer = phase2 ? 90 : 140;
+    } else if (next === 2) {
+        for (let i = -2; i <= 2; i++) {
+            const tx = p.x + i * 60;
+            const dx2 = (tx - muzzleX) * 0.018;
+            f.enemyBullets.push({
+                x: muzzleX, y: muzzleY,
+                vx: dx2, vy: -7,
+                life: 130, damage: 16, gravity: true,
+                color: '#ff6644', big: true
+            });
+        }
+        b.attackTimer = phase2 ? 85 : 120;
+    } else if (next === 3) {
+        for (let i = 0; i < 14; i++) {
+            const ang = (i / 14) * Math.PI * 2;
+            f.enemyBullets.push({
+                x: b.x, y: b.y + b.h / 2,
+                vx: Math.cos(ang) * 4.5,
+                vy: Math.sin(ang) * 4.5,
+                life: 90, damage: 20,
+                color: '#ff44ff'
+            });
+        }
+        spawnFinaleShockwave(b.x, b.y + b.h / 2, 100, '#ff44ff', 0.8);
+        b.attackTimer = phase2 ? 80 : 130;
+    } else {
+        for (let i = 0; i < 16; i++) {
+            const ang = (i / 16) * Math.PI * 2;
+            f.enemyBullets.push({
+                x: b.x, y: b.y + b.h / 2,
+                vx: Math.cos(ang) * 5, vy: Math.sin(ang) * 5,
+                life: 100, damage: 22,
+                color: '#ff44ff', big: true
+            });
+        }
+        for (let i = 0; i < 10; i++) {
+            const ang = (i / 10) * Math.PI * 2 + Math.PI / 10;
+            f.enemyBullets.push({
+                x: b.x, y: b.y + b.h / 2,
+                vx: Math.cos(ang) * 7, vy: Math.sin(ang) * 7,
+                life: 90, damage: 18,
+                color: '#ffaa00', big: true
+            });
+        }
+        spawnFinaleShockwave(b.x, b.y + b.h / 2, 160, '#ff44ff', 1.0);
+        screenShake = Math.max(screenShake, 14);
+        b.attackTimer = 110;
+    }
+    audio.play('shootHeavy', { throttle: 60 });
+}
+
+function updateFinaleVictory() {
+    const f = finale;
+    f.winTimer++;
+    if (f.timer < 200 && f.timer % 12 === 0) {
+        const ex = f.boss.x + (Math.random() - 0.5) * 80;
+        const ey = f.boss.y + 30 + Math.random() * 100;
+        spawnFinaleShockwave(ex, ey, 80 + Math.random() * 50, '#ffaa00', 0.8);
+        for (let k = 0; k < 16; k++) {
+            const ang = Math.random() * Math.PI * 2;
+            spawnFinaleParticle(ex, ey,
+                ['#ffffff', '#ffaa00', '#ff4422'][k % 3],
+                Math.cos(ang) * (3 + Math.random() * 4),
+                Math.sin(ang) * (3 + Math.random() * 4), 50);
+        }
+        screenShake = Math.max(screenShake, 8);
+    }
+    if (f.timer >= 240 && (keys['Enter'] || keys['NumpadEnter'])) {
+        gameState = 'won';
+        finale = null;
+    } else if (f.timer >= 540) {
+        gameState = 'won';
+        finale = null;
+    }
+}
+
+function spawnFinaleParticle(x, y, color, vx, vy, life) {
+    if (!finale) return;
+    finale.particles.push({ x, y, vx, vy, color, life: 1, maxLife: life || 30, size: 4 + Math.random() * 3 });
+}
+function spawnFinaleShockwave(x, y, maxR, color, life) {
+    if (!finale) return;
+    finale.shockwaves.push({ x, y, r: 10, maxR, color, life: life || 0.8 });
+}
+
+// ============================================================================
+// FINALE — DRAW
+// ============================================================================
+function drawFinale() {
+    if (!finale) return;
+    const f = finale;
+    // === Sky gradient (sunset over a doomed city) ===
+    const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    if (f.boss.phase === 2) {
+        sky.addColorStop(0, '#3a0030');
+        sky.addColorStop(0.5, '#5a1010');
+        sky.addColorStop(1, '#0a0510');
+    } else {
+        sky.addColorStop(0, '#1a0a40');
+        sky.addColorStop(0.5, '#3a1830');
+        sky.addColorStop(1, '#0a0510');
+    }
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // === Distant haze sun behind the boss ===
+    const sunX = f.boss.x;
+    const sunY = 200;
+    const sunGrad = ctx.createRadialGradient(sunX, sunY, 10, sunX, sunY, 180);
+    sunGrad.addColorStop(0, 'rgba(255, 220, 120, 0.5)');
+    sunGrad.addColorStop(0.4, 'rgba(255, 100, 80, 0.25)');
+    sunGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sunGrad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // === City skyline (3 layers) ===
+    if (f.skyline) {
+        for (let li = 0; li < f.skyline.length; li++) {
+            const layer = f.skyline[li];
+            ctx.fillStyle = layer.tint;
+            ctx.shadowBlur = 0;
+            for (const bd of layer.buildings) {
+                ctx.fillRect(bd.x, bd.y, bd.w, bd.h);
+                // Window dots — sparse
+                if (li >= 1) {
+                    ctx.fillStyle = '#ffaa44';
+                    for (let wy = bd.y + 8; wy < bd.y + bd.h - 8; wy += 14) {
+                        for (let wx = bd.x + 6; wx < bd.x + bd.w - 6; wx += 12) {
+                            if ((wx + wy) % 17 === 0) ctx.fillRect(wx, wy, 2, 3);
+                        }
+                    }
+                    ctx.fillStyle = layer.tint;
+                }
+            }
+        }
+    }
+
+    // === Ground line ===
+    ctx.fillStyle = '#0a0a18';
+    ctx.fillRect(0, 600 - 40, canvas.width, 40);
+    ctx.strokeStyle = '#3a3a55';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 600 - 40);
+    ctx.lineTo(canvas.width, 600 - 40);
+    ctx.stroke();
+
+    // === Boss landing shadow ===
+    if (f.boss.landed) {
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.beginPath();
+        ctx.ellipse(f.boss.x, 600 - 38, 100, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // === Player giant robot ===
+    drawFinalePlayer();
+
+    // === Boss giant robot ===
+    drawFinaleBoss();
+
+    // === Shockwaves (above sprites) ===
+    for (const s of f.shockwaves) {
+        ctx.globalAlpha = s.life;
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 4;
+        ctx.shadowColor = s.color;
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+
+    // === Bullets ===
+    for (const bu of f.bullets) {
+        ctx.fillStyle = bu.color || '#88ffff';
+        ctx.shadowColor = bu.color || '#88ffff';
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(bu.x, bu.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    for (const bu of f.enemyBullets) {
+        ctx.fillStyle = bu.color || '#ff4422';
+        ctx.shadowColor = bu.color || '#ff4422';
+        ctx.shadowBlur = bu.big ? 14 : 8;
+        ctx.beginPath();
+        ctx.arc(bu.x, bu.y, bu.big ? 9 : 6, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+
+    // === Particles ===
+    for (const p of f.particles) {
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+
+    // === HUD ===
+    drawFinaleHUD();
+}
+
+function drawFinalePlayer() {
+    const f = finale;
+    const p = f.player;
+    // Scale anim during intro: starts at 0.4 (smallish) and grows to 1.0
+    const scale = f.phase === 'intro' ? (0.4 + p.scaleAnim * 0.6) : 1.0;
+    const w = p.w * scale;
+    const h = p.h * scale;
+    const cx = p.x;
+    const top = p.y + (p.h - h);
+    const colorBody = p.charColor || '#00ddff';
+    const colorAccent = p.charAccent || '#00ffaa';
+
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath();
+    ctx.ellipse(cx, 600 - 38, w / 2 + 10, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Walk bob (giant heavy stride)
+    const bob = Math.abs(Math.sin(p.walkPhase)) * 3;
+    const bodyY = top - bob;
+
+    // Legs (chunky tubes)
+    ctx.fillStyle = '#222';
+    ctx.fillRect(cx - w * 0.3, bodyY + h * 0.55, w * 0.22, h * 0.45);
+    ctx.fillRect(cx + w * 0.08, bodyY + h * 0.55, w * 0.22, h * 0.45);
+    // Leg accent stripe
+    ctx.fillStyle = colorAccent;
+    ctx.fillRect(cx - w * 0.25, bodyY + h * 0.6, w * 0.04, h * 0.35);
+    ctx.fillRect(cx + w * 0.21, bodyY + h * 0.6, w * 0.04, h * 0.35);
+
+    // Torso (rounded rectangle with bevel)
+    const torsoX = cx - w / 2;
+    const torsoY = bodyY + h * 0.18;
+    const torsoW = w;
+    const torsoH = h * 0.42;
+    ctx.fillStyle = '#1a1a30';
+    ctx.fillRect(torsoX, torsoY, torsoW, torsoH);
+    const torsoG = ctx.createLinearGradient(torsoX, torsoY, torsoX, torsoY + torsoH);
+    torsoG.addColorStop(0, colorBody);
+    torsoG.addColorStop(0.5, '#1a1a30');
+    torsoG.addColorStop(1, colorBody);
+    ctx.fillStyle = torsoG;
+    ctx.fillRect(torsoX + 4, torsoY + 4, torsoW - 8, torsoH - 8);
+    // Chest core (glowing)
+    ctx.fillStyle = colorAccent;
+    ctx.shadowColor = colorAccent;
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.arc(cx, torsoY + torsoH * 0.5, w * 0.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Shoulders
+    ctx.fillStyle = '#222';
+    ctx.fillRect(cx - w * 0.55, torsoY - h * 0.04, w * 0.2, h * 0.2);
+    ctx.fillRect(cx + w * 0.35, torsoY - h * 0.04, w * 0.2, h * 0.2);
+    ctx.fillStyle = colorBody;
+    ctx.fillRect(cx - w * 0.52, torsoY - h * 0.02, w * 0.14, h * 0.14);
+    ctx.fillRect(cx + w * 0.38, torsoY - h * 0.02, w * 0.14, h * 0.14);
+
+    // Arms — front arm tracks the firing direction with recoil
+    const armLen = h * 0.36;
+    ctx.fillStyle = colorBody;
+    // Back arm (stable, hangs at side)
+    const backX = cx - p.facing * w * 0.45;
+    ctx.fillRect(backX - 5, torsoY + h * 0.12, 10, armLen);
+    // Front arm + cannon (recoil offset)
+    const frontX = cx + p.facing * w * 0.45 - p.facing * p.recoil;
+    ctx.fillRect(frontX - 6, torsoY + h * 0.12, 12, armLen * 0.6);
+    // Cannon barrel
+    ctx.fillStyle = '#444';
+    ctx.fillRect(frontX + p.facing * 6, torsoY + h * 0.18, p.facing * 30, 14);
+    ctx.fillStyle = colorAccent;
+    ctx.fillRect(frontX + p.facing * 30, torsoY + h * 0.21, p.facing * 6, 8);
+
+    // Head
+    const headY = torsoY - h * 0.12;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(cx - w * 0.18, headY, w * 0.36, h * 0.18);
+    ctx.fillStyle = colorBody;
+    ctx.fillRect(cx - w * 0.15, headY + 3, w * 0.30, h * 0.13);
+    // Visor
+    ctx.fillStyle = colorAccent;
+    ctx.shadowColor = colorAccent;
+    ctx.shadowBlur = 14;
+    ctx.fillRect(cx - w * 0.13, headY + h * 0.04, w * 0.26, h * 0.06);
+    ctx.shadowBlur = 0;
+
+    // Invincibility flicker
+    if (p.invincible > 0 && p.invincible % 4 < 2) {
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.fillRect(torsoX, torsoY - h * 0.15, torsoW, torsoH + h * 0.2);
+    }
+}
+
+function drawFinaleBoss() {
+    const f = finale;
+    const b = f.boss;
+    const phase2 = b.phase === 2;
+    const w = b.w;
+    const h = b.h;
+    const cx = b.x;
+    const top = b.y;
+
+    // Drop shadow
+    if (b.landed) {
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.beginPath();
+        ctx.ellipse(cx, 600 - 38, w * 0.7, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Phase 2 aura
+    if (phase2) {
+        const auraR = 130 + Math.sin(b.walkPhase * 4) * 8;
+        ctx.save();
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = '#ff44ff';
+        ctx.beginPath();
+        ctx.arc(cx, top + h / 2, auraR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    const bodyColor = phase2 ? '#552255' : '#553322';
+    const accent = phase2 ? '#ff44ff' : '#ff4422';
+    const trim = phase2 ? '#ffaaff' : '#ffaa66';
+
+    // Legs
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(cx - w * 0.32, top + h * 0.58, w * 0.22, h * 0.42);
+    ctx.fillRect(cx + w * 0.10, top + h * 0.58, w * 0.22, h * 0.42);
+    // Knee accents
+    ctx.fillStyle = accent;
+    ctx.fillRect(cx - w * 0.28, top + h * 0.7, w * 0.14, 6);
+    ctx.fillRect(cx + w * 0.14, top + h * 0.7, w * 0.14, 6);
+
+    // Hip armor
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(cx - w * 0.4, top + h * 0.5, w * 0.8, h * 0.14);
+
+    // Torso (massive armored core)
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(cx - w * 0.45, top + h * 0.18, w * 0.9, h * 0.38);
+    const tg = ctx.createLinearGradient(cx - w * 0.45, top, cx + w * 0.45, top + h);
+    tg.addColorStop(0, accent);
+    tg.addColorStop(0.5, bodyColor);
+    tg.addColorStop(1, accent);
+    ctx.fillStyle = tg;
+    ctx.fillRect(cx - w * 0.4, top + h * 0.22, w * 0.8, h * 0.32);
+
+    // Glowing core eye on chest
+    const corePulse = 0.7 + Math.sin(b.walkPhase * 2) * 0.3;
+    ctx.fillStyle = accent;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 24 * corePulse;
+    ctx.beginPath();
+    ctx.arc(cx, top + h * 0.36, w * 0.13, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(cx, top + h * 0.36, w * 0.05, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Shoulders (massive)
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(cx - w * 0.6, top + h * 0.16, w * 0.22, h * 0.18);
+    ctx.fillRect(cx + w * 0.38, top + h * 0.16, w * 0.22, h * 0.18);
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(cx - w * 0.56, top + h * 0.18, w * 0.14, h * 0.13);
+    ctx.fillRect(cx + w * 0.42, top + h * 0.18, w * 0.14, h * 0.13);
+    // Shoulder spikes
+    ctx.fillStyle = trim;
+    ctx.beginPath();
+    ctx.moveTo(cx - w * 0.6, top + h * 0.16);
+    ctx.lineTo(cx - w * 0.5, top + h * 0.05);
+    ctx.lineTo(cx - w * 0.4, top + h * 0.16);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx + w * 0.4, top + h * 0.16);
+    ctx.lineTo(cx + w * 0.5, top + h * 0.05);
+    ctx.lineTo(cx + w * 0.6, top + h * 0.16);
+    ctx.fill();
+
+    // Arms with attack-pose lift (armSwing during attacks)
+    const armLift = b.armSwing * h * 0.1;
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(cx - w * 0.6, top + h * 0.34 - armLift, w * 0.16, h * 0.34);
+    ctx.fillRect(cx + w * 0.44, top + h * 0.34 - armLift, w * 0.16, h * 0.34);
+    // Forearm cannons
+    ctx.fillStyle = '#222';
+    ctx.fillRect(cx - w * 0.7, top + h * 0.5 - armLift, w * 0.16, 14);
+    ctx.fillRect(cx + w * 0.54, top + h * 0.5 - armLift, w * 0.16, 14);
+
+    // Head — horned crown
+    const headW = w * 0.4;
+    const headH = h * 0.2;
+    const headX = cx - headW / 2;
+    const headY = top - headH * 0.3;
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(headX, headY, headW, headH);
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(headX + 4, headY + 4, headW - 8, headH - 8);
+    // Eye
+    ctx.fillStyle = accent;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 18;
+    ctx.fillRect(headX + headW * 0.2, headY + headH * 0.4, headW * 0.6, headH * 0.25);
+    ctx.shadowBlur = 0;
+    // Horns
+    ctx.fillStyle = trim;
+    ctx.beginPath();
+    ctx.moveTo(headX + 4, headY);
+    ctx.lineTo(headX - 8, headY - 22);
+    ctx.lineTo(headX + 16, headY);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(headX + headW - 16, headY);
+    ctx.lineTo(headX + headW + 8, headY - 22);
+    ctx.lineTo(headX + headW - 4, headY);
+    ctx.fill();
+
+    // Telegraph flicker before slam
+    if (b.telegraphTimer > 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.3 + Math.sin(b.telegraphTimer * 0.6) * 0.3;
+        ctx.fillStyle = '#ff0000';
+        ctx.fillRect(cx - w * 0.5, top, w, h);
+        ctx.restore();
+    }
+}
+
+function drawFinaleHUD() {
+    const f = finale;
+    // Player HP bar (left)
+    ctx.fillStyle = '#000';
+    ctx.fillRect(20, 20, 280, 22);
+    ctx.fillStyle = '#330000';
+    ctx.fillRect(22, 22, 276, 18);
+    const hpPct = Math.max(0, f.player.hp / f.player.maxHp);
+    ctx.fillStyle = hpPct > 0.4 ? '#00ff88' : (hpPct > 0.2 ? '#ffaa00' : '#ff3333');
+    ctx.fillRect(22, 22, 276 * hpPct, 18);
+    ctx.strokeStyle = '#88ddff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(20, 20, 280, 22);
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px Courier New';
+    ctx.textAlign = 'left';
+    ctx.fillText(`YOU  ${Math.round(f.player.hp)} / ${f.player.maxHp}`, 28, 35);
+
+    // Boss HP bar (right)
+    ctx.fillStyle = '#000';
+    ctx.fillRect(canvas.width - 300, 20, 280, 22);
+    ctx.fillStyle = '#220011';
+    ctx.fillRect(canvas.width - 298, 22, 276, 18);
+    const bhPct = Math.max(0, f.boss.hp / f.boss.maxHp);
+    ctx.fillStyle = f.boss.phase === 2 ? '#ff44ff' : '#ff4422';
+    ctx.fillRect(canvas.width - 298, 22, 276 * bhPct, 18);
+    ctx.strokeStyle = f.boss.phase === 2 ? '#ff88ff' : '#ff8844';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(canvas.width - 300, 20, 280, 22);
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'right';
+    ctx.fillText(`EARTHBREAKER  ${Math.round(f.boss.hp)} / ${f.boss.maxHp}`, canvas.width - 28, 35);
+    ctx.textAlign = 'left';
+
+    // Banner — phase intro / phase 2 trigger / victory
+    if (f.bannerTimer > 0) {
+        const a = Math.min(1, f.bannerTimer / 60);
+        ctx.save();
+        ctx.globalAlpha = a;
+        let txt = '';
+        let col = '#ff4422';
+        if (f.phase === 'intro') { txt = '⚡ TRANSFORM PROTOCOL ACTIVE ⚡'; col = '#88ffff'; }
+        else if (f.phase === 'battle' && !f.boss.phase2Triggered) {
+            txt = '⚠ EARTHBREAKER — DEFEND THE WORLD ⚠';
+            col = '#ff4422';
+        } else if (f.phase === 'battle' && f.boss.phase2Triggered) {
+            txt = '☠ EARTHBREAKER — RAGE PROTOCOL ☠';
+            col = '#ff44ff';
+        } else if (f.phase === 'victory') {
+            txt = '★ THE WORLD IS SAVED ★';
+            col = '#ffdd44';
+        }
+        ctx.fillStyle = col;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 18;
+        ctx.font = 'bold 32px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(txt, canvas.width / 2, 90);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+        ctx.textAlign = 'left';
+    }
+
+    // Controls hint during early battle
+    if (f.phase === 'battle' && f.timer < 240) {
+        ctx.globalAlpha = Math.max(0, 1 - f.timer / 240);
+        ctx.fillStyle = '#88ddff';
+        ctx.font = '14px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('A/D move • W/SPACE jump • F/J fire', canvas.width / 2, canvas.height - 30);
+        ctx.globalAlpha = 1;
+        ctx.textAlign = 'left';
+    }
+
+    // Victory prompt
+    if (f.phase === 'victory' && f.timer >= 240) {
+        const blink = Math.floor(performance.now() / 400) % 2 === 0;
+        if (blink) {
+            ctx.fillStyle = '#ffdd44';
+            ctx.shadowColor = '#ffdd44';
+            ctx.shadowBlur = 14;
+            ctx.font = 'bold 18px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('PRESS ENTER TO CONTINUE', canvas.width / 2, canvas.height - 50);
+            ctx.shadowBlur = 0;
+            ctx.textAlign = 'left';
+        }
+    }
+}
+
 // Main game loop
 function gameLoop(timestamp) {
     const dt = timestamp - lastTime;
@@ -17891,6 +18765,7 @@ function gameLoop(timestamp) {
         laserGrids = []; terminals = []; keyPickups = []; player.keysHeld = [];
         healingStations = []; activeHealingStation = null;
         spaceState.active = false; spaceState.flyingEnemies = []; spaceState.completing = null;
+        finale = null;   // wipe finale state if the player died/won during the giant fight
         for (const s of STAGES) { s.cutsceneShown = false; s.spaceCutsceneShown = false; s.victoryCutsceneShown = false; }
         timeSlowFactor = 1;
         score = 0;
@@ -17943,6 +18818,10 @@ function gameLoop(timestamp) {
         updateSpaceTransition();
         updateParticles();
         updateCamera();
+    } else if (gameState === 'finale') {
+        updateFinale();
+        // Particles still tick globally (for hitFlash + general feel)
+        updateParticles();
     } else if (gameState === 'evoCutscene') {
         updateEvoCutscene();
         updateParticles();
@@ -17974,6 +18853,22 @@ function gameLoop(timestamp) {
 
     if (gameState === 'spaceTransition') {
         drawSpaceTransition();
+        ctx.restore();
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+
+    // Finale takes over the whole screen too — clean separation from
+    // normal-stage rendering since it has its own backdrop, fighters,
+    // bullets, and HUD.
+    if (gameState === 'finale') {
+        drawFinale();
+        // Lightweight global FX overlay so hitFlash + screenShake still apply
+        if (hitFlash > 0) {
+            ctx.fillStyle = `rgba(255, 0, 0, ${hitFlash * 0.5})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            hitFlash = Math.max(0, hitFlash - 0.06);
+        }
         ctx.restore();
         requestAnimationFrame(gameLoop);
         return;
