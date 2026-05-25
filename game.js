@@ -17694,13 +17694,23 @@ function startFinale() {
             charAccent: player.charAccent || '#00ffaa',
             walkPhase: 0,
             shootHeld: false,
-            recoil: 0
+            recoil: 0,
+            // Movement upgrades
+            jumpsUsed: 0,           // double-jump tracker
+            jumpHeld: false,
+            dashTimer: 0,           // ticks down during dash; player has i-frames while > 0
+            dashCooldown: 0,
+            dashHeld: false,
+            specialTimer: 0,        // ticks down during special; >0 = beam blast active
+            specialCooldown: 0,
+            specialHeld: false
         },
-        // Boss — EARTHBREAKER. Bigger than the player. Has its own state.
+        // Boss — EARTHBREAKER. 2 lives: city → space.
         boss: {
             x: 760, y: 320,
             w: 130, h: 220,
             hp: 4500, maxHp: 4500,
+            life: 1,                // 1 = city form, 2 = space form
             phase: 1,
             attackTimer: 200,      // first attack delay
             attackPattern: 0,
@@ -17710,7 +17720,13 @@ function startFinale() {
             phase2Triggered: false,
             walkPhase: 0,
             facing: -1,
-            armSwing: 0
+            armSwing: 0,
+            corePulse: 0,
+            // City-traversal: boss drifts laterally and the camera follows
+            patrolDir: 1,
+            // Space form additions (set when life 2 begins)
+            orbitAng: 0,
+            specialActive: false
         },
         bullets: [],               // hero shots (giant-scale)
         enemyBullets: [],          // boss shots
@@ -17720,7 +17736,12 @@ function startFinale() {
         skyline: buildFinaleSkyline(),
         bannerTimer: 180,
         winTimer: 0,
-        introBeat: 0
+        introBeat: 0,
+        cameraX: 0,                // horizontal scroll for the city traversal
+        // Pre-fight + city→space dialogue cutscene state
+        dialogue: null,            // { lines, idx, timer }
+        // Stars for space form backdrop
+        stars: null
     };
     gameState = 'finale';
     audio.play('bossIntro');
@@ -17756,7 +17777,11 @@ function updateFinale() {
     finale.timer++;
     if (finale.bannerTimer > 0) finale.bannerTimer--;
     if (finale.phase === 'intro')   updateFinaleIntro();
+    else if (finale.phase === 'dialogue1') updateFinaleDialogue();
+    else if (finale.phase === 'dialogue2') updateFinaleDialogue();
     else if (finale.phase === 'battle')  updateFinaleBattle();
+    else if (finale.phase === 'cityToSpace') updateFinaleCityToSpace();
+    else if (finale.phase === 'battle2') updateFinaleBattle();   // same battle loop, life 2
     else if (finale.phase === 'victory') updateFinaleVictory();
     // Phase update may have nulled finale (e.g. victory→won), so bail early
     // before touching its particle/shockwave arrays.
@@ -17806,44 +17831,205 @@ function updateFinaleIntro() {
         audio.play('explosion');
     }
     if (f.timer >= 240) {
-        f.phase = 'battle';
+        // Move into the pre-fight dialogue beat before combat starts.
+        f.phase = 'dialogue1';
         f.timer = 0;
-        f.bannerTimer = 200;
-        audio.play('bossIntro');
+        f.dialogue = {
+            lines: [
+                { speaker: 'YOU',          text: 'You — what ARE you?', color: '#88ffff' },
+                { speaker: 'EARTHBREAKER', text: 'I am the cleansing fire. Your world ends here.', color: '#ff4422' },
+                { speaker: 'YOU',          text: 'Not while I still stand. Bring it.', color: '#88ffff' }
+            ],
+            idx: 0,
+            charTimer: 0,
+            advanceHeld: false
+        };
+        f.bannerTimer = 0;
     }
+}
+
+function updateFinaleDialogue() {
+    const f = finale;
+    if (!f.dialogue) return;
+    const d = f.dialogue;
+    d.charTimer++;
+    // ENTER / SPACE / F advances dialogue
+    const advance = keys['Enter'] || keys['NumpadEnter'] || keys['Space'] || keys['KeyF'];
+    if (advance && !d.advanceHeld) {
+        d.advanceHeld = true;
+        d.idx++;
+        d.charTimer = 0;
+        if (d.idx >= d.lines.length) {
+            // Done — start (or resume) battle. dialogue2 routes to life-2
+            // battle so the boss arrives in space form.
+            f.phase = 'battle';
+            f.timer = 0;
+            f.bannerTimer = 200;
+            f.dialogue = null;
+            audio.play('bossIntro');
+            return;
+        }
+        audio.play('ui');
+    }
+    if (!advance) d.advanceHeld = false;
+}
+
+// Special move — wide piercing energy beam from the chest core. Long
+// cooldown (4s). Fires immediately when triggered from the player loop.
+function finaleSpecial() {
+    const f = finale;
+    const p = f.player;
+    const muzzleX = p.x;
+    const muzzleY = p.y + 60;
+    // Big piercing wave — 5 stacked rays
+    for (let i = -2; i <= 2; i++) {
+        f.bullets.push({
+            x: muzzleX, y: muzzleY + i * 10,
+            vx: p.facing * 22, vy: 0,
+            life: 90, damage: 80,
+            color: p.charAccent || '#88ffff',
+            pierce: true
+        });
+    }
+    spawnFinaleShockwave(muzzleX, muzzleY, 80, p.charAccent || '#88ffff', 1.0);
+    for (let k = 0; k < 30; k++) {
+        spawnFinaleParticle(muzzleX, muzzleY,
+            p.charAccent || '#88ffff',
+            p.facing * (Math.random() * 8),
+            (Math.random() - 0.5) * 4, 30);
+    }
+    screenShake = Math.max(screenShake, 12);
 }
 
 function updateFinaleBattle() {
     const f = finale;
     const p = f.player;
     const b = f.boss;
+    const inSpace = b.life === 2;
     if (p.invincible > 0) p.invincible--;
     if (p.shootTimer > 0) p.shootTimer--;
     if (p.recoil > 0) p.recoil--;
+    if (p.dashTimer > 0) p.dashTimer--;
+    if (p.dashCooldown > 0) p.dashCooldown--;
+    if (p.specialTimer > 0) p.specialTimer--;
+    if (p.specialCooldown > 0) p.specialCooldown--;
+
+    // === Movement ===
     let dx = 0;
     if (keys['KeyA'] || keys['ArrowLeft'])  { dx = -1; p.facing = -1; }
     if (keys['KeyD'] || keys['ArrowRight']) { dx =  1; p.facing =  1; }
-    p.vx = dx * 4;
+    const baseSpeed = inSpace ? 5 : 4;
+    p.vx = dx * baseSpeed + (p.dashTimer > 0 ? p.facing * 8 : 0);
     p.x += p.vx;
-    if (p.x < 60) p.x = 60;
-    if (p.x > 400) p.x = 400;
-    if (Math.abs(dx) > 0) p.walkPhase += 0.2;
-    if ((keys['KeyW'] || keys['ArrowUp'] || keys['Space']) && p.vy === 0 && p.y >= 380) {
-        p.vy = -10;
+
+    // Bounds. In space, no city scroll — symmetric arena. In city,
+    // movement scrolls the camera horizontally so it feels like traversal.
+    if (inSpace) {
+        // Floor-less arena; player can hover in space (gravity halved)
+        if (p.x < 60) p.x = 60;
+        if (p.x > 940) p.x = 940;
+    } else {
+        if (p.x < 60) p.x = 60;
+        if (p.x > 700) p.x = 700;       // wider than before so the player can roam
+        // Camera follows the boss for the "city traversal" feel
+        f.cameraX = (b.x - canvas.width / 2) * 0.4;
     }
-    p.vy += 0.5;
+    if (Math.abs(dx) > 0) p.walkPhase += 0.2;
+
+    // Jump (with double-jump)
+    const jumpKey = keys['KeyW'] || keys['ArrowUp'] || keys['Space'];
+    const groundY = inSpace ? 999 : 380;     // no ground in space → falls clamped
+    const onGround = !inSpace && p.y >= 380 && p.vy >= 0;
+    if (jumpKey && !p.jumpHeld) {
+        p.jumpHeld = true;
+        if (onGround) {
+            p.vy = -11;
+            p.jumpsUsed = 1;
+            audio.play('jump');
+        } else if (p.jumpsUsed < 2) {
+            p.vy = -10;
+            p.jumpsUsed++;
+            audio.play('doubleJump');
+            // Double-jump puff
+            for (let k = 0; k < 8; k++) {
+                spawnFinaleParticle(p.x + (Math.random() - 0.5) * 30,
+                    p.y + p.h, p.charAccent || '#88ffff',
+                    (Math.random() - 0.5) * 4, 2, 20);
+            }
+        }
+    }
+    if (!jumpKey) p.jumpHeld = false;
+
+    // Gravity (halved in space — feels like a floaty arena fight)
+    p.vy += inSpace ? 0.18 : 0.5;
     p.y += p.vy;
-    if (p.y >= 380) { p.y = 380; p.vy = 0; }
+    if (!inSpace && p.y >= 380) { p.y = 380; p.vy = 0; p.jumpsUsed = 0; }
+    // In space, soft-clamp y so player can't fly out
+    if (inSpace) {
+        if (p.y < 80) { p.y = 80; p.vy = 0; }
+        if (p.y > 480) { p.y = 480; p.vy = 0; }
+    }
+
+    // Dash (Shift) — short i-frame burst forward
+    const dashKey = keys['ShiftLeft'] || keys['ShiftRight'];
+    if (dashKey && !p.dashHeld && p.dashCooldown <= 0) {
+        p.dashHeld = true;
+        p.dashTimer = 12;       // 12 frames of dash + i-frames
+        p.dashCooldown = 50;
+        p.invincible = Math.max(p.invincible, 12);
+        audio.play('dash');
+        for (let k = 0; k < 12; k++) {
+            spawnFinaleParticle(p.x, p.y + p.h * 0.5,
+                p.charAccent || '#88ffff',
+                -p.facing * (1 + Math.random() * 4),
+                (Math.random() - 0.5) * 3, 22);
+        }
+    }
+    if (!dashKey) p.dashHeld = false;
+
+    // Special (Q) — short charged beam blast that fires a wide piercing
+    // wave forward. Long cooldown so it's a signature move.
+    const specialKey = keys['KeyQ'];
+    if (specialKey && !p.specialHeld && p.specialCooldown <= 0) {
+        p.specialHeld = true;
+        p.specialTimer = 18;
+        p.specialCooldown = 240;
+        finaleSpecial();
+        audio.play('shootBeam');
+    }
+    if (!specialKey) p.specialHeld = false;
+
+    // Shoot
     if ((keys['KeyF'] || keys['KeyJ']) && p.shootTimer <= 0) {
         finaleShoot();
         p.shootTimer = 8;
         p.recoil = 5;
         audio.play('shoot', { throttle: 60 });
     }
+
+    // === Boss AI ===
     b.walkPhase += 0.04;
+    b.corePulse += 0.08;
     b.attackTimer--;
     if (b.armSwing > 0) b.armSwing -= 0.05;
-    if (!b.phase2Triggered && b.hp <= b.maxHp * 0.5) {
+
+    // City traversal: boss patrols laterally so the fight scrolls
+    if (!inSpace && b.landed) {
+        b.x += b.patrolDir * 0.6;
+        if (b.x > 1100) b.patrolDir = -1;
+        if (b.x < 500) b.patrolDir = 1;
+        // Boss faces the player
+        b.facing = (p.x + f.cameraX) > b.x ? 1 : -1;
+    } else if (inSpace) {
+        // Space: boss orbits a center point in a wider arc
+        b.orbitAng += 0.012;
+        b.x = 700 + Math.cos(b.orbitAng) * 180;
+        b.y = 240 + Math.sin(b.orbitAng * 0.7) * 60;
+        b.facing = p.x > b.x ? 1 : -1;
+    }
+
+    // Phase 2 at 50% HP (life-1 only — life 2 starts already at "rage")
+    if (!inSpace && !b.phase2Triggered && b.hp <= b.maxHp * 0.5) {
         b.phase2Triggered = true;
         b.phase = 2;
         spawnFinaleShockwave(b.x, b.y + b.h / 2, 240, '#ff44ff', 1.0);
@@ -17854,17 +18040,20 @@ function updateFinaleBattle() {
                 Math.cos(ang) * 6, Math.sin(ang) * 6, 50);
         }
         screenShake = 24;
-        hitStop = 8;
+        // Brief player i-frames so the immediate phase-2 attack can't blindside
+        p.invincible = Math.max(p.invincible, 60);
         f.bannerTimer = 200;
         audio.play('explosion');
     }
     if (b.attackTimer <= 0) finaleBossAttack();
     if (b.telegraphTimer > 0) b.telegraphTimer--;
+
+    // === Tick projectiles ===
     for (let i = f.bullets.length - 1; i >= 0; i--) {
         const bu = f.bullets[i];
         bu.x += bu.vx; bu.y += bu.vy;
         bu.life--;
-        if (bu.life <= 0 || bu.x < -50 || bu.x > 1050 || bu.y < -50 || bu.y > 650) {
+        if (bu.life <= 0 || bu.x < -50 || bu.x > 1450 || bu.y < -50 || bu.y > 650) {
             f.bullets.splice(i, 1); continue;
         }
         if (bu.x > b.x - b.w / 2 && bu.x < b.x + b.w / 2 &&
@@ -17875,26 +18064,46 @@ function updateFinaleBattle() {
                 spawnFinaleParticle(bu.x, bu.y, p.charColor,
                     (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, 24);
             }
-            f.bullets.splice(i, 1);
+            if (!bu.pierce) f.bullets.splice(i, 1);
             screenShake = Math.max(screenShake, 4);
             audio.play('hit', { throttle: 40 });
             if (b.hp <= 0) {
                 b.hp = 0;
-                f.phase = 'victory';
-                f.timer = 0;
-                f.bannerTimer = 240;
-                spawnFinaleShockwave(b.x, b.y + b.h / 2, 400, '#ffffff', 1.0);
-                spawnFinaleShockwave(b.x, b.y + b.h / 2, 600, '#ffaa00', 1.0);
-                for (let k = 0; k < 100; k++) {
-                    const ang = Math.random() * Math.PI * 2;
-                    spawnFinaleParticle(b.x, b.y + b.h / 2,
-                        ['#ffffff', '#ffaa00', '#ff4422'][k % 3],
-                        Math.cos(ang) * (4 + Math.random() * 6),
-                        Math.sin(ang) * (4 + Math.random() * 6), 80);
+                if (b.life === 1) {
+                    // First kill → city-to-space cinematic, full HP refill
+                    f.phase = 'cityToSpace';
+                    f.timer = 0;
+                    f.bannerTimer = 0;
+                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 320, '#ffffff', 1.0);
+                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 480, '#ff8844', 1.0);
+                    for (let k = 0; k < 80; k++) {
+                        const ang = Math.random() * Math.PI * 2;
+                        spawnFinaleParticle(b.x, b.y + b.h / 2,
+                            ['#ffffff', '#ffaa00', '#ff4422'][k % 3],
+                            Math.cos(ang) * (4 + Math.random() * 6),
+                            Math.sin(ang) * (4 + Math.random() * 6), 80);
+                    }
+                    screenShake = 36;
+                    hitStop = 12;
+                    audio.play('bossKill');
+                } else {
+                    // Final kill — victory
+                    f.phase = 'victory';
+                    f.timer = 0;
+                    f.bannerTimer = 240;
+                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 400, '#ffffff', 1.0);
+                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 600, '#ffaa00', 1.0);
+                    for (let k = 0; k < 100; k++) {
+                        const ang = Math.random() * Math.PI * 2;
+                        spawnFinaleParticle(b.x, b.y + b.h / 2,
+                            ['#ffffff', '#ffaa00', '#ff4422'][k % 3],
+                            Math.cos(ang) * (4 + Math.random() * 6),
+                            Math.sin(ang) * (4 + Math.random() * 6), 80);
+                    }
+                    screenShake = 40;
+                    hitStop = 14;
+                    audio.play('bossKill');
                 }
-                screenShake = 40;
-                hitStop = 14;
-                audio.play('bossKill');
                 return;
             }
         }
@@ -17904,7 +18113,7 @@ function updateFinaleBattle() {
         bu.x += bu.vx; bu.y += bu.vy;
         if (bu.gravity) bu.vy += 0.18;
         bu.life--;
-        if (bu.life <= 0 || bu.x < -50 || bu.x > 1050 || bu.y < -50 || bu.y > 650) {
+        if (bu.life <= 0 || bu.x < -50 || bu.x > 1450 || bu.y < -50 || bu.y > 650) {
             f.enemyBullets.splice(i, 1); continue;
         }
         if (p.invincible <= 0 &&
@@ -17927,6 +18136,88 @@ function updateFinaleBattle() {
                 return;
             }
         }
+    }
+}
+
+// City → space transition cinematic. Boss core implodes and reforms in
+// orbit; player launches up. Camera tilts to a star field.
+function updateFinaleCityToSpace() {
+    const f = finale;
+    const t = f.timer;
+    // Boss debris cascade
+    if (t < 120 && t % 6 === 0) {
+        for (let k = 0; k < 12; k++) {
+            spawnFinaleParticle(
+                f.boss.x + (Math.random() - 0.5) * 100,
+                f.boss.y + Math.random() * 200,
+                ['#ff4422', '#ffaa00', '#ffffff'][k % 3],
+                (Math.random() - 0.5) * 6,
+                -2 - Math.random() * 4, 60);
+        }
+    }
+    if (t === 30) {
+        spawnFinaleShockwave(f.boss.x, f.boss.y + f.boss.h / 2, 200, '#ffffff', 1.0);
+        screenShake = 18;
+    }
+    // Player launches upward at t=80, scales 1.0 → 0.8 to feel "zoomed out"
+    if (t > 80 && t < 200) {
+        f.player.y -= 1.5;       // gentle ascent
+        if (t % 3 === 0) {
+            spawnFinaleParticle(f.player.x, f.player.y + f.player.h,
+                f.player.charColor, (Math.random() - 0.5) * 2, 6, 30);
+        }
+    }
+    // At t=180, switch to space form: refill HP, set boss life=2,
+    // reset positions, generate stars.
+    if (t === 180) {
+        screenShake = 24;
+        spawnFinaleShockwave(canvas.width / 2, canvas.height / 2, 600, '#ffffff', 1.0);
+        for (let k = 0; k < 60; k++) {
+            const ang = Math.random() * Math.PI * 2;
+            spawnFinaleParticle(canvas.width / 2, canvas.height / 2,
+                '#ffffff', Math.cos(ang) * 8, Math.sin(ang) * 8, 50);
+        }
+        // Generate starfield
+        f.stars = [];
+        for (let s = 0; s < 200; s++) {
+            f.stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                size: Math.random() * 2 + 0.5,
+                twinkle: Math.random() * Math.PI * 2
+            });
+        }
+        // Reset combatants
+        f.player.x = 200;
+        f.player.y = 300;
+        f.player.vy = 0;
+        f.player.hp = f.player.maxHp;
+        f.player.invincible = 90;
+        f.player.jumpsUsed = 0;
+        f.boss.life = 2;
+        f.boss.hp = f.boss.maxHp;
+        f.boss.phase = 2;        // life 2 starts already in rage form
+        f.boss.phase2Triggered = true;     // skip the mid-life trigger
+        f.boss.x = 700; f.boss.y = 240;
+        f.boss.attackTimer = 90;
+        f.boss.telegraphTimer = 0;
+        f.boss.orbitAng = 0;
+        f.boss.specialActive = false;
+        f.bullets.length = 0;
+        f.enemyBullets.length = 0;
+        f.cameraX = 0;
+        // Brief dialogue beat queued through dialogue2 phase
+        f.dialogue = {
+            lines: [
+                { speaker: 'EARTHBREAKER', text: 'You think the city was my ARMY? It was my SHELL.', color: '#ff44ff' },
+                { speaker: 'YOU',          text: 'Then I will break your CORE in orbit.', color: '#88ffff' }
+            ],
+            idx: 0,
+            charTimer: 0,
+            advanceHeld: false
+        };
+        f.phase = 'dialogue2';
+        f.timer = 0;
     }
 }
 
@@ -17956,7 +18247,9 @@ function finaleBossAttack() {
     const b = f.boss;
     const p = f.player;
     const phase2 = b.phase === 2;
-    const pool = phase2 ? 5 : 4;
+    const inSpace = b.life === 2;
+    // Larger pool in space form (6 patterns including ORBITAL LASER)
+    const pool = inSpace ? 6 : (phase2 ? 5 : 4);
     let next;
     do { next = Math.floor(Math.random() * pool); }
     while (next === b.attackPattern && Math.random() > 0.2);
@@ -18017,7 +18310,7 @@ function finaleBossAttack() {
         }
         spawnFinaleShockwave(b.x, b.y + b.h / 2, 100, '#ff44ff', 0.8);
         b.attackTimer = phase2 ? 80 : 130;
-    } else {
+    } else if (next === 4) {
         for (let i = 0; i < 16; i++) {
             const ang = (i / 16) * Math.PI * 2;
             f.enemyBullets.push({
@@ -18039,6 +18332,28 @@ function finaleBossAttack() {
         spawnFinaleShockwave(b.x, b.y + b.h / 2, 160, '#ff44ff', 1.0);
         screenShake = Math.max(screenShake, 14);
         b.attackTimer = 110;
+    } else {
+        // PATTERN 5 (life-2 only) — ORBITAL LASER SWEEP. Three slow sweeping
+        // beams from the boss core that the player can dash through. Telegraph
+        // for 30 frames so it's reactable.
+        b.telegraphTimer = 30;
+        for (let i = -1; i <= 1; i++) {
+            const aimAng = Math.atan2(p.y - muzzleY, p.x - muzzleX) + i * 0.4;
+            // Each beam = 8 stacked bullets in a line
+            for (let s = 0; s < 8; s++) {
+                f.enemyBullets.push({
+                    x: muzzleX + Math.cos(aimAng) * (s * 18),
+                    y: muzzleY + Math.sin(aimAng) * (s * 18),
+                    vx: Math.cos(aimAng) * 3,
+                    vy: Math.sin(aimAng) * 3,
+                    life: 80, damage: 14,
+                    color: '#ff88ff', big: true
+                });
+            }
+        }
+        spawnFinaleShockwave(muzzleX, muzzleY, 80, '#ff88ff', 1.0);
+        screenShake = Math.max(screenShake, 10);
+        b.attackTimer = 130;
     }
     audio.play('shootHeavy', { throttle: 60 });
 }
@@ -18083,75 +18398,40 @@ function spawnFinaleShockwave(x, y, maxR, color, life) {
 function drawFinale() {
     if (!finale) return;
     const f = finale;
-    // === Sky gradient (sunset over a doomed city) ===
-    const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    if (f.boss.phase === 2) {
-        sky.addColorStop(0, '#3a0030');
-        sky.addColorStop(0.5, '#5a1010');
-        sky.addColorStop(1, '#0a0510');
+    const inSpace = f.boss.life === 2 || f.phase === 'cityToSpace' && f.timer >= 180;
+    // === Backdrop ===
+    if (inSpace || f.phase === 'cityToSpace' && f.timer > 90) {
+        drawFinaleSpaceBackdrop();
     } else {
-        sky.addColorStop(0, '#1a0a40');
-        sky.addColorStop(0.5, '#3a1830');
-        sky.addColorStop(1, '#0a0510');
+        drawFinaleCityBackdrop();
     }
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // === Distant haze sun behind the boss ===
-    const sunX = f.boss.x;
-    const sunY = 200;
-    const sunGrad = ctx.createRadialGradient(sunX, sunY, 10, sunX, sunY, 180);
-    sunGrad.addColorStop(0, 'rgba(255, 220, 120, 0.5)');
-    sunGrad.addColorStop(0.4, 'rgba(255, 100, 80, 0.25)');
-    sunGrad.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = sunGrad;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // === City skyline (3 layers) ===
-    if (f.skyline) {
-        for (let li = 0; li < f.skyline.length; li++) {
-            const layer = f.skyline[li];
-            ctx.fillStyle = layer.tint;
-            ctx.shadowBlur = 0;
-            for (const bd of layer.buildings) {
-                ctx.fillRect(bd.x, bd.y, bd.w, bd.h);
-                // Window dots — sparse
-                if (li >= 1) {
-                    ctx.fillStyle = '#ffaa44';
-                    for (let wy = bd.y + 8; wy < bd.y + bd.h - 8; wy += 14) {
-                        for (let wx = bd.x + 6; wx < bd.x + bd.w - 6; wx += 12) {
-                            if ((wx + wy) % 17 === 0) ctx.fillRect(wx, wy, 2, 3);
-                        }
-                    }
-                    ctx.fillStyle = layer.tint;
-                }
-            }
+    // === Ground (city only) ===
+    if (!inSpace && f.phase !== 'cityToSpace') {
+        ctx.fillStyle = '#0a0a18';
+        ctx.fillRect(0, 600 - 40, canvas.width, 40);
+        ctx.strokeStyle = '#3a3a55';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, 600 - 40);
+        ctx.lineTo(canvas.width, 600 - 40);
+        ctx.stroke();
+        if (f.boss.landed) {
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.beginPath();
+            ctx.ellipse(f.boss.x, 600 - 38, 100, 12, 0, 0, Math.PI * 2);
+            ctx.fill();
         }
     }
 
-    // === Ground line ===
-    ctx.fillStyle = '#0a0a18';
-    ctx.fillRect(0, 600 - 40, canvas.width, 40);
-    ctx.strokeStyle = '#3a3a55';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, 600 - 40);
-    ctx.lineTo(canvas.width, 600 - 40);
-    ctx.stroke();
-
-    // === Boss landing shadow ===
-    if (f.boss.landed) {
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.beginPath();
-        ctx.ellipse(f.boss.x, 600 - 38, 100, 12, 0, 0, Math.PI * 2);
-        ctx.fill();
+    // Hide combatants during the cityToSpace flash window so the
+    // explosion reads cleanly.
+    if (f.phase !== 'cityToSpace' || f.timer < 90) {
+        drawFinalePlayer();
     }
-
-    // === Player giant robot ===
-    drawFinalePlayer();
-
-    // === Boss giant robot ===
-    drawFinaleBoss();
+    if (f.phase !== 'cityToSpace' || f.timer < 60) {
+        drawFinaleBoss();
+    }
 
     // === Shockwaves (above sprites) ===
     for (const s of f.shockwaves) {
@@ -18171,9 +18451,9 @@ function drawFinale() {
     for (const bu of f.bullets) {
         ctx.fillStyle = bu.color || '#88ffff';
         ctx.shadowColor = bu.color || '#88ffff';
-        ctx.shadowBlur = 10;
+        ctx.shadowBlur = bu.pierce ? 16 : 10;
         ctx.beginPath();
-        ctx.arc(bu.x, bu.y, 6, 0, Math.PI * 2);
+        ctx.arc(bu.x, bu.y, bu.pierce ? 9 : 6, 0, Math.PI * 2);
         ctx.fill();
     }
     for (const bu of f.enemyBullets) {
@@ -18194,8 +18474,158 @@ function drawFinale() {
     }
     ctx.globalAlpha = 1;
 
+    // === Dialogue overlay ===
+    if (f.dialogue && (f.phase === 'dialogue1' || f.phase === 'dialogue2')) {
+        drawFinaleDialogue();
+    }
+
     // === HUD ===
-    drawFinaleHUD();
+    if (f.phase === 'battle' || f.phase === 'cityToSpace') {
+        drawFinaleHUD();
+    }
+}
+
+function drawFinaleCityBackdrop() {
+    const f = finale;
+    // Sky gradient (sunset over a doomed city)
+    const sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    if (f.boss.phase === 2 || f.phase === 'cityToSpace') {
+        sky.addColorStop(0, '#3a0030');
+        sky.addColorStop(0.5, '#5a1010');
+        sky.addColorStop(1, '#0a0510');
+    } else {
+        sky.addColorStop(0, '#1a0a40');
+        sky.addColorStop(0.5, '#3a1830');
+        sky.addColorStop(1, '#0a0510');
+    }
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Distant haze sun behind the boss
+    const sunX = f.boss.x;
+    const sunY = 200;
+    const sunGrad = ctx.createRadialGradient(sunX, sunY, 10, sunX, sunY, 180);
+    sunGrad.addColorStop(0, 'rgba(255, 220, 120, 0.5)');
+    sunGrad.addColorStop(0.4, 'rgba(255, 100, 80, 0.25)');
+    sunGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sunGrad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // City skyline (3 layers, scrolls with cameraX at decreasing rates)
+    if (f.skyline) {
+        for (let li = 0; li < f.skyline.length; li++) {
+            const layer = f.skyline[li];
+            const parallax = (li + 1) * 0.18;     // 0.18, 0.36, 0.54
+            const ox = -(f.cameraX || 0) * parallax;
+            ctx.fillStyle = layer.tint;
+            for (const bd of layer.buildings) {
+                ctx.fillRect(bd.x + ox, bd.y, bd.w, bd.h);
+                if (li >= 1) {
+                    ctx.fillStyle = '#ffaa44';
+                    for (let wy = bd.y + 8; wy < bd.y + bd.h - 8; wy += 14) {
+                        for (let wx = bd.x + 6; wx < bd.x + bd.w - 6; wx += 12) {
+                            if ((wx + wy) % 17 === 0) ctx.fillRect(wx + ox, wy, 2, 3);
+                        }
+                    }
+                    ctx.fillStyle = layer.tint;
+                }
+            }
+        }
+    }
+}
+
+function drawFinaleSpaceBackdrop() {
+    const f = finale;
+    // Deep space gradient
+    const sky = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 50, canvas.width / 2, canvas.height / 2, 700);
+    sky.addColorStop(0, '#1a0040');
+    sky.addColorStop(0.5, '#0a0020');
+    sky.addColorStop(1, '#000005');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Stars
+    if (f.stars) {
+        const t = performance.now() * 0.001;
+        for (const s of f.stars) {
+            const a = 0.4 + Math.sin(s.twinkle + t * 2) * 0.3;
+            ctx.globalAlpha = Math.max(0.15, a);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(s.x, s.y, s.size, s.size);
+        }
+        ctx.globalAlpha = 1;
+    }
+
+    // Earth orb at the bottom
+    ctx.fillStyle = 'rgba(40, 80, 160, 0.9)';
+    ctx.shadowColor = '#3399ff';
+    ctx.shadowBlur = 30;
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height + 200, 320, 0, Math.PI * 2);
+    ctx.fill();
+    // Continent silhouette
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(30, 100, 60, 0.8)';
+    ctx.beginPath();
+    ctx.ellipse(canvas.width / 2 - 80, canvas.height - 100, 140, 30, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(canvas.width / 2 + 100, canvas.height - 80, 90, 25, -0.3, 0, Math.PI * 2);
+    ctx.fill();
+    // Atmosphere glow
+    const atm = ctx.createRadialGradient(canvas.width / 2, canvas.height + 200, 280, canvas.width / 2, canvas.height + 200, 360);
+    atm.addColorStop(0, 'rgba(80, 160, 255, 0.0)');
+    atm.addColorStop(0.5, 'rgba(80, 160, 255, 0.4)');
+    atm.addColorStop(1, 'rgba(80, 160, 255, 0)');
+    ctx.fillStyle = atm;
+    ctx.fillRect(0, canvas.height - 250, canvas.width, 250);
+}
+
+function drawFinaleDialogue() {
+    const f = finale;
+    if (!f.dialogue) return;
+    const d = f.dialogue;
+    const line = d.lines[d.idx];
+    if (!line) return;
+    // Backdrop fade
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Letterbox
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, 70);
+    ctx.fillRect(0, canvas.height - 70, canvas.width, 70);
+    // Bottom dialogue panel
+    ctx.fillStyle = 'rgba(20, 20, 40, 0.9)';
+    ctx.fillRect(60, canvas.height - 200, canvas.width - 120, 110);
+    ctx.strokeStyle = line.color || '#88ffff';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = line.color || '#88ffff';
+    ctx.shadowBlur = 12;
+    ctx.strokeRect(60, canvas.height - 200, canvas.width - 120, 110);
+    ctx.shadowBlur = 0;
+    // Speaker name
+    ctx.fillStyle = line.color || '#88ffff';
+    ctx.font = 'bold 18px Courier New';
+    ctx.textAlign = 'left';
+    ctx.fillText(line.speaker, 80, canvas.height - 170);
+    // Body — typewriter effect (3 chars per frame)
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '16px Courier New';
+    const fullText = line.text;
+    const charCount = Math.min(fullText.length, Math.floor(d.charTimer / 1.5));
+    const visible = fullText.slice(0, charCount);
+    ctx.fillText(visible, 80, canvas.height - 140);
+    // Continue prompt
+    if (charCount >= fullText.length) {
+        const blink = Math.floor(performance.now() / 400) % 2 === 0;
+        if (blink) {
+            ctx.fillStyle = '#88ddff';
+            ctx.font = '12px Courier New';
+            ctx.textAlign = 'right';
+            ctx.fillText('▶ ENTER', canvas.width - 80, canvas.height - 105);
+            ctx.textAlign = 'left';
+        }
+    }
 }
 
 function drawFinalePlayer() {
@@ -18450,21 +18880,30 @@ function drawFinaleHUD() {
     ctx.textAlign = 'left';
     ctx.fillText(`YOU  ${Math.round(f.player.hp)} / ${f.player.maxHp}`, 28, 35);
 
-    // Boss HP bar (right)
+    // Boss HP bar (right) — life pip shown
     ctx.fillStyle = '#000';
     ctx.fillRect(canvas.width - 300, 20, 280, 22);
     ctx.fillStyle = '#220011';
     ctx.fillRect(canvas.width - 298, 22, 276, 18);
     const bhPct = Math.max(0, f.boss.hp / f.boss.maxHp);
-    ctx.fillStyle = f.boss.phase === 2 ? '#ff44ff' : '#ff4422';
+    ctx.fillStyle = f.boss.life === 2 ? '#ff44ff' : (f.boss.phase === 2 ? '#ff44ff' : '#ff4422');
     ctx.fillRect(canvas.width - 298, 22, 276 * bhPct, 18);
-    ctx.strokeStyle = f.boss.phase === 2 ? '#ff88ff' : '#ff8844';
+    ctx.strokeStyle = f.boss.life === 2 ? '#ff88ff' : (f.boss.phase === 2 ? '#ff88ff' : '#ff8844');
     ctx.lineWidth = 1;
     ctx.strokeRect(canvas.width - 300, 20, 280, 22);
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'right';
-    ctx.fillText(`EARTHBREAKER  ${Math.round(f.boss.hp)} / ${f.boss.maxHp}`, canvas.width - 28, 35);
+    const bossLabel = f.boss.life === 2 ? 'EARTHBREAKER · CORE FORM' : 'EARTHBREAKER';
+    ctx.fillText(`${bossLabel}  ${Math.round(f.boss.hp)} / ${f.boss.maxHp}`, canvas.width - 28, 35);
+    // Life pips (shows 2/2 or 1/2 remaining)
+    ctx.font = '14px Courier New';
+    ctx.fillStyle = '#ffdd44';
+    ctx.fillText(f.boss.life === 1 ? '◆◆' : '◇◆', canvas.width - 28, 56);
+    ctx.font = '12px Courier New';
     ctx.textAlign = 'left';
+
+    // Ability cooldown indicators (bottom-left)
+    drawFinaleAbilityHUD();
 
     // Banner — phase intro / phase 2 trigger / victory
     if (f.bannerTimer > 0) {
@@ -18474,6 +18913,10 @@ function drawFinaleHUD() {
         let txt = '';
         let col = '#ff4422';
         if (f.phase === 'intro') { txt = '⚡ TRANSFORM PROTOCOL ACTIVE ⚡'; col = '#88ffff'; }
+        else if (f.phase === 'battle' && f.boss.life === 2) {
+            txt = '☠ EARTHBREAKER — ORBITAL SHOWDOWN ☠';
+            col = '#ff44ff';
+        }
         else if (f.phase === 'battle' && !f.boss.phase2Triggered) {
             txt = '⚠ EARTHBREAKER — DEFEND THE WORLD ⚠';
             col = '#ff4422';
@@ -18501,7 +18944,7 @@ function drawFinaleHUD() {
         ctx.fillStyle = '#88ddff';
         ctx.font = '14px Courier New';
         ctx.textAlign = 'center';
-        ctx.fillText('A/D move • W/SPACE jump • F/J fire', canvas.width / 2, canvas.height - 30);
+        ctx.fillText('A/D move • W/SPACE jump (×2 in air) • SHIFT dash • F fire • Q special', canvas.width / 2, canvas.height - 30);
         ctx.globalAlpha = 1;
         ctx.textAlign = 'left';
     }
@@ -18520,6 +18963,42 @@ function drawFinaleHUD() {
             ctx.textAlign = 'left';
         }
     }
+}
+
+// Draws three small cooldown squares for DASH and SPECIAL.
+function drawFinaleAbilityHUD() {
+    const f = finale;
+    const p = f.player;
+    const baseY = canvas.height - 60;
+    const baseX = 20;
+    const cw = 50;
+    const labels = [
+        { name: 'SHIFT', sub: 'DASH', cd: p.dashCooldown, max: 50, col: '#88ffff' },
+        { name: 'Q', sub: 'SPECIAL', cd: p.specialCooldown, max: 240, col: '#ffaa44' }
+    ];
+    for (let i = 0; i < labels.length; i++) {
+        const l = labels[i];
+        const x = baseX + i * (cw + 8);
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(x, baseY, cw, 36);
+        ctx.strokeStyle = l.col;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, baseY, cw, 36);
+        // Cooldown overlay
+        if (l.cd > 0) {
+            const pct = l.cd / l.max;
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillRect(x, baseY, cw, 36 * pct);
+        }
+        // Labels
+        ctx.fillStyle = l.cd > 0 ? '#888' : l.col;
+        ctx.font = 'bold 12px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(l.name, x + cw / 2, baseY + 16);
+        ctx.font = '10px Courier New';
+        ctx.fillText(l.sub, x + cw / 2, baseY + 30);
+    }
+    ctx.textAlign = 'left';
 }
 
 // Main game loop
