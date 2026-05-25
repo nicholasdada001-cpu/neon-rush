@@ -4,9 +4,78 @@ A 2D action platformer + space dogfighter built in vanilla HTML5 Canvas + JavaSc
 
 ---
 
-## ⚡ MOST RECENT SESSION (May 24, 2026 — Evening)
+## ⚡ MOST RECENT SESSION (May 25, 2026)
 
-This block is the freshest context — read this first if dropping into a new chat. The previous (morning) session is preserved further down.
+Freshest context — read this first if dropping into a new chat. Previous sessions preserved further down.
+
+### What changed in this session (in order)
+
+1. **CRYO-LORD attack expansion (Stage 5)** — humanoid form bumped from 3 → 5 distinct attacks per phase. New patterns: **ICE BEAM** (single big piercing slowing crystal shard from the scepter, telegraphed with shockwave + charge particles) and **ICICLE STORM** (6 spikes fall straight down from above the player's x range, slow on hit). Phase 2 versions are stronger: ICE BEAM TWIN (3 piercing shards in a tight bracketing fan, 9.5 speed) and ICICLE STORM WIDE (10 spikes, faster fall vy=8).
+
+2. **World-themed enemy palette** — new `STAGE_ENEMY_THEMES` table (8 stages × 5 categories: ground / aerial / fortified / armored / mech) and `applyStageEnemyTheme(stageIdx)` post-process at the end of `buildLevel()`. Mob enemies (patrol/drone/turret/heavy/shielder/jumper/sniper/bomber/sprinter/ricochet/swarm/mech) get retinted to match each stage. Bosses, mini-bosses (HYDRA, WARDEN-K), and stage-locked elites (HYDRA-WALKER, SCORPION-BOT) keep their hand-tuned signature colors. Per-stage palettes documented in code comments.
+
+3. **Death screen "FULL RESET" option + intro save status panel** —
+   - Death screen: `Press R — RESTART (keeps your unlocks)` is the existing flow. New `Press Y — FULL RESET (wipe save & start fresh)` line uses native `confirm()` so a stray keypress can't nuke progress.
+   - Intro screen: new `drawIntroSavePanel()` in the lower-left shows characters unlocked, weapons unlocked, farthest stage, and lifetime stats when save data exists; neutral "NO SAVED PROGRESS" state otherwise. `Press Y to WIPE SAVE` hint when there's a save to wipe.
+   - New top-level helper `performFullSaveReset()` shared between both screens. Edge-triggered KeyY handler in `gameLoop` with `player.fullResetHeld` latch.
+
+4. **INFERNO-X 5 fire powers (Stage 3)** — humanoid form had 3 distinct attacks (slot 0/1/2 shared the same triple shot). Restructured to 5 truly distinct patterns: AIMED TRIPLE / CIRCLE BURST / LAVA GLOBS / **FIRE WAVE** (5 fast burning shots in a horizontal wall) / **METEOR SHOWER** (4 lava meteors fall from above the player, gravity arc, leave puddles). Phase 2 stronger variants: 5 / 16 / 5 / 7 / 6 bullets respectively.
+
+5. **PRIME / CONVOY balance — fewer bullets, gated by shot counter** — side-arms used to dump 6 (PRIME) / 8 (CONVOY) piercing bullets *per* weapon shot. Trivialized boss fights.
+   - PRIME: 6 → **3** cannons (shoulders + chest), 70 → 80 dmg each. Fires every **2nd** weapon shot via `player.sideArmShotCounter % 2`.
+   - CONVOY: 8 → **4** cannons (shoulders + twin chest), 95 → 110 dmg each. Fires every **3rd** weapon shot.
+   - Reads as "powerful precise" instead of "wall of bullets". `EVOLUTIONS` upgrade strings updated.
+
+6. **World-themed enemy bullets** — new `STAGE_ENEMY_BULLET_TINTS` table (8 stages × {fill, glow}). `drawBullets` respects `b.color` when bosses set it, else falls back to the stage tint. Mob bullets in each world feel themed (acid green in lab, ice blue in arctic, etc.) without touching the 100+ `enemyBullets.push` call sites. Verified: each stage produces correct hex via pixel-sample check.
+
+7. **WARDEN-K theme per stage** — mini-boss spawned in 6 different worlds (stages 3-8) but always rendered red/pink. Now adopts each stage's palette via new `WARDEN_THEME_BY_STAGE` table with `{glow, accent, mid, dark, particle}` per stage. Spawn attaches `themeGlow/themeAccent/themeMid/themeDark/themeParticle` to the enemy object. AI bullets/particles/shockwaves and drawer torso gradient/eye/orbital orbs/ground spike warnings/phase 2 aura all read the theme. Heavy black outline strokes left as-is (shading, not signature color). Antechamber-entry gate color and `⚠ MINI-BOSS: WARDEN-K ⚠` banner also retint per stage.
+   - Stage 3 REACTOR molten orange, 4 LAB acid green, 5 ARCTIC ice blue, 6 VOID violet, 7 CITADEL gold, 8 ORBITAL chrome cyan.
+
+8. **GIANT-ROBOT FINALE — EARTHBREAKER** (the big one) — after Titan-Lord falls on stage 8, the player ascends to giant scale and fights EARTHBREAKER, a planet-sized mech, to save the world. Self-contained module (`finale = { ... }` global object) with own bullets/enemyBullets/particles/shockwaves arrays so it doesn't pollute normal-stage state.
+   - **2 lives across 2 environments** (city → space, full HP refill on transition).
+   - **Phase machine**: `intro` → `dialogue1` (3 lines: YOU vs EARTHBREAKER) → `battle` (city, life 1, 4500 HP) → `cityToSpace` cinematic (180-frame cascade: boss debris falls, player launches up, screen flashes, boss reforms in orbit) → `dialogue2` (2 lines, taunt) → `battle` (space, life 2, 4500 HP refill) → `victory`.
+   - **City form**: boss patrols laterally; camera scrolls (`f.cameraX`) so it feels like traversal. 3-layer parallax skyline scrolls at 0.18/0.36/0.54 rates. Phase 2 trigger at 50% HP with 60-frame player i-frames.
+   - **Space form**: floor-less arena, half gravity (player can hover and fight in mid-air). Boss orbits the arena center in a wide arc. Starfield + Earth orb backdrop with atmosphere glow gradient.
+   - **Player upgrades** (finale-only): Dash (Shift, 12-frame burst with i-frames, 50f cooldown), Double Jump (2nd press in air gives ~10 vy), Special (Q, 5-stack piercing energy beam, 240f cooldown, 80 dmg/ray).
+   - **Boss attacks**: 4 in life 1 (energy beam sweep, fist slam, missile barrage, plasma ring); life 2 has all 6 including phase-2 double-ring and a new **ORBITAL LASER SWEEP** (3-beam telegraphed sweep that the player can dash through).
+   - **HUD upgrades**: life pips next to boss bar (◆◆ → ◇◆ after life 1 down), dash + special cooldown indicators bottom-left, life-2 banner color, updated controls hint mentioning dash + Q.
+   - Trigger sites: `if (currentStage >= STAGES.length - 1 && !allyDef) { startFinale(); }` plus the cage-rescue `deferFrames(90, () => { startFinale(); })`. Restart handler clears `finale = null` so dying mid-finale routes through the normal death screen flow.
+
+9. **Fairness fix for boss phase-2 transformation** — phase-2 entrance no longer flashes the screen / freezes time:
+   - Removed `critFlash = 18` (gold overlay was blinding)
+   - Removed `hitStop = 10` (freeze let phase-2 entrance bullets land before the player could react)
+   - Added 60-frame `player.invincible` window so the immediate phase-2 cone attack can't clip you mid-transform
+   - `screenShake = 28` retained for impact
+
+10. **FLAME THROWER nerf** — damage 6 → 3 (-50%). Cooldown 3, spread 0.28 unchanged (same fire rate). Per-pellet damage was just too generous.
+
+### Notable code pointers (current state)
+
+- `finale` global + `startFinale()` / `updateFinale()` / `drawFinale()` — all in one block before `function gameLoop`. Phase dispatch in `updateFinale()`. Helpers: `updateFinaleIntro`, `updateFinaleDialogue`, `updateFinaleBattle`, `updateFinaleCityToSpace`, `updateFinaleVictory`, `finaleShoot`, `finaleSpecial`, `finaleBossAttack`, `drawFinalePlayer`, `drawFinaleBoss`, `drawFinaleCityBackdrop`, `drawFinaleSpaceBackdrop`, `drawFinaleDialogue`, `drawFinaleHUD`, `drawFinaleAbilityHUD`, `buildFinaleSkyline`, `spawnFinaleParticle`, `spawnFinaleShockwave`.
+- `STAGE_ENEMY_THEMES`, `STAGE_ENEMY_BULLET_TINTS`, `WARDEN_THEME_BY_STAGE` — the three palette lookup tables.
+- `applyStageEnemyTheme(stageIdx)` — runs at end of `buildLevel`.
+- `getWardenTheme(stageIdx)` — used at warden spawn AND by the antechamber gate AND the mini-boss banner.
+- `performFullSaveReset()` — top-level helper used by both death and intro screens.
+- `player.sideArmShotCounter` — gates PRIME (every 2nd) / CONVOY (every 3rd) side-arms.
+- INFERNO-X attack pool is now 5 patterns per phase in the humanoid form. CRYO-LORD same — 5 per phase.
+- Finale gameLoop dispatch lives in the early-return block alongside `spaceTransition`. Renders fully separately from normal-stage drawing.
+
+### Pending work (good prompts for the next session)
+
+1. **Remaining boss transformations** — only GUARD-1 and TITAN-LORD have been fully wired. SKYHAMMER, RAVAGER, NULLIFIER, OMEGA-PRIME phase-2 transforms have draw scaffolds (`drawBossSkyhammerJet` etc.) but the AI override + origin slots aren't fully connected. INFERNO-X and CRYO-LORD got attack expansion this session but not transformation.
+2. **SCREAMER and SENTINEL enemy AI** — drop tables already include them, AI/draw not implemented yet.
+3. **More stages** — 1-2 new stages reusing existing bosses with new themes is doable in 1 turn.
+4. **More obstacles in existing stages** — bump density in `addExtraHazards`, add CRUSHER vertical-platform hazard, conveyor belts, falling debris.
+5. **PRIME unique vehicle form** — still inherits APEX's starfighter. CONVOY has its dedicated `hovertank` already.
+6. **Frame-counted state transitions** — done. The two `setTimeout` cases were converted to `deferFrames` last session.
+7. **Finale polish** — the giant sprite designs are functional but could be more menacing (more procedural detail, ember trails on boss, glowing veins). City could have falling rubble / fires on rooftops. Space form could add asteroid debris.
+8. **Finale dialogue** — currently 3 + 2 lines. Could expand to per-character variants (different lines if you arrive as STRIKER vs OMEGA character) or add 1-2 mid-fight quips when the boss enters phase 2 / reaches life 2.
+
+---
+
+## Previous Session — May 24, 2026 (Evening)
+
+This block was the freshest context for the prior session, preserved verbatim.
 
 ### Project on GitHub
 
@@ -216,8 +285,8 @@ This is the prior session's MOST RECENT block, preserved verbatim for context.
 ```
 /Users/darrwang/Downloads/nicholas/
 ├── index.html          # Page wrapper, canvas, dev panel + audio panel + keyboard shortcuts (~674 lines)
-├── game.js             # Entire game (~19,730 lines)
-├── README.md           # GitHub-facing readme (~80 lines)
+├── game.js             # Entire game (~21,200 lines)
+├── README.md           # GitHub-facing readme (~81 lines)
 └── PROJECT_CONTEXT.md  # This file
 ```
 
@@ -239,9 +308,10 @@ The workspace root is `/Users/darrwang/Downloads/nicholas/`. File writes outside
 - `throneCutscene` — OMEGA-PRIME throne stand-up cinematic (Stage 7 only)
 - `bossIntro` — generic per-subtype boss-intro cinematic (every boss except OMEGA)
 - `spaceTransition` — space combat between stages
+- `finale` — giant-robot final fight against EARTHBREAKER (after Titan-Lord). Internal phases: `intro`, `dialogue1`, `battle` (city, life 1), `cityToSpace`, `dialogue2`, `battle` (space, life 2), `victory`. Self-contained module — see `finale` global object.
 - `stageComplete` — between-stage screen
 - `dead` — game over
-- `won` — final victory
+- `won` — final victory (entered after the finale's `victory` phase, or directly from non-final stages)
 
 ---
 
@@ -966,26 +1036,31 @@ Reusable repair pillars scattered through every stage (two per stage).
 
 ## Game Stats Summary
 
-- **~19,730 lines** of code in game.js
+- **~21,200 lines** of code in game.js
 - ~674 lines in index.html
-- **8 main stages** + 7 space transitions + Omega throne cinematic + per-boss intro cinematics
-- **9 main bosses** (GUARD-1, SKYHAMMER, INFERNO-X, RAVAGER, CRYO-LORD, NULLIFIER, OMEGA-PRIME, TITAN-LORD) + 1 stage-6 mini-boss (HYDRA) + 1 general mini-boss (WARDEN-K, stages 3-8)
+- **8 main stages** + 7 space transitions + Omega throne cinematic + per-boss intro cinematics + EARTHBREAKER giant-robot finale
+- **9 main bosses** (GUARD-1, SKYHAMMER, INFERNO-X, RAVAGER, CRYO-LORD, NULLIFIER, OMEGA-PRIME, TITAN-LORD) + 1 stage-6 mini-boss (HYDRA) + 1 general mini-boss (WARDEN-K, stages 3-8) + 1 finale boss (EARTHBREAKER, 2 lives across city and space)
   - Each main boss has 3 phases (rage at 25% HP)
   - GUARD-1 transforms to riot tank at 50% HP
   - TITAN-LORD transforms to battleship at 50% HP
-- **15 enemy types** (14 mobs + WARDEN-K mini-boss)
-- **19 weapons**
+  - INFERNO-X has 5 distinct fire powers per phase (added FIRE WAVE + METEOR SHOWER)
+  - CRYO-LORD has 5 distinct ice powers per phase (added ICE BEAM + ICICLE STORM)
+  - WARDEN-K mini-boss themed per stage (6 different palettes)
+- **15 enemy types** (14 mobs + WARDEN-K mini-boss); mob colors and bullets retinted per stage
+- **19 weapons** (FLAME THROWER damage rebalanced from 6 → 3)
 - **8 playable characters**
-- **7 evolution tiers** with anime transformation cinematic
+- **7 evolution tiers** with anime transformation cinematic; PRIME/CONVOY side-arms gated by shot counter (every 2nd / every 3rd) so they don't trivialize bosses
 - **5 vehicle forms** (bike/hover/tank/jet/starfighter) + CONVOY-only hovertank with Matrix Ion Blast
 - **3 currencies** (Coins / 🔩 Scrap / ◆ RC) and **7 crafting recipes**
 - **2 healing stations per stage** with allied splash heal
 - **Procedural Web Audio** — 24 SFX + 7 music tracks selected by `pickMusicTrack()`
-- **localStorage save** for characters / weapons / audio / 8 meta stats
+- **localStorage save** for characters / weapons / audio / 8 meta stats; FULL RESET option from death + intro screens
 - 7 rescue allies (max 2 active)
 - Mission puzzle entities: keys, laser grids, terminals
 - 7 movement abilities: walk, jump, double/triple/quadruple jump (per evo), wall jump, dash, dodge roll, slide
+  - Finale-only: dash (Shift, i-frames), double jump in air, special beam (Q)
 - 3 defensive moves: parry, ground pound, perfect dodge
 - 3-hit melee combo
-- Cutscene types: boss intro (per-subtype), victory, space transit, evolution, throne
+- Cutscene types: boss intro (per-subtype), victory, space transit, evolution, throne, finale (intro + city→space + dialogue beats)
 - Dev tools: 🛠 button + per-tier evo buttons + ⚠ RESET SAVE + keyboard shortcuts (1-8, 0, 9, M)
+

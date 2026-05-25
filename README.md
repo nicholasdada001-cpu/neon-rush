@@ -49,7 +49,7 @@ The 🛠 DEV button (top-right) opens a panel with full heal, give RC/coins, for
 ## Features
 
 - **8 main stages** with cinematic boss intros and per-stage themes
-- **9 unique bosses** with 3-phase fights (rage mode at 25% HP)
+- **9 unique bosses** with 3-phase fights (rage mode at 25% HP) + giant-robot **EARTHBREAKER** finale (2 lives, city → space)
 - **7 evolution tiers** BASE → MK-II → MK-III → OMEGA → APEX → PRIME → CONVOY
 - **5 vehicle forms** including the Optimus-style hovertank with Matrix Ion Blast
 - **Energon Axe** melee at the CONVOY tier — massive damage with crescent slash AOE finisher
@@ -69,7 +69,7 @@ The 🛠 DEV button (top-right) opens a panel with full heal, give RC/coins, for
 
 ```
 index.html          # Page wrapper, canvas, dev panel, audio panel (~674 lines)
-game.js             # Entire game (~19,700 lines)
+game.js             # Entire game (~21,200 lines)
 PROJECT_CONTEXT.md  # Detailed dev/design documentation
 ```
 
