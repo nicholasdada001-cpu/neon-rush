@@ -2377,6 +2377,20 @@ function buildLevel() {
         }
     }
 
+    // ===== WORLD-THEMED ENEMY PALETTE =====
+    // Re-skin regular mobs to match the stage theme. Bosses, mini-bosses,
+    // and elite walkers keep their hand-tuned colors so signature silhouettes
+    // stay intact. Themes per stage:
+    //   0 FACILITY:    grey / cyan steel
+    //   1 SKY DOCKS:   storm blue / cloud white
+    //   2 REACTOR:     molten red / amber
+    //   3 WEAPONS LAB: lab green / lime
+    //   4 ARCTIC:      ice blue / pale white
+    //   5 VOID:        violet / magenta
+    //   6 CITADEL:     gold / orange-amber
+    //   7 ORBITAL:     chrome cyan / pale steel
+    applyStageEnemyTheme(currentStage);
+
     coinPickups = [];
     healthDrops = [];
     bullets = [];
@@ -2394,6 +2408,62 @@ function buildLevel() {
     player.keysHeld = [];
     populatePuzzles();
     spawnBossGate();
+}
+
+// Per-stage palette: maps enemy type → primary `color` field.
+// Bosses, minibosses, and stage-tied elites are skipped (signature colors
+// stay). The mapping is intentionally loose — patrol/sprinter/jumper share
+// a "ground threat" hue, drone/swarm/bomber share an "aerial" hue, turret/
+// sniper/heavy share a "fortified" hue, ricochet/shielder share an "armored"
+// hue. Mech keeps a strong silhouette tied to its hull.
+const STAGE_ENEMY_THEMES = [
+    // 0 FACILITY (grey / cyan steel)
+    { ground: '#8899aa', aerial: '#66ccff', fortified: '#aaccdd', armored: '#bbccdd', mech: '#99aabb' },
+    // 1 SKY DOCKS (storm blue / cloud white)
+    { ground: '#6699cc', aerial: '#aaddff', fortified: '#88ccee', armored: '#ccddee', mech: '#7799bb' },
+    // 2 REACTOR (molten red / amber)
+    { ground: '#ff6644', aerial: '#ffaa66', fortified: '#ff8844', armored: '#cc5533', mech: '#dd4422' },
+    // 3 WEAPONS LAB (lab green / lime)
+    { ground: '#88dd44', aerial: '#aaff77', fortified: '#66cc44', armored: '#449922', mech: '#77aa33' },
+    // 4 ARCTIC (ice blue / pale white)
+    { ground: '#88ccee', aerial: '#bbeeff', fortified: '#aaddff', armored: '#ccddee', mech: '#88aacc' },
+    // 5 VOID (violet / magenta)
+    { ground: '#aa66dd', aerial: '#cc88ff', fortified: '#bb44cc', armored: '#882299', mech: '#9944bb' },
+    // 6 CITADEL (gold / orange-amber)
+    { ground: '#ddaa44', aerial: '#ffcc66', fortified: '#cc8822', armored: '#aa6611', mech: '#bb8833' },
+    // 7 ORBITAL (chrome cyan / pale steel)
+    { ground: '#88aacc', aerial: '#aaccee', fortified: '#bbddff', armored: '#ccddee', mech: '#7799bb' }
+];
+
+const ENEMY_TYPE_TO_PALETTE_KEY = {
+    patrol:    'ground',
+    sprinter:  'ground',
+    jumper:    'ground',
+    drone:     'aerial',
+    bomber:    'aerial',
+    swarm:     'aerial',
+    turret:    'fortified',
+    sniper:    'fortified',
+    heavy:     'fortified',
+    shielder:  'armored',
+    ricochet:  'armored',
+    mech:      'mech'
+};
+
+function applyStageEnemyTheme(stageIdx) {
+    const theme = STAGE_ENEMY_THEMES[stageIdx];
+    if (!theme) return;
+    for (const e of enemies) {
+        // Skip anything with a signature silhouette: bosses, mini-bosses, and
+        // stage-locked elite walkers (HYDRA-WALKER, SCORPION-BOT) keep their
+        // hand-tuned colors.
+        if (e.type === 'boss' || e.type === 'miniboss') continue;
+        if (e.type === 'hydraWalker' || e.type === 'scorpion') continue;
+        const key = ENEMY_TYPE_TO_PALETTE_KEY[e.type];
+        if (!key) continue;
+        const themed = theme[key];
+        if (themed) e.color = themed;
+    }
 }
 
 // Place a glowing boss-approach gate ahead of the boss for that "console game" feel
@@ -7349,13 +7419,16 @@ function updateEnemies() {
                         }
                     }
                 } else {
-                // CRYO-LORD: ice shots from SCEPTER, frost rings from CHEST CRYSTAL
+                // CRYO-LORD: ice shots from SCEPTER, frost rings from CHEST CRYSTAL,
+                // plus ICE BEAM (piercing tracking shard) and ICICLE STORM (falling
+                // spikes from above) — themed to the Arctic Outpost stage.
                 e.y = e.baseY + Math.sin(e.moveTimer * 0.018) * 60;
                 e.x = e.baseX + Math.cos(e.moveTimer * 0.012) * 100;
                 e.shootTimer -= slowMul;
                 if (e.shootTimer <= 0) {
                     if (e.phase === 1) {
-                        e.attackPattern = bossPickRandomAttack(e, 3);
+                        // Phase 1: 5 patterns including ICE BEAM and ICICLE STORM
+                        e.attackPattern = bossPickRandomAttack(e, 5);
                         if (e.attackPattern === 0) {
                             // Wide ice burst from SCEPTER
                             const o = bossOrigin(e, 'scepter');
@@ -7373,7 +7446,7 @@ function updateEnemies() {
                                 enemyBullets.push({ x: o.x, y: o.y, vx: Math.cos(playerAngle) * (4 + i * 0.5), vy: Math.sin(playerAngle) * (4 + i * 0.5), life: 110, color: '#aaeeff', glow: '#88ccff', size: 7 });
                             }
                             e.shootTimer = 25;
-                        } else {
+                        } else if (e.attackPattern === 2) {
                             // Frost ring from CHEST CRYSTAL
                             const o = bossOrigin(e, 'crystal');
                             spawnShockwave(o.x, o.y, 100, '#aaeeff');
@@ -7382,10 +7455,49 @@ function updateEnemies() {
                                 enemyBullets.push({ x: o.x, y: o.y, vx: Math.cos(angle) * 4, vy: Math.sin(angle) * 4, life: 95, color: '#aaeeff', glow: '#88ccff', size: 6 });
                             }
                             e.shootTimer = 60;
+                        } else if (e.attackPattern === 3) {
+                            // ICE BEAM — single big piercing crystal shard from the
+                            // scepter. Pre-telegraph flash + charge particles, then a
+                            // fast pierce-trail shot. Fast (8 speed), slows on hit.
+                            const o = bossOrigin(e, 'scepter');
+                            spawnShockwave(o.x, o.y, 50, '#aaeeff');
+                            spawnParticles(o.x, o.y, '#ddffff', 18, 5);
+                            spawnParticles(o.x, o.y, '#aaeeff', 14, 7);
+                            muzzleFlash(o.x, o.y, '#ddffff', '#88ccff', true);
+                            const ang = playerAngle;
+                            enemyBullets.push({
+                                x: o.x, y: o.y,
+                                vx: Math.cos(ang) * 8.5, vy: Math.sin(ang) * 8.5,
+                                life: 95, damage: 18,
+                                color: '#ddffff', glow: '#66ccff', size: 10, big: true,
+                                pierce: true, slow: true, slowFactor: 0.5, slowDur: 90
+                            });
+                            screenShake = Math.max(screenShake, 6);
+                            e.shootTimer = 70;
+                        } else {
+                            // ICICLE STORM — 6 icicles fall from above the player's
+                            // x range. Pre-spawn telegraph particles at the top, then
+                            // fast straight-down spikes. Slows on hit.
+                            const baseX = player.x + player.w / 2;
+                            const topY = (e.y - 200);
+                            for (let i = -2; i <= 3; i++) {
+                                const sx = baseX + i * 60 + (Math.random() - 0.5) * 20;
+                                spawnParticles(sx, topY, '#ddffff', 6, 3);
+                                enemyBullets.push({
+                                    x: sx, y: topY,
+                                    vx: 0, vy: 6.5,
+                                    life: 130, damage: 12,
+                                    color: '#aaeeff', glow: '#88ccff', size: 7, big: true,
+                                    slow: true, slowFactor: 0.55, slowDur: 60
+                                });
+                            }
+                            spawnShockwave(baseX, topY, 70, '#aaeeff');
+                            e.shootTimer = 75;
                         }
                     } else {
-                        // Phase 2: faster + double rings
-                        e.attackPattern = bossPickRandomAttack(e, 3);
+                        // Phase 2: faster + more patterns; 5 → 5 with ICE BEAM and
+                        // ICICLE STORM mixed in alongside the existing rings.
+                        e.attackPattern = bossPickRandomAttack(e, 5);
                         if (e.attackPattern === 0) {
                             const o = bossOrigin(e, 'scepter');
                             muzzleFlash(o.x, o.y, '#ffaaff', '#88ccff', true);
@@ -7403,13 +7515,51 @@ function updateEnemies() {
                                 enemyBullets.push({ x: o.x, y: o.y, vx: Math.cos(angle) * 5, vy: Math.sin(angle) * 5, life: 90, color: '#ffaaff', glow: '#88ccff' });
                             }
                             e.shootTimer = 70;
-                        } else {
+                        } else if (e.attackPattern === 2) {
                             const o = bossOrigin(e, 'scepter');
                             muzzleFlash(o.x, o.y, '#aaeeff', '#88ccff', true);
                             for (let i = 0; i < 5; i++) {
                                 enemyBullets.push({ x: o.x, y: o.y, vx: Math.cos(playerAngle) * (5 + i * 0.5), vy: Math.sin(playerAngle) * (5 + i * 0.5), life: 110, color: '#aaeeff', glow: '#88ccff', size: 7 });
                             }
                             e.shootTimer = 22;
+                        } else if (e.attackPattern === 3) {
+                            // ICE BEAM (phase 2) — twin piercing crystal shards
+                            // bracketing the player. Faster + slightly off-aim so
+                            // they can't all be perfect-dodged.
+                            const o = bossOrigin(e, 'scepter');
+                            spawnShockwave(o.x, o.y, 60, '#ffaaff');
+                            spawnParticles(o.x, o.y, '#ddffff', 22, 6);
+                            muzzleFlash(o.x, o.y, '#ddffff', '#88ccff', true);
+                            for (const off of [-0.18, 0, 0.18]) {
+                                enemyBullets.push({
+                                    x: o.x, y: o.y,
+                                    vx: Math.cos(playerAngle + off) * 9.5,
+                                    vy: Math.sin(playerAngle + off) * 9.5,
+                                    life: 100, damage: 18,
+                                    color: '#ddffff', glow: '#66ccff', size: 10, big: true,
+                                    pierce: true, slow: true, slowFactor: 0.5, slowDur: 90
+                                });
+                            }
+                            screenShake = Math.max(screenShake, 8);
+                            e.shootTimer = 55;
+                        } else {
+                            // ICICLE STORM (phase 2) — wider fan of falling spikes
+                            // (10 instead of 6) and faster fall speed.
+                            const baseX = player.x + player.w / 2;
+                            const topY = (e.y - 220);
+                            for (let i = -4; i <= 5; i++) {
+                                const sx = baseX + i * 55 + (Math.random() - 0.5) * 22;
+                                spawnParticles(sx, topY, '#ddffff', 5, 3);
+                                enemyBullets.push({
+                                    x: sx, y: topY,
+                                    vx: 0, vy: 8,
+                                    life: 130, damage: 13,
+                                    color: '#aaeeff', glow: '#88ccff', size: 7, big: true,
+                                    slow: true, slowFactor: 0.55, slowDur: 60
+                                });
+                            }
+                            spawnShockwave(baseX, topY, 90, '#ffaaff');
+                            e.shootTimer = 65;
                         }
                     }
                 }
