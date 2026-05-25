@@ -1084,7 +1084,7 @@ const EVOLUTIONS = [
             '+50% Damage',
             '+0.5 Move Speed',
             'Frame size +14 (Prime class — towering height)',
-            'Six-cannon side-arm volley (auto-fires)',
+            'Triple-cannon side-arm (every 2nd shot — focused & precise)',
             '[R] PRIME BEAM — sweeping orbital cannon',
             'Tank tread legs (visible on robot)',
             'Folding jet wings (visible on back)',
@@ -1104,7 +1104,7 @@ const EVOLUTIONS = [
             '+65% Damage',
             '+0.6 Move Speed',
             'Frame size +16 (Convoy class — towering)',
-            'Eight-cannon side-arm storm (auto-fires)',
+            'Quad-cannon side-arm (every 3rd shot — devastating per-hit AOE)',
             '[R] CONVOY MATRIX — screen-clear holy beam',
             'Truck-cab shoulders + visible vehicle hood plating',
             'Dual sword rig (animated)',
@@ -1136,6 +1136,7 @@ const player = {
     dashCooldown: 0, dashing: false, dashTimer: 0, dashDir: { x: 0, y: 0 },
     hp: 220, maxHp: 220, invincible: 0,
     facing: 1, shootCooldown: 0,
+    sideArmShotCounter: 0,    // increments per weapon shot; PRIME/CONVOY side-arms gate on this
     slideTimer: 0, sliding: false,
     coyoteTime: 0,    // grace period after leaving ground
     jumpBuffer: 0,    // grace period for early jump press
@@ -2460,6 +2461,21 @@ const STAGE_ENEMY_THEMES = [
     { ground: '#ddaa44', aerial: '#ffcc66', fortified: '#cc8822', armored: '#aa6611', mech: '#bb8833' },
     // 7 ORBITAL (chrome cyan / pale steel)
     { ground: '#88aacc', aerial: '#aaccee', fortified: '#bbddff', armored: '#ccddee', mech: '#7799bb' }
+];
+
+// Default fill+glow for enemy bullets when they don't set b.color themselves.
+// Bosses spawn explicitly-colored bullets and bypass this — only mob fire is
+// retinted, so each planet's small-fry enemies feel themed without changing
+// the boss-attack signature colors.
+const STAGE_ENEMY_BULLET_TINTS = [
+    { fill: '#aaccdd', glow: '#66ccff' },   // 0 FACILITY — pale cyan tracer
+    { fill: '#aaddff', glow: '#88ccff' },   // 1 SKY DOCKS — storm-blue
+    { fill: '#ff5522', glow: '#ff8844' },   // 2 REACTOR — molten orange
+    { fill: '#aaff44', glow: '#66cc22' },   // 3 WEAPONS LAB — acid green
+    { fill: '#bbeeff', glow: '#aaddff' },   // 4 ARCTIC — pale ice
+    { fill: '#cc88ff', glow: '#aa44ff' },   // 5 VOID — violet
+    { fill: '#ffcc66', glow: '#ff8822' },   // 6 CITADEL — gold
+    { fill: '#aaeeff', glow: '#88ccff' }    // 7 ORBITAL — chrome cyan
 ];
 
 const ENEMY_TYPE_TO_PALETTE_KEY = {
@@ -5310,11 +5326,28 @@ function shootBullet() {
     // Evolution side-arm bonus shots — Transformer-style: spawn from the
     // visible shoulder mounts on the player so it reads as the actual weapon
     // firing, with a muzzle flash + screen shake scaled to weapon size.
+    //
+    // Balance note: PRIME/CONVOY used to fire 6/8 piercing bullets PER weapon
+    // shot, on top of the base weapon. That overwhelmed boss fights to the
+    // point of trivializing them. Now we fire fewer bullets per volley AND
+    // only fire the volley every Nth weapon shot (player.sideArmShotCounter).
+    // The result is a "powerful precise" feel instead of a wall-of-bullets.
     const evo = EVOLUTIONS[player.evoLevel];
     if (evo && evo.sideArm) {
         // Both shoulder mount positions (mirror of drawPlayer side-arm code).
         const shoulderL = { x: cx - player.facing * 10, y: cy - 12 };
         const shoulderR = { x: cx + player.facing * (player.w / 2 - 4), y: cy - 12 };
+        // Tier-specific gate: PRIME fires every 2nd shot, CONVOY every 3rd.
+        // Other tiers fire every shot (no nerf needed — they don't out-DPS bosses).
+        player.sideArmShotCounter = (player.sideArmShotCounter || 0) + 1;
+        const gate = (evo.sideArm === 'prime') ? 2
+                   : (evo.sideArm === 'convoy') ? 3
+                   : 1;
+        const sideArmFires = (player.sideArmShotCounter % gate) === 0;
+        if (!sideArmFires && (evo.sideArm === 'prime' || evo.sideArm === 'convoy')) {
+            // Skip side-arm this shot — base weapon still fires from the loop above.
+            return;
+        }
         if (evo.sideArm === 'pulse') {
             // Single pulse shot from RIGHT shoulder pulse cannon
             bullets.push({
@@ -5388,23 +5421,20 @@ function shootBullet() {
             spawnShockwave(shoulderR.x, shoulderR.y, 70, '#00ffff');
             screenShake = Math.max(screenShake, 14);
         } else if (evo.sideArm === 'prime') {
-            // PRIME: 6 cannons fire in a sweeping fan from shoulders + chest +
-            // hip mounts. Crimson plasma streams.
+            // PRIME: 3 cannons fire in a focused fan from shoulders + chest.
+            // Crimson plasma streams. (Was 6 — toned down for boss balance.)
             const ports = [
                 shoulderL,
                 shoulderR,
-                { x: cx - player.facing * 4, y: cy + 2 },
-                { x: cx + player.facing * 6, y: cy + 2 },
-                { x: cx - player.facing * 2, y: cy + 16 },
-                { x: cx + player.facing * 8, y: cy + 16 }
+                { x: cx + player.facing * 4, y: cy + 8 }   // chest reactor port
             ];
             for (let r = 0; r < ports.length; r++) {
                 const sh = ports[r];
                 bullets.push({
                     x: sh.x, y: sh.y,
-                    vx: baseDx * 16 + (Math.random() - 0.5) * 0.5,
-                    vy: -1 + (r - 2.5) * 0.5,
-                    life: 110, damage: Math.round(70 * player.dmgMul),
+                    vx: baseDx * 16 + (Math.random() - 0.5) * 0.4,
+                    vy: -1 + (r - 1) * 0.6,
+                    life: 110, damage: Math.round(80 * player.dmgMul),
                     color: '#ff6644', glow: '#ff3322', size: 9,
                     pierce: true, hitEnemies: new Set()
                 });
@@ -5412,28 +5442,25 @@ function shootBullet() {
             }
             spawnShockwave(shoulderL.x, shoulderL.y, 80, '#ff3344');
             spawnShockwave(shoulderR.x, shoulderR.y, 80, '#ff3344');
-            screenShake = Math.max(screenShake, 16);
+            screenShake = Math.max(screenShake, 14);
         } else if (evo.sideArm === 'convoy') {
-            // CONVOY: 8 cannon volley — chest cannons + shoulder cannons +
-            // hip turrets + back-mounted artillery. Each shot is a ravaging
-            // golden plasma orb. This is the final-tier weapon.
+            // CONVOY: 4 cannon volley — both shoulders + twin chest ports.
+            // Each shot is a ravaging golden plasma orb. (Was 8 — toned down
+            // for boss balance; per-shot damage bumped so feel stays "final tier"
+            // but bosses aren't melted instantly.)
             const ports = [
                 shoulderL,
                 shoulderR,
-                { x: cx - player.facing * 4, y: cy + 2 },
-                { x: cx + player.facing * 6, y: cy + 2 },
-                { x: cx - player.facing * 2, y: cy + 16 },
-                { x: cx + player.facing * 8, y: cy + 16 },
-                { x: cx - player.facing * 8, y: cy - 18 },   // back artillery L
-                { x: cx + player.facing * 12, y: cy - 18 }   // back artillery R
+                { x: cx - player.facing * 2, y: cy + 4 },
+                { x: cx + player.facing * 6, y: cy + 4 }
             ];
             for (let r = 0; r < ports.length; r++) {
                 const sh = ports[r];
                 bullets.push({
                     x: sh.x, y: sh.y,
-                    vx: baseDx * 18 + (Math.random() - 0.5) * 0.4,
-                    vy: -1 + (r - 3.5) * 0.4,
-                    life: 120, damage: Math.round(95 * player.dmgMul),
+                    vx: baseDx * 18 + (Math.random() - 0.5) * 0.3,
+                    vy: -1 + (r - 1.5) * 0.4,
+                    life: 120, damage: Math.round(110 * player.dmgMul),
                     color: '#ffcc44', glow: '#ff6600', size: 10,
                     pierce: true, hitEnemies: new Set(),
                     explosive: true, aoeRadius: 60
@@ -5442,7 +5469,7 @@ function shootBullet() {
             }
             spawnShockwave(shoulderL.x, shoulderL.y, 100, '#ffcc44');
             spawnShockwave(shoulderR.x, shoulderR.y, 100, '#ffcc44');
-            screenShake = Math.max(screenShake, 20);
+            screenShake = Math.max(screenShake, 18);
         }
     }
 }
@@ -7209,29 +7236,40 @@ function updateEnemies() {
                         }
                     }
                 } else {
-                // INFERNO-X: rapid fire, frequent circle bursts, and LAVA GLOBS
+                // INFERNO-X: 5 fire-themed attack patterns. Mid-air boss with
+                // a wider attack pool than CRYO so the Reactor stage feels
+                // distinct — molten orange palette throughout.
                 e.y = e.baseY + Math.sin(e.moveTimer * 0.03) * 50;
                 e.x = e.baseX + Math.cos(e.moveTimer * 0.02) * 80;
                 e.shootTimer -= slowMul;
                 if (e.shootTimer <= 0) {
                     if (e.phase === 1) {
+                        // Phase 1: 5 distinct fire powers
                         e.attackPattern = bossPickRandomAttack(e, 5);
-                        if (e.attackPattern < 3) {
-                            // Aimed triple
+                        if (e.attackPattern === 0) {
+                            // AIMED TRIPLE — fast tracker rounds
                             for (let a = -1; a <= 1; a++) {
                                 const angle = playerAngle + a * 0.2;
-                                enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(angle) * 5, vy: Math.sin(angle) * 5, life: 100 });
+                                enemyBullets.push({
+                                    x: e.x + e.w / 2, y: e.y + e.h / 2,
+                                    vx: Math.cos(angle) * 5, vy: Math.sin(angle) * 5,
+                                    life: 100, color: '#ff6622', glow: '#ff8800', size: 5
+                                });
                             }
                             e.shootTimer = 25;
-                        } else if (e.attackPattern === 3) {
-                            // Circle burst
+                        } else if (e.attackPattern === 1) {
+                            // CIRCLE BURST — 12 shots radial
                             for (let a = 0; a < 12; a++) {
                                 const angle = (a / 12) * Math.PI * 2;
-                                enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(angle) * 4, vy: Math.sin(angle) * 4, life: 90 });
+                                enemyBullets.push({
+                                    x: e.x + e.w / 2, y: e.y + e.h / 2,
+                                    vx: Math.cos(angle) * 4, vy: Math.sin(angle) * 4,
+                                    life: 90, color: '#ff5522', glow: '#ff8844', size: 5
+                                });
                             }
                             e.shootTimer = 60;
-                        } else {
-                            // SIGNATURE: 3 LAVA GLOBS lobbed in arcs from the MOUTH
+                        } else if (e.attackPattern === 2) {
+                            // LAVA GLOBS — 3 arcing shots from MOUTH
                             const o = bossOrigin(e, 'mouth');
                             muzzleFlash(o.x, o.y, '#ff4400', '#ff8800', true);
                             for (let i = -1; i <= 1; i++) {
@@ -7240,29 +7278,76 @@ function updateEnemies() {
                                     vx: Math.cos(playerAngle) * 3 + i * 1.5,
                                     vy: Math.sin(playerAngle) * 2 - 5,
                                     life: 120, damage: 14,
-                                    lavaGlob: true,                 // marker for arc + puddle
+                                    lavaGlob: true,
                                     color: '#ff4400', glow: '#ff8800', big: true
                                 });
                             }
                             e.shootTimer = 80;
+                        } else if (e.attackPattern === 3) {
+                            // FIRE WAVE — 5 fast burning shots in a horizontal
+                            // wall traveling toward the player. Burn-on-hit
+                            // means the player wants to dodge, not tank.
+                            const o = bossOrigin(e, 'mouth');
+                            muzzleFlash(o.x, o.y, '#ff4400', '#ff8800', true);
+                            spawnShockwave(o.x, o.y, 60, '#ff6622');
+                            for (let i = -2; i <= 2; i++) {
+                                enemyBullets.push({
+                                    x: o.x, y: o.y + i * 18,
+                                    vx: Math.cos(playerAngle) * 7,
+                                    vy: Math.sin(playerAngle) * 7,
+                                    life: 110, damage: 12,
+                                    color: '#ff5522', glow: '#ff8844', size: 6, big: true,
+                                    burn: true, burnDmg: 4, burnDur: 50
+                                });
+                            }
+                            e.shootTimer = 70;
+                        } else {
+                            // METEOR SHOWER — 4 lava meteors fall from above
+                            // the player's x range. Gravity arc → puddles.
+                            const baseX = player.x + player.w / 2;
+                            const topY = (e.y - 220);
+                            for (let i = -1; i <= 2; i++) {
+                                const sx = baseX + i * 70 + (Math.random() - 0.5) * 20;
+                                spawnParticles(sx, topY, '#ff8844', 6, 4);
+                                enemyBullets.push({
+                                    x: sx, y: topY,
+                                    vx: (Math.random() - 0.5) * 1.5,
+                                    vy: 4,
+                                    life: 130, damage: 14,
+                                    lavaGlob: true,
+                                    color: '#ff4400', glow: '#ff8800', big: true
+                                });
+                            }
+                            spawnShockwave(baseX, topY, 80, '#ff6622');
+                            e.shootTimer = 90;
                         }
                     } else {
-                        e.attackPattern = bossPickRandomAttack(e, 4);
-                        if (e.attackPattern < 2) {
+                        // Phase 2: same 5 patterns, stronger variants
+                        e.attackPattern = bossPickRandomAttack(e, 5);
+                        if (e.attackPattern === 0) {
+                            // AIMED FAN — 5 shots
                             for (let a = -2; a <= 2; a++) {
                                 const angle = playerAngle + a * 0.18;
-                                enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(angle) * 5.5, vy: Math.sin(angle) * 5.5, life: 100 });
+                                enemyBullets.push({
+                                    x: e.x + e.w / 2, y: e.y + e.h / 2,
+                                    vx: Math.cos(angle) * 5.5, vy: Math.sin(angle) * 5.5,
+                                    life: 100, color: '#ff5522', glow: '#ff8844', size: 6
+                                });
                             }
                             e.shootTimer = 28;
-                        } else if (e.attackPattern === 2) {
-                            // Double circle burst
+                        } else if (e.attackPattern === 1) {
+                            // DOUBLE CIRCLE BURST — 16 shots
                             for (let a = 0; a < 16; a++) {
                                 const angle = (a / 16) * Math.PI * 2;
-                                enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(angle) * 4, vy: Math.sin(angle) * 4, life: 90 });
+                                enemyBullets.push({
+                                    x: e.x + e.w / 2, y: e.y + e.h / 2,
+                                    vx: Math.cos(angle) * 4, vy: Math.sin(angle) * 4,
+                                    life: 90, color: '#ff5522', glow: '#ff8844', size: 5
+                                });
                             }
                             e.shootTimer = 50;
-                        } else {
-                            // Phase 2 lava globs — 5 in a fan from the MOUTH
+                        } else if (e.attackPattern === 2) {
+                            // LAVA GLOBS — phase 2 fan of 5 from MOUTH
                             const o = bossOrigin(e, 'mouth');
                             muzzleFlash(o.x, o.y, '#ff4400', '#ff8800', true);
                             for (let i = -2; i <= 2; i++) {
@@ -7276,6 +7361,40 @@ function updateEnemies() {
                                 });
                             }
                             e.shootTimer = 70;
+                        } else if (e.attackPattern === 3) {
+                            // FIRE WAVE PHASE 2 — 7 shots, faster, wider
+                            const o = bossOrigin(e, 'mouth');
+                            muzzleFlash(o.x, o.y, '#ff2200', '#ff6600', true);
+                            spawnShockwave(o.x, o.y, 80, '#ff4422');
+                            for (let i = -3; i <= 3; i++) {
+                                enemyBullets.push({
+                                    x: o.x, y: o.y + i * 16,
+                                    vx: Math.cos(playerAngle) * 8,
+                                    vy: Math.sin(playerAngle) * 8,
+                                    life: 110, damage: 14,
+                                    color: '#ff3300', glow: '#ff8844', size: 7, big: true,
+                                    burn: true, burnDmg: 5, burnDur: 60
+                                });
+                            }
+                            e.shootTimer = 60;
+                        } else {
+                            // METEOR SHOWER PHASE 2 — 6 meteors, wider
+                            const baseX = player.x + player.w / 2;
+                            const topY = (e.y - 240);
+                            for (let i = -2; i <= 3; i++) {
+                                const sx = baseX + i * 65 + (Math.random() - 0.5) * 22;
+                                spawnParticles(sx, topY, '#ff8844', 7, 5);
+                                enemyBullets.push({
+                                    x: sx, y: topY,
+                                    vx: (Math.random() - 0.5) * 1.5,
+                                    vy: 5,
+                                    life: 130, damage: 16,
+                                    lavaGlob: true,
+                                    color: '#ff4400', glow: '#ff8800', big: true
+                                });
+                            }
+                            spawnShockwave(baseX, topY, 100, '#ff4422');
+                            e.shootTimer = 75;
                         }
                     }
                 }
@@ -14124,13 +14243,18 @@ function drawBullets() {
             ctx.fill();
         }
     }
-    // Enemy bullets
+    // Enemy bullets — respect b.color/b.glow when set (bosses), otherwise
+    // fall back to the stage-themed mob bullet color so each world feels
+    // distinct (acid green in the lab, ice blue in the arctic, etc.).
+    const stageBulletTint = STAGE_ENEMY_BULLET_TINTS[currentStage] || { fill: '#ff3333', glow: '#ff0066' };
     for (const b of enemyBullets) {
-        ctx.fillStyle = b.big ? '#ff0066' : '#ff3333';
-        ctx.shadowColor = b.big ? '#ff0066' : '#ff3333';
+        const fill = b.color || (b.big ? '#ff0066' : stageBulletTint.fill);
+        const glow = b.glow || (b.big ? '#ff0066' : stageBulletTint.glow);
+        ctx.fillStyle = fill;
+        ctx.shadowColor = glow;
         ctx.shadowBlur = b.big ? 12 : 6;
         ctx.beginPath();
-        ctx.arc(b.x - camera.x, b.y - camera.y, b.big ? 9 : 5, 0, Math.PI * 2);
+        ctx.arc(b.x - camera.x, b.y - camera.y, b.big ? 9 : (b.size || 5), 0, Math.PI * 2);
         ctx.fill();
     }
     ctx.shadowBlur = 0;
