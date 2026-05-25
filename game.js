@@ -862,7 +862,7 @@ const WEAPONS = [
     },
     {
         name: 'FLAME THROWER', tier: 12, shopOnly: true, cost: 420,
-        damage: 6, speed: 9, cooldown: 3, bullets: 1, spread: 0.28,
+        damage: 3, speed: 9, cooldown: 3, bullets: 1, spread: 0.28,
         color: '#ff8800', glow: '#ff4400', size: 8, life: 35,
         burn: true, burnDmg: 3, burnDur: 55,
         flavor: 'Short range, burns everything.'
@@ -6864,8 +6864,13 @@ function updateEnemies() {
                     );
                 }
                 screenShake = 28;
-                hitStop = 10;
-                critFlash = 18;
+                hitStop = 0;       // (was 10) skip the freeze so player can keep dodging
+                critFlash = 0;     // (was 18) skip the gold flash so it doesn't blind the player
+                // Brief player i-frames so the immediate phase-2 bullets
+                // can't clip you during the transform — fair window to react.
+                if (typeof player !== 'undefined') {
+                    player.invincible = Math.max(player.invincible || 0, 60);
+                }
                 if (typeof shopMessage !== 'undefined') {
                     shopMessage = { text: '⚡ PHASE 2 — TRANSFORMATION ⚡', timer: 180, color: '#ff44ff' };
                 }
