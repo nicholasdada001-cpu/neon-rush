@@ -43,6 +43,35 @@ let bossIntro = null;       // generic per-subtype boss-intro cinematic before d
 let healingStations = [];
 let activeHealingStation = null;     // station the player is currently in range of
 
+// Frame-counted deferred actions. Replaces setTimeout for in-game state
+// transitions so they respect hitstop, pause, and tab-out. Each entry is
+// { frames, fn }. tickTransitions() runs once per gameLoop frame.
+let pendingTransitions = [];
+function deferFrames(frames, fn) {
+    pendingTransitions.push({ frames: Math.max(1, frames | 0), fn });
+}
+function tickTransitions() {
+    if (pendingTransitions.length === 0) return;
+    for (let i = pendingTransitions.length - 1; i >= 0; i--) {
+        if (--pendingTransitions[i].frames <= 0) {
+            const fn = pendingTransitions[i].fn;
+            pendingTransitions.splice(i, 1);
+            try { fn(); } catch (err) { /* swallow so a bad callback can't kill the loop */ }
+        }
+    }
+}
+
+// Defensive normalization for enemy AI. A missing or NaN `vx`/`vy`/`x`/`y`
+// can cascade into the renderer (createLinearGradient throws on NaN) and
+// freeze the game. Call this at the top of every AI tick. Cheap — it's
+// just a handful of typeof+isFinite checks.
+function normalizeEnemy(e) {
+    if (typeof e.vx !== 'number' || !isFinite(e.vx)) e.vx = 0;
+    if (typeof e.vy !== 'number' || !isFinite(e.vy)) e.vy = 0;
+    if (!isFinite(e.x)) e.x = e.baseX || 0;
+    if (!isFinite(e.y)) e.y = e.baseY || 0;
+}
+
 // ============================================================================
 // AUDIO SYSTEM (Step 1 of polish pass — synthwave/industrial soundtrack + SFX)
 // ============================================================================
@@ -885,7 +914,7 @@ const CHARACTERS = [
     },
     {
         name: 'GHOST',
-        desc: 'Master of air. Q: AIR HOVER (float for 3s)',
+        desc: 'Lord of air. Q: AIR HOVER (float for 3s)',
         speed: 3.5, jumpForce: -11.5, gravity: 0.35,
         maxHp: 190, dashRange: 16, fireRateMul: 0.95, dmgMul: 1,
         color: '#88ffff', accent: '#ffffff',
@@ -2112,7 +2141,7 @@ const STAGES = [
         ],
         victoryCutscene: [
             { speaker: 'GUARD-1', text: 'I... was only the gatekeeper...', color: '#ff66dd' },
-            { speaker: 'YOU', text: 'Then your masters are next. Where are they?', color: '#00ffff' },
+            { speaker: 'YOU', text: 'Then your overlords are next. Where are they?', color: '#00ffff' },
             { speaker: 'GUARD-1', text: 'Above. Always above. The Sky Docks...', color: '#ff66dd' },
             { speaker: 'YOU', text: 'Got it. Hold on, prisoner. I am coming.', color: '#00ffff' }
         ],
@@ -5475,8 +5504,10 @@ function updateBullets() {
                             w: 80, h: 100
                         });
                     } else {
-                        // Final stage - immediate win after rescue
-                        setTimeout(() => { gameState = 'won'; }, 1500);
+                        // Final stage - immediate win after rescue (90 frames ~= 1.5s).
+                        // Uses frame-counted timer so the transition respects
+                        // hitstop, pause, and tab-out.
+                        deferFrames(90, () => { gameState = 'won'; });
                     }
                 }
                 hitCage = true;
@@ -5813,8 +5844,9 @@ function handleEnemyKilled(e, j) {
         const stageDef = STAGES[currentStage];
         if (stageDef && stageDef.victoryCutscene && !stageDef.victoryCutsceneShown) {
             stageDef.victoryCutsceneShown = true;
-            // Defer slightly so explosion plays first
-            setTimeout(() => {
+            // Defer slightly so explosion plays first (48 frames ~= 0.8s).
+            // Frame-counted so the transition pauses with the rest of the game.
+            deferFrames(48, () => {
                 if (gameState === 'playing' || gameState === 'won' || gameState === 'stageComplete') {
                     if (gameState === 'won') return;   // don't override final-win banner
                     cutscene = {
@@ -5826,7 +5858,7 @@ function handleEnemyKilled(e, j) {
                     player.vx = 0; player.vy = 0;
                     gameState = 'cutscene';
                 }
-            }, 800);
+            });
         }
         // If no cage, advance immediately (final stage). Otherwise wait for rescue.
         if (currentStage >= STAGES.length - 1 && !allyDef) {
@@ -6013,13 +6045,10 @@ function updateEnemies() {
             e.frozen--;
             continue;
         }
-        // SAFETY: ensure numeric fields used by AI are initialized so a
-        // missing `vy` (or similar) doesn't cause NaN propagation that
-        // crashes the canvas renderer (createLinearGradient throws on NaN).
-        if (typeof e.vx !== 'number' || !isFinite(e.vx)) e.vx = 0;
-        if (typeof e.vy !== 'number' || !isFinite(e.vy)) e.vy = 0;
-        if (!isFinite(e.x)) e.x = e.baseX || 0;
-        if (!isFinite(e.y)) e.y = e.baseY || 0;
+        // SAFETY: normalize numeric fields used by AI so a missing `vy`
+        // (or similar) doesn't cause NaN propagation that crashes the
+        // canvas renderer (createLinearGradient throws on NaN).
+        normalizeEnemy(e);
         // Apply slow effect
         if (e.slowTimer > 0) e.slowTimer--;
         const slowMul = (e.slowTimer > 0 ? (e.slowFactor || 0.4) : 1) * timeSlowFactor;
@@ -16170,385 +16199,6 @@ function hexToRgba(hex, a) {
     return `rgba(${r},${g},${b},${a})`;
 }
 
-// Draw the portrait chest — torso with shoulders, pauldrons, armored plate,
-// and visible upper arms peeking in from the sides.
-function drawPortraitChest(cx, chestCy, panelW, panelH, face, t, breathe) {
-    const chestW = panelW * 0.72;
-    const chestH = panelH * 0.30;
-    const chestX = cx - chestW / 2;
-    const chestY = chestCy - chestH / 2;
-
-    // Drop shadow under chest (for separation from panel)
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.beginPath();
-    ctx.ellipse(cx, chestY + chestH + 6, chestW / 2, 6, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Chest plate — gradient with a clear lit-side and shadow-side
-    const cg = ctx.createLinearGradient(chestX, chestY, chestX + chestW, chestY + chestH);
-    cg.addColorStop(0, face.accent);
-    cg.addColorStop(0.4, face.color);
-    cg.addColorStop(1, '#0a1a24');
-    ctx.fillStyle = cg;
-    ctx.shadowColor = face.color;
-    ctx.shadowBlur = 16;
-    // Trapezoidal chest (wider top, narrower bottom)
-    ctx.beginPath();
-    ctx.moveTo(chestX + 8, chestY);
-    ctx.lineTo(chestX + chestW - 8, chestY);
-    ctx.lineTo(chestX + chestW - 14, chestY + chestH);
-    ctx.lineTo(chestX + 14, chestY + chestH);
-    ctx.closePath();
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    // Inner armor groove (depth detail)
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(chestX + chestW / 2 - 1, chestY + 4, 2, chestH - 8);
-
-    // Top rim highlight (key light)
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.fillRect(chestX + 12, chestY + 3, chestW - 24, 2);
-
-    // Chest emblem — small glowing diamond in the center
-    ctx.fillStyle = face.accent;
-    ctx.shadowColor = face.color;
-    ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.moveTo(cx, chestY + chestH * 0.35);
-    ctx.lineTo(cx + 8, chestY + chestH * 0.55);
-    ctx.lineTo(cx, chestY + chestH * 0.75);
-    ctx.lineTo(cx - 8, chestY + chestH * 0.55);
-    ctx.closePath();
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(cx - 1, chestY + chestH * 0.55 - 1, 2, 2);
-
-    // ===== Shoulder pauldrons (left + right) =====
-    const shoulderCy = chestY + 6;
-    drawPortraitShoulder(chestX, shoulderCy, true, face);
-    drawPortraitShoulder(chestX + chestW, shoulderCy, false, face);
-
-    // ===== Upper arms — peek in from each side =====
-    const armY = chestY + 8;
-    const armH = chestH * 0.85;
-    // Subtle sway on each arm so the body breathes
-    const swayL = Math.sin(t * 0.003) * 1;
-    const swayR = -swayL;
-    // Left arm
-    ctx.fillStyle = '#0a1a24';
-    ctx.fillRect(chestX - 14 + swayL, armY, 14, armH);
-    ctx.fillStyle = face.color;
-    ctx.fillRect(chestX - 14 + swayL, armY, 4, armH);
-    // Right arm
-    ctx.fillStyle = '#0a1a24';
-    ctx.fillRect(chestX + chestW + swayR, armY, 14, armH);
-    ctx.fillStyle = face.color;
-    ctx.fillRect(chestX + chestW + 10 + swayR, armY, 4, armH);
-}
-
-// Draw a single shoulder pauldron — a rounded armored cap.
-function drawPortraitShoulder(edgeX, cy, isLeft, face) {
-    const w = 20, h = 22;
-    const sx = isLeft ? edgeX - 8 : edgeX - 12;
-    const sy = cy;
-    const sg = ctx.createLinearGradient(sx, sy, sx + w, sy + h);
-    sg.addColorStop(0, face.accent);
-    sg.addColorStop(1, '#0a1a24');
-    ctx.fillStyle = sg;
-    ctx.shadowColor = face.color;
-    ctx.shadowBlur = 10;
-    ctx.beginPath();
-    ctx.moveTo(sx + (isLeft ? 0 : 4), sy);
-    ctx.quadraticCurveTo(sx + w / 2, sy - 8, sx + (isLeft ? w - 4 : w), sy);
-    ctx.lineTo(sx + w, sy + h);
-    ctx.lineTo(sx, sy + h);
-    ctx.closePath();
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    // Highlight strip
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.fillRect(sx + 4, sy - 1, w - 8, 2);
-}
-
-// Draw the head/helmet/visor for the portrait. Anchored at (hx, hy) → (hx+hw, hy+hh).
-function drawPortraitHead(hx, hy, hw, hh, face, mood, shape, t, talking) {
-    // ===== Helmet shell — gradient for depth =====
-    const headG = ctx.createLinearGradient(hx, hy, hx + hw, hy + hh);
-    headG.addColorStop(0, face.accent);
-    headG.addColorStop(0.5, face.color);
-    headG.addColorStop(1, '#0a1a24');
-    ctx.fillStyle = headG;
-    ctx.shadowColor = face.color;
-    ctx.shadowBlur = 16;
-    drawHelmetShape(hx, hy, hw, hh, shape, face);
-    ctx.shadowBlur = 0;
-
-    // Rim light highlight on top edge
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillRect(hx + 6, hy + 1, hw - 12, 2);
-
-    // Side shadow (shadow side of face — gives 3D feel)
-    ctx.fillStyle = 'rgba(0,0,0,0.32)';
-    ctx.fillRect(hx + hw - 8, hy + 6, 6, hh - 12);
-
-    // Cheek/jaw plates
-    ctx.fillStyle = '#0a0a14';
-    ctx.fillRect(hx + 4, hy + hh - 10, hw - 8, 6);
-    // Jaw gradient highlight
-    ctx.fillStyle = 'rgba(255,255,255,0.15)';
-    ctx.fillRect(hx + 6, hy + hh - 10, hw - 12, 1);
-
-    // ===== Visor / eye area =====
-    drawPortraitVisor(hx, hy, hw, hh, face, mood, t);
-
-    // ===== Mouth / vocoder =====
-    drawPortraitMouth(hx, hy, hw, hh, face, talking, t);
-
-    // ===== Optional decorations per shape =====
-    drawHelmetDecor(hx, hy, hw, hh, shape, face);
-}
-
-// Helmet outer shell variants — fills using current ctx style.
-function drawHelmetShape(hx, hy, hw, hh, shape, face) {
-    if (shape === 'sleek' || shape === 'minimal') {
-        // Smooth dome
-        ctx.beginPath();
-        ctx.moveTo(hx + 10, hy);
-        ctx.lineTo(hx + hw - 10, hy);
-        ctx.quadraticCurveTo(hx + hw, hy + 4, hx + hw, hy + 14);
-        ctx.lineTo(hx + hw, hy + hh - 6);
-        ctx.quadraticCurveTo(hx + hw - 4, hy + hh, hx + hw - 12, hy + hh);
-        ctx.lineTo(hx + 12, hy + hh);
-        ctx.quadraticCurveTo(hx + 4, hy + hh, hx, hy + hh - 6);
-        ctx.lineTo(hx, hy + 14);
-        ctx.quadraticCurveTo(hx, hy + 4, hx + 10, hy);
-        ctx.closePath();
-        ctx.fill();
-    } else if (shape === 'square') {
-        // Boxy with chamfered corners
-        ctx.beginPath();
-        ctx.moveTo(hx + 6, hy);
-        ctx.lineTo(hx + hw - 6, hy);
-        ctx.lineTo(hx + hw, hy + 6);
-        ctx.lineTo(hx + hw, hy + hh - 6);
-        ctx.lineTo(hx + hw - 6, hy + hh);
-        ctx.lineTo(hx + 6, hy + hh);
-        ctx.lineTo(hx, hy + hh - 6);
-        ctx.lineTo(hx, hy + 6);
-        ctx.closePath();
-        ctx.fill();
-    } else if (shape === 'horned' || shape === 'spiked' || shape === 'crowned' || shape === 'crownking') {
-        // Boxy base — decorations added separately
-        ctx.beginPath();
-        ctx.moveTo(hx + 4, hy);
-        ctx.lineTo(hx + hw - 4, hy);
-        ctx.quadraticCurveTo(hx + hw, hy + 6, hx + hw, hy + 16);
-        ctx.lineTo(hx + hw, hy + hh - 4);
-        ctx.lineTo(hx, hy + hh - 4);
-        ctx.lineTo(hx, hy + 16);
-        ctx.quadraticCurveTo(hx, hy + 6, hx + 4, hy);
-        ctx.closePath();
-        ctx.fill();
-    } else if (shape === 'voidmask') {
-        // Hooded round head
-        ctx.beginPath();
-        ctx.ellipse(hx + hw / 2, hy + hh / 2, hw / 2, hh / 2 + 3, 0, 0, Math.PI * 2);
-        ctx.fill();
-        // Lower hood shadow
-        ctx.save();
-        ctx.fillStyle = '#0a0014';
-        ctx.beginPath();
-        ctx.ellipse(hx + hw / 2, hy + hh - 6, hw / 2 - 4, 8, 0, 0, Math.PI);
-        ctx.fill();
-        ctx.restore();
-    }
-}
-
-// Per-shape extra decorations (horns, crowns, antennae).
-function drawHelmetDecor(hx, hy, hw, hh, shape, face) {
-    if (shape === 'horned') {
-        ctx.fillStyle = face.accent;
-        ctx.shadowColor = face.color;
-        ctx.shadowBlur = 10;
-        ctx.beginPath();
-        ctx.moveTo(hx + 4, hy + 4);
-        ctx.lineTo(hx - 14, hy - 16);
-        ctx.lineTo(hx + 16, hy + 2);
-        ctx.closePath();
-        ctx.fill();
-        ctx.beginPath();
-        ctx.moveTo(hx + hw - 4, hy + 4);
-        ctx.lineTo(hx + hw + 14, hy - 16);
-        ctx.lineTo(hx + hw - 16, hy + 2);
-        ctx.closePath();
-        ctx.fill();
-        ctx.shadowBlur = 0;
-    } else if (shape === 'spiked') {
-        ctx.fillStyle = face.accent;
-        ctx.shadowColor = face.color;
-        ctx.shadowBlur = 8;
-        for (let i = 0; i < 5; i++) {
-            const sx = hx + 8 + i * (hw - 16) / 4;
-            ctx.beginPath();
-            ctx.moveTo(sx - 4, hy);
-            ctx.lineTo(sx, hy - 14);
-            ctx.lineTo(sx + 4, hy);
-            ctx.closePath();
-            ctx.fill();
-        }
-        ctx.shadowBlur = 0;
-    } else if (shape === 'crowned') {
-        ctx.fillStyle = face.accent;
-        ctx.shadowColor = face.color;
-        ctx.shadowBlur = 10;
-        for (let i = 0; i < 5; i++) {
-            const sx = hx + 6 + i * (hw - 12) / 4;
-            ctx.beginPath();
-            ctx.moveTo(sx - 5, hy);
-            ctx.lineTo(sx, hy - 18 + (i % 2) * 6);
-            ctx.lineTo(sx + 5, hy);
-            ctx.closePath();
-            ctx.fill();
-        }
-        ctx.shadowBlur = 0;
-    } else if (shape === 'crownking') {
-        ctx.fillStyle = face.accent;
-        ctx.shadowColor = face.color;
-        ctx.shadowBlur = 14;
-        for (let i = 0; i < 7; i++) {
-            const sx = hx + 4 + i * (hw - 8) / 6;
-            const ch = (i === 3) ? 24 : (i === 0 || i === 6 ? 14 : 18);
-            ctx.beginPath();
-            ctx.moveTo(sx - 4, hy);
-            ctx.lineTo(sx, hy - ch);
-            ctx.lineTo(sx + 4, hy);
-            ctx.closePath();
-            ctx.fill();
-        }
-        ctx.shadowBlur = 0;
-    }
-    // Side antennae for sleek/minimal/square — adds personality
-    if (shape === 'sleek' || shape === 'minimal' || shape === 'square') {
-        ctx.fillStyle = face.color;
-        ctx.shadowColor = face.color;
-        ctx.shadowBlur = 8;
-        ctx.fillRect(hx + 4, hy - 6, 2, 6);
-        ctx.fillRect(hx + hw - 6, hy - 6, 2, 6);
-        ctx.shadowBlur = 0;
-    }
-}
-
-// Visor / eye plate — a glowing horizontal slot with two pupils.
-function drawPortraitVisor(hx, hy, hw, hh, face, mood, t) {
-    const visorY = hy + hh * 0.32;
-    const visorW = hw - 14;
-    const visorH = hh * 0.22;
-    // Visor housing (dark)
-    ctx.fillStyle = '#000';
-    ctx.fillRect(hx + 7, visorY, visorW, visorH);
-    // Inner backplate (slight glow)
-    ctx.fillStyle = hexToRgba(face.color, 0.35);
-    ctx.fillRect(hx + 8, visorY + 1, visorW - 2, visorH - 2);
-
-    // Eye glow blink check
-    const blink = Math.sin(t * 0.005 + (face.color.length || 0) * 0.2);
-    const isBlink = blink > 0.97;
-    // Slight head tilt eye offset for life
-    const eyeShift = Math.sin(t * 0.0015) * 1.5;
-    const angryShake = (mood === 'angry' || mood === 'fire') ? Math.sin(t * 0.04) * 1.2 : 0;
-    const eyeYOffset = (mood === 'angry' || mood === 'fire') ? 1 : (mood === 'kingly' ? -1 : 0);
-
-    if (!isBlink) {
-        // Two glowing pupils inside the visor
-        const eyeW = visorW * 0.32;
-        const eyeH = (mood === 'angry' || mood === 'fire') ? visorH * 0.45 : visorH * 0.6;
-        const ey = visorY + (visorH - eyeH) / 2 + eyeYOffset;
-        const lex = hx + 12 + eyeShift + angryShake;
-        const rex = hx + hw - 12 - eyeW + eyeShift + angryShake;
-        // Outer halo
-        ctx.fillStyle = hexToRgba(face.eye, 0.6);
-        ctx.shadowColor = face.eye;
-        ctx.shadowBlur = 14;
-        ctx.fillRect(lex - 2, ey - 1, eyeW + 4, eyeH + 2);
-        ctx.fillRect(rex - 2, ey - 1, eyeW + 4, eyeH + 2);
-        // Bright eye core
-        ctx.fillStyle = face.eye;
-        ctx.shadowBlur = 8;
-        ctx.fillRect(lex, ey, eyeW, eyeH);
-        ctx.fillRect(rex, ey, eyeW, eyeH);
-        // Pupil dot
-        ctx.fillStyle = '#ffffff';
-        ctx.shadowBlur = 0;
-        ctx.fillRect(lex + eyeW * 0.4, ey + eyeH * 0.25, 3, eyeH * 0.5);
-        ctx.fillRect(rex + eyeW * 0.4, ey + eyeH * 0.25, 3, eyeH * 0.5);
-        // Angry brow lines (like \   /)
-        if (mood === 'angry' || mood === 'fire') {
-            ctx.strokeStyle = face.color;
-            ctx.shadowColor = face.color;
-            ctx.shadowBlur = 6;
-            ctx.lineWidth = 2.5;
-            ctx.beginPath();
-            ctx.moveTo(lex - 4, ey - 3);
-            ctx.lineTo(lex + eyeW + 1, ey + 1);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(rex + eyeW + 4, ey - 3);
-            ctx.lineTo(rex - 1, ey + 1);
-            ctx.stroke();
-            ctx.lineWidth = 1;
-            ctx.shadowBlur = 0;
-        }
-    } else {
-        // Blink — thin closed eye lines
-        ctx.fillStyle = hexToRgba(face.eye, 0.5);
-        const ey = visorY + visorH / 2;
-        ctx.fillRect(hx + 12, ey - 1, visorW * 0.32, 2);
-        ctx.fillRect(hx + hw - 12 - visorW * 0.32, ey - 1, visorW * 0.32, 2);
-    }
-    ctx.shadowBlur = 0;
-
-    // Glass reflection (curved highlight on the visor)
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.beginPath();
-    ctx.moveTo(hx + 8, visorY + 1);
-    ctx.lineTo(hx + 8 + visorW * 0.3, visorY + 1);
-    ctx.lineTo(hx + 8 + visorW * 0.18, visorY + visorH * 0.4);
-    ctx.lineTo(hx + 8, visorY + visorH * 0.5);
-    ctx.closePath();
-    ctx.fill();
-}
-
-// Mouth/vocoder — two horizontal bars that animate when talking.
-function drawPortraitMouth(hx, hy, hw, hh, face, talking, t) {
-    const mx = hx + hw / 2;
-    const my = hy + hh - 14;
-    const mw = hw * 0.42;
-    if (talking) {
-        // 4 vocoder bars whose height oscillates while text types
-        const bars = 5;
-        const bw = mw / bars;
-        for (let i = 0; i < bars; i++) {
-            const phase = (t * 0.025 + i * 0.6);
-            const bh = 2 + Math.abs(Math.sin(phase)) * 6;
-            const bx = mx - mw / 2 + i * bw + 1;
-            ctx.fillStyle = face.color;
-            ctx.shadowColor = face.color;
-            ctx.shadowBlur = 8;
-            ctx.fillRect(bx, my - bh / 2, bw - 2, bh);
-        }
-        ctx.shadowBlur = 0;
-    } else {
-        // Closed mouth — two thin lines
-        ctx.fillStyle = face.color;
-        ctx.shadowColor = face.color;
-        ctx.shadowBlur = 4;
-        ctx.fillRect(mx - mw / 2, my - 1, mw, 2);
-        ctx.shadowBlur = 0;
-    }
-}
-
 function drawCutscene() {
     if (!cutscene) return;
     // Cinematic black bars
@@ -17589,6 +17239,10 @@ function restart() {
 function gameLoop(timestamp) {
     const dt = timestamp - lastTime;
     lastTime = timestamp;
+
+    // Tick deferred state transitions. Runs every frame regardless of
+    // gameState so a queued "switch to won" still fires while in cutscene.
+    tickTransitions();
 
     // Update music to match current game state (cheap if track is unchanged)
     audio.setMusic(pickMusicTrack());
