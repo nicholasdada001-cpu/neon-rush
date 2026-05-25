@@ -2526,6 +2526,34 @@ function spawnBossGate() {
     });
 }
 
+// Per-stage WARDEN-K palette so the mini-boss feels native to each world.
+// `glow` is the hot-spot color (eye/halo/beam), `accent` is the accent/teeth,
+// `mid` and `dark` drive the torso vertical gradient, `outline` is reserved
+// for the heavy stroke lines. Keys 0-7 cover all stages even though the
+// warden only spawns 2-7 — keeps lookups safe and easy to extend.
+const WARDEN_THEME_BY_STAGE = [
+    // 0/1 unused (warden doesn't spawn) — kept as fallback red so accidental
+    // spawns at low stages still render.
+    { glow: '#ff4466', accent: '#ff8899', mid: '#882244', dark: '#330011', particle: '#ff4466' },
+    { glow: '#ff4466', accent: '#ff8899', mid: '#882244', dark: '#330011', particle: '#ff4466' },
+    // 2 REACTOR — molten orange/red sentinel
+    { glow: '#ff5522', accent: '#ffaa66', mid: '#cc4422', dark: '#441100', particle: '#ff7733' },
+    // 3 WEAPONS LAB — acid green prototype unit
+    { glow: '#88ff44', accent: '#bbff77', mid: '#558822', dark: '#113311', particle: '#aaff44' },
+    // 4 ARCTIC — frostbite ice sentinel
+    { glow: '#88ddff', accent: '#bbeeff', mid: '#5588cc', dark: '#112244', particle: '#aaeeff' },
+    // 5 VOID — phase-shifted violet rift sentinel
+    { glow: '#aa44ff', accent: '#cc88ff', mid: '#771199', dark: '#220044', particle: '#cc66ff' },
+    // 6 CITADEL — gilded royal-guard sentinel
+    { glow: '#ffcc44', accent: '#ffdd88', mid: '#cc9922', dark: '#442200', particle: '#ffaa22' },
+    // 7 ORBITAL — chrome cyan orbital interceptor
+    { glow: '#88ddff', accent: '#bbeeff', mid: '#4488aa', dark: '#112233', particle: '#aaeeff' }
+];
+
+function getWardenTheme(stageIdx) {
+    return WARDEN_THEME_BY_STAGE[stageIdx] || WARDEN_THEME_BY_STAGE[0];
+}
+
 // Mini-boss antechamber gates — pair of gates that lock the player inside
 // a small arena until the WARDEN-K mini-boss is killed. Stages 3+ get this
 // gauntlet between the level proper and the boss arena.
@@ -2543,11 +2571,12 @@ function spawnMinibossAntechamber(wardenX) {
     // Entry gate: 120px before the warden's left edge so the player walks INTO
     // the antechamber and gets locked in. Player triggers it by getting close.
     const entryX = wardenX - 240;
+    const theme = getWardenTheme(currentStage);
     bossGates.push({
         x: entryX, y: 150, w: 50, h: 400,
         open: false,
         animTimer: 0,
-        color: '#ff4466',
+        color: theme.glow,
         antechamberEntry: true,    // auto-opens on approach, then closes behind player
         closedBehind: false        // becomes true once player walks past it
     });
@@ -3226,6 +3255,7 @@ function spawnEliteEnemies(stage) {
         // between the entry gate (triggerX - 940) and the exit/boss gate
         // (triggerX - 60). That gives roughly an 880px-wide arena.
         const wardenX = triggerX - 700;
+        const theme = getWardenTheme(stage);
         enemies.push({
             x: wardenX, y: baseY, w: 56, h: 100,
             type: 'miniboss', subtype: 'warden',
@@ -3233,7 +3263,12 @@ function spawnEliteEnemies(stage) {
             shootTimer: 80, moveTimer: 0, attackPattern: 0,
             baseX: wardenX, baseY,
             vx: 0, vy: 0, facing: -1,
-            color: '#ff4466'
+            color: theme.glow,
+            themeGlow: theme.glow,
+            themeAccent: theme.accent,
+            themeMid: theme.mid,
+            themeDark: theme.dark,
+            themeParticle: theme.particle
         });
         // Spawn the antechamber entry gate. The boss gate (which spawns
         // AFTER this) will auto-detect the antechamber and lock itself
@@ -4508,7 +4543,8 @@ function updatePlayer() {
                     spawnShockwave(bg.x + bg.w / 2, bg.y + bg.h / 2, 80, bg.color);
                     screenShake = 14;
                     if (typeof shopMessage !== 'undefined') {
-                        shopMessage = { text: '⚠ MINI-BOSS: WARDEN-K ⚠', timer: 180, color: '#ff4466' };
+                        const wardenTheme = getWardenTheme(currentStage);
+                        shopMessage = { text: '⚠ MINI-BOSS: WARDEN-K ⚠', timer: 180, color: wardenTheme.glow };
                     }
                     audio.play('bossIntro');
                 }
@@ -18061,6 +18097,11 @@ function updateMinibossWarden(e, playerAngle, slowMul) {
             });
         }
     }
+    // Pull theme colors with red fallbacks (preserves behavior if a future
+    // warden is spawned without the theme fields).
+    const themeGlow = e.themeGlow || '#ff4466';
+    const themeAccent = e.themeAccent || '#ff8899';
+    const themeParticle = e.themeParticle || themeGlow;
 
     // === Float / drift movement ===
     e.y = e.baseY + Math.sin(e.moveTimer * 0.024) * 22;
@@ -18087,7 +18128,7 @@ function updateMinibossWarden(e, playerAngle, slowMul) {
                 alive: true
             });
         }
-        spawnShockwave(cx, cy, 100, '#ff4488');
+        spawnShockwave(cx, cy, 100, themeAccent);
     }
 
     // === Update orbs (orbit + fire) ===
@@ -18105,9 +18146,9 @@ function updateMinibossWarden(e, playerAngle, slowMul) {
                 vx: Math.cos(aimAng) * 4.5,
                 vy: Math.sin(aimAng) * 4.5,
                 life: 110, damage: 8,
-                color: '#ff4466', glow: '#ff2244', size: 5
+                color: themeGlow, glow: themeAccent, size: 5
             });
-            spawnParticles(ox, oy, '#ff4466', 4, 3);
+            spawnParticles(ox, oy, themeParticle, 4, 3);
             orb.shootTimer = e.phase === 2 ? 90 : 130;
         }
     }
@@ -18118,8 +18159,8 @@ function updateMinibossWarden(e, playerAngle, slowMul) {
         sp.timer -= slowMul;
         if (sp.timer <= 0) {
             // Erupt: deal damage if player is on top, spawn shockwave + bullets
-            spawnShockwave(sp.x, sp.y, 110, '#ff2244');
-            spawnParticles(sp.x, sp.y, '#ff4466', 24, 7);
+            spawnShockwave(sp.x, sp.y, 110, themeGlow);
+            spawnParticles(sp.x, sp.y, themeParticle, 24, 7);
             spawnParticles(sp.x, sp.y, '#ffffff', 12, 5);
             screenShake = Math.max(screenShake, 12);
             // 4 bullet shrapnel upward from spike
@@ -18130,7 +18171,7 @@ function updateMinibossWarden(e, playerAngle, slowMul) {
                     vx: Math.cos(ang) * 5,
                     vy: Math.sin(ang) * 5,
                     life: 90, damage: 12,
-                    color: '#ff2244', glow: '#ff4466', size: 6, big: true
+                    color: themeGlow, glow: themeAccent, size: 6, big: true
                 });
             }
             // Direct AOE damage to player if standing close to spike center
@@ -18159,7 +18200,7 @@ function updateMinibossWarden(e, playerAngle, slowMul) {
             // TRIPLE BEAM VOLLEY — 3 fanned piercing shots from the eye
             const eyeX = cx + Math.cos(e.eyeAngle) * 24;
             const eyeY = cy + Math.sin(e.eyeAngle) * 24;
-            spawnParticles(eyeX, eyeY, '#ff2244', 14, 5);
+            spawnParticles(eyeX, eyeY, themeGlow, 14, 5);
             spawnParticles(eyeX, eyeY, '#ffffff', 8, 4);
             for (let s = -1; s <= 1; s++) {
                 const ang = e.eyeAngle + s * 0.18;
@@ -18168,7 +18209,7 @@ function updateMinibossWarden(e, playerAngle, slowMul) {
                     vx: Math.cos(ang) * 9,
                     vy: Math.sin(ang) * 9,
                     life: 100, damage: 14,
-                    color: '#ff4466', glow: '#ff2244', size: 7, big: true
+                    color: themeGlow, glow: themeAccent, size: 7, big: true
                 });
             }
             screenShake = Math.max(screenShake, 5);
@@ -18181,7 +18222,7 @@ function updateMinibossWarden(e, playerAngle, slowMul) {
             // Visual telegraph: claw stretches out toward the spike location.
             // We just record it and the renderer draws the warning circle.
             e.spikes.push({ x: spikeX, y: spikeY, timer: 70, totalTimer: 70 });
-            spawnParticles(spikeX, spikeY, '#ff2244', 8, 4);
+            spawnParticles(spikeX, spikeY, themeGlow, 8, 4);
             e.shootTimer = e.phase === 2 ? 75 : 110;
         } else {
             // SENTRY OVERCHARGE — every alive orb pulses and fires a burst
@@ -18190,9 +18231,9 @@ function updateMinibossWarden(e, playerAngle, slowMul) {
                 orb.shootTimer = 8;  // fire almost immediately on next ticks
                 const ox = cx + Math.cos(orb.angle) * orb.dist;
                 const oy = cy + Math.sin(orb.angle) * orb.dist;
-                spawnParticles(ox, oy, '#ff4466', 8, 4);
+                spawnParticles(ox, oy, themeParticle, 8, 4);
             }
-            spawnShockwave(cx, cy, 90, '#ff4466');
+            spawnShockwave(cx, cy, 90, themeAccent);
             e.shootTimer = e.phase === 2 ? 80 : 130;
         }
     }
@@ -18205,8 +18246,15 @@ function drawMinibossWarden(ex, ey, e) {
     const cy = ey + e.h / 2;
     const eyeAng = e.eyeAngle || 0;
     const phase = e.phase || 1;
-    const glow = phase === 2 ? '#ff2244' : '#ff4466';
-    const accent = phase === 2 ? '#ff6688' : '#ff8899';
+    // Per-stage theme colors — the AI fills these at spawn. Fallback to the
+    // original red palette if a warden is ever spawned without theme info.
+    const themeGlow = e.themeGlow || '#ff4466';
+    const themeAccent = e.themeAccent || '#ff8899';
+    const themeMid = e.themeMid || '#882244';
+    const themeDark = e.themeDark || '#330011';
+    // Phase 2 darkens the glow slightly (still themed).
+    const glow = phase === 2 ? themeGlow : themeAccent;
+    const accent = phase === 2 ? themeAccent : '#ffffff';
 
     // Drop shadow
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
@@ -18261,15 +18309,15 @@ function drawMinibossWarden(ex, ey, e) {
     const torsoY = cy - 8;
     const torsoH = 36;
     // Outer plate
-    ctx.fillStyle = '#330011';
+    ctx.fillStyle = themeDark;
     ctx.beginPath();
     ctx.ellipse(cx, torsoY + torsoH / 2, 22, torsoH / 2, 0, 0, Math.PI * 2);
     ctx.fill();
     // Inner armor wedge
     const torsoGrad = ctx.createLinearGradient(cx - 22, torsoY, cx + 22, torsoY + torsoH);
-    torsoGrad.addColorStop(0, '#550022');
-    torsoGrad.addColorStop(0.5, '#882244');
-    torsoGrad.addColorStop(1, '#330011');
+    torsoGrad.addColorStop(0, themeMid);
+    torsoGrad.addColorStop(0.5, themeAccent);
+    torsoGrad.addColorStop(1, themeDark);
     ctx.fillStyle = torsoGrad;
     ctx.beginPath();
     ctx.ellipse(cx, torsoY + torsoH / 2, 18, torsoH / 2 - 3, 0, 0, Math.PI * 2);
@@ -18343,12 +18391,14 @@ function drawMinibossWarden(ex, ey, e) {
     // Eye-direction laser sight line (charges as attack timer counts down)
     if (e.shootTimer < 30 && e.attackPattern === 0) {
         const intensity = 1 - (e.shootTimer / 30);
-        ctx.strokeStyle = `rgba(255, 68, 102, ${intensity * 0.6})`;
+        ctx.strokeStyle = themeGlow;
+        ctx.globalAlpha = intensity * 0.6;
         ctx.lineWidth = 1 + intensity;
         ctx.beginPath();
         ctx.moveTo(cx, headY);
         ctx.lineTo(cx + Math.cos(eyeAng) * 200, headY + Math.sin(eyeAng) * 200);
         ctx.stroke();
+        ctx.globalAlpha = 1;
     }
 
     // === Orbital sentry orbs ===
@@ -18357,15 +18407,18 @@ function drawMinibossWarden(ex, ey, e) {
             if (!orb.alive) continue;
             const ox = cx + Math.cos(orb.angle) * orb.dist;
             const oy = cy + Math.sin(orb.angle) * orb.dist;
-            // Trail
-            ctx.fillStyle = 'rgba(255, 68, 102, 0.2)';
+            // Trail (themed glow tint)
+            ctx.save();
+            ctx.globalAlpha = 0.2;
+            ctx.fillStyle = themeGlow;
             ctx.beginPath();
             ctx.arc(ox - Math.cos(orb.angle) * 6, oy - Math.sin(orb.angle) * 6, 5, 0, Math.PI * 2);
             ctx.fill();
+            ctx.restore();
             // Outer halo
             ctx.shadowColor = glow;
             ctx.shadowBlur = 8;
-            ctx.fillStyle = '#330011';
+            ctx.fillStyle = themeDark;
             ctx.beginPath();
             ctx.arc(ox, oy, 7, 0, Math.PI * 2);
             ctx.fill();
@@ -18390,10 +18443,10 @@ function drawMinibossWarden(ex, ey, e) {
             const sx = sp.x - camera.x;
             const sy = sp.y - camera.y;
             const radius = 40 + (1 - t) * 25;
-            // Pulsing red warning circle on the ground
+            // Pulsing themed warning circle on the ground
             ctx.save();
             ctx.globalAlpha = 0.4 + (1 - t) * 0.5;
-            ctx.strokeStyle = '#ff2244';
+            ctx.strokeStyle = themeGlow;
             ctx.lineWidth = 3;
             ctx.setLineDash([6, 4]);
             ctx.lineDashOffset = sp.timer * 0.5;
@@ -18403,7 +18456,7 @@ function drawMinibossWarden(ex, ey, e) {
             ctx.setLineDash([]);
             // Inner pulse
             ctx.globalAlpha = 0.2 + (1 - t) * 0.4;
-            ctx.fillStyle = '#ff2244';
+            ctx.fillStyle = themeGlow;
             ctx.beginPath();
             ctx.arc(sx, sy, radius * (1 - t) * 0.4, 0, Math.PI * 2);
             ctx.fill();
@@ -18416,7 +18469,7 @@ function drawMinibossWarden(ex, ey, e) {
         const auraR = 50 + Math.sin((e.moveTimer || 0) * 0.1) * 6;
         ctx.save();
         ctx.globalAlpha = 0.3 + Math.sin((e.moveTimer || 0) * 0.08) * 0.15;
-        ctx.strokeStyle = '#ff2244';
+        ctx.strokeStyle = themeGlow;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(cx, cy, auraR, 0, Math.PI * 2);
