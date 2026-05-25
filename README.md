@@ -31,7 +31,8 @@ start index.html       # Windows
 | `R` | Evolution ability |
 | `X` | Transform to vehicle / back to robot |
 | `TAB` | Swap character |
-| `E` | Open shop |
+| `E` | Open shop / use ⚒ craft bench / use ⚕ healing station |
+| `M` | Mute / unmute audio |
 | `ENTER` | Start / advance dialogue |
 | `L` (in shop) | Evolve (costs Robot Coins) |
 
@@ -54,16 +55,21 @@ The 🛠 DEV button (top-right) opens a panel with full heal, give RC/coins, for
 - **Energon Axe** melee at the CONVOY tier — massive damage with crescent slash AOE finisher
 - **8 playable characters** with unique Q abilities (TIME SLOW, PHASE DASH, SHOCKWAVE, etc.)
 - **19 weapons** (8 boss-themed + 11 shop weapons)
-- **14 enemy types** including HYDRA-WALKER and SCORPION-BOT
+- **15 enemy types** (14 mobs + the WARDEN-K mini-boss)
+- **WARDEN-K mini-boss antechamber** between the level and the boss arena on stages 3-8 — three-claw sentinel that drops spike eruptions and orbital sentry orbs
 - Mission-impossible key/laser/terminal puzzle every stage
+- ⚕ **Healing stations** scattered through every stage — press `E` to repair to full, partial heal to allies in range, 6s recharge
+- 🔩 **Scrap** currency from breakables and enemies, used at the **⚒ craft bench** for permanent stat upgrades and consumables (REPAIR KIT, ARMOR PLATE, AMMO OVERCHARGE, etc.)
+- **Procedural Web Audio** — synthwave/industrial soundtrack + 24 SFX, generated at runtime (no audio files)
+- **Save system** — localStorage persistence for unlocked characters, weapons, audio settings, and meta stats
 - Combat: 3-hit melee combo, dodge roll, parry with reflection, ground pound, perfect-dodge slow-mo, headshot crits
 - Cinematic systems: boss intros, evolution transformation, OMEGA-PRIME throne stand-up, space-transition warp ambushes
 
 ## Files
 
 ```
-index.html          # Page wrapper, canvas, dev panel, keyboard shortcuts
-game.js             # Entire game (~14k lines)
+index.html          # Page wrapper, canvas, dev panel, audio panel (~674 lines)
+game.js             # Entire game (~19,700 lines)
 PROJECT_CONTEXT.md  # Detailed dev/design documentation
 ```
 

@@ -4,9 +4,9 @@ A 2D action platformer + space dogfighter built in vanilla HTML5 Canvas + JavaSc
 
 ---
 
-## ⚡ MOST RECENT SESSION (May 24, 2026)
+## ⚡ MOST RECENT SESSION (May 24, 2026 — Evening)
 
-This block is the freshest context — read this first if dropping into a new chat. Older history is below in "Recent Major Additions" + the rest of the doc.
+This block is the freshest context — read this first if dropping into a new chat. The previous (morning) session is preserved further down.
 
 ### Project on GitHub
 
@@ -16,6 +16,109 @@ This block is the freshest context — read this first if dropping into a new ch
 - `.gitignore` excludes `_visual.png`, `_smoke.html`, `_visual.html`, `_bracecount.js`, OS junk, editor folders
 
 ### What changed in this session (in order)
+
+1. **AUDIO SYSTEM** — pure Web Audio API, no asset files. Lives at the top of `game.js` (~`const audio = (() => { ... })()` around line 61):
+   - Lazy `AudioContext` created on first user gesture (browser autoplay policy)
+   - Master/music/SFX gain nodes; mute, music-volume, SFX-volume settable independently
+   - 24 procedural SFX: `jump`, `doubleJump`, `wallJump`, `dash`, `roll`, `shoot`, `shootHeavy`, `shootBeam`, `rocket`, `melee`, `meleeHit`, `axeSwing`, `axeHit`, `hit`, `hurt`, `crit`, `explosion`, `bossKill`, `parry`, `pound`, `transform`, `evolve`, `coin`, `heal`, `death`, `win`, `bossIntro`, `keyPickup`, `ui`, `warpIn`. Each is `tone(freq, dur, opts)` + `noise(...)` calls.
+   - Per-SFX throttle (default 30ms) so bullet sprays don't shriek
+   - Procedural music tracks scheduled bar-by-bar: `menu`, `cyber`, `industrial`, `void`, `boss`, `final`, `victory`. `pickMusicTrack()` selects based on `gameState` and "is a boss alive" — auto-crossfades when the answer changes.
+   - HTML control panel in `index.html` (bottom-left): mute button, MUSIC slider, SFX slider. **M key** also toggles mute.
+
+2. **SAVE SYSTEM** — localStorage persistence at `~line 587` (`const save = (() => { ... })()`):
+   - Storage key `neonRush.save.v1`, version-gated (mismatched version is ignored)
+   - Persisted: unlocked characters, unlocked weapons, audio settings (muted/musicVol/sfxVol), meta stats (`totalCoins`, `totalScrap`, `totalRC`, `bossesDefeated`, `totalDeaths`, `totalWins`, `farthestStage`, `maxEvoLevel`)
+   - Per-run state (HP, currencies, position, current stage) intentionally does NOT persist — every fresh run starts from zero with all unlocks intact
+   - API: `save.load()`, `save.write()`, `save.reset()`, `save.markDirty()`, `save.bumpStat(k, n)`, `save.setStat(k, v)`, `save.getMeta()`, `save.isFlashing()`, `save.tickFlash()`
+   - Auto-flush every 3s if dirty via `setInterval`. `save.load()` is called once at startup before `applyCharacter` / `buildLevel`.
+   - "SAVED" HUD indicator pulses for 60 frames on each successful flush (`save.isFlashing()`)
+   - Game-over screen now shows all-time meta stats (final score + lifetime coins/scrap/bosses)
+   - Dev panel **⚠ RESET SAVE** button calls `save.reset()` and reloads the page
+
+3. **🔩 SCRAP CURRENCY + ⚒ CRAFTING** — third currency axis next to coins and RC:
+   - **Drops from breakables and every enemy.** Roughly: boss `40 + stage*4`, miniboss 22, hydraWalker/scorpion/mech `10 + floor(stage*1.5)`, heavy/sniper 6, sentinel 7, screamer 5, shielder/jumper 4, bomber/sprinter/turret/ricochet 3, patrol/drone/swarm 2, default 1. Spawned as orange `coinPickup`s with `scrap: true` flag.
+   - **Three currencies** displayed in shop UI and HUD: `Coins`, `🔩 Scrap`, `◆ RC`
+   - **Two scrap-trade items** in `SHOP_ITEMS`: `50 SCRAP → 80¢`, `25 SCRAP → 1 RC` (intentionally stingy — escape valves, not main income)
+   - **Seven crafting recipes** (`craft: true` flag, mostly scrap-only with some hybrid coin cost):
+     - `REPAIR KIT` (30 scrap) — full HP restore + 1s i-frames
+     - `ARMOR PLATE` (60 scrap + 40c) — +30 max HP permanent
+     - `AMMO OVERCHARGE` (80 scrap) — +4 bullet damage permanent
+     - `SERVO BOOST` (100 scrap + 60c) — +0.3 movement speed
+     - `KINETIC SHIELD` (90 scrap) — 4s invincibility consumable
+     - `POWER CELL` (150 scrap + 80c) — +1 extra jump permanent
+     - `ENERGON CORE` (200 scrap) — converts scrap to 5 RC (best rate)
+   - Shop affordability check now validates all three currencies. Error message names which is short.
+
+4. **⚕ HEALING STATIONS** (Step 2 of polish pass) — at `~line 4111`:
+   - `HEAL_STATION_RECHARGE = 360` (6s), `HEAL_STATION_DURATION = 90` (1.5s heal animation)
+   - `spawnHealingStation(x, groundY)` called from `extendStage`; **two per stage** (mid-stage at `~42% of maxX` and pre-boss next to the shop at `maxX + 140`)
+   - E key triggers heal — but the shop wins if both are in range. Refuses to fire if already at full HP.
+   - Heals player ~1.5% maxHp per frame for 90 frames (full heal). Allies within 180px get a one-shot 50% heal at `healTimer === 1`.
+   - Particle stream from station to player during heal, finishing shockwave on completion. Recharge gauge visible on the pillar.
+
+5. **WARDEN-K MINI-BOSS + ANTECHAMBER** (stages 3-8) — new structural layer between the level and the boss arena:
+   - Stage flow becomes: `[LEVEL] → entry-gate → [WARDEN ANTECHAMBER ~880px] → exit-gate (requires warden dead) → [BOSS ARENA]`
+   - Spawned in `spawnEliteEnemies` for `stage >= 2`. Warden sits at `bossTriggerX - 700`, in an 880px-wide arena between the entry gate (`triggerX - 940`) and the exit/boss gate (`triggerX - 60`).
+   - **`spawnMinibossAntechamber(wardenX)`** at `~line 2398` creates the entry gate (red, `antechamberEntry: true`). The entry gate auto-opens on approach, then **closes behind the player** when they cross past it (locking them in with the warden). Plays `'⚠ MINI-BOSS: WARDEN-K ⚠'` banner.
+   - The standard `spawnBossGate()` exit gate auto-detects the antechamber (`requiresWardenDead: !!antechamberState`) and refuses to open while any `subtype === 'warden'` enemy is alive.
+   - **`updateMinibossWarden(e, playerAngle, slowMul)`** at `~line 18010` and **`drawMinibossWarden(ex, ey, e)`** at `~line 18167`:
+     - HP `320 + stage * 60`, hovers + drifts in a sin-wave pattern
+     - Smoothly tracks player with optic eye
+     - Three rotating attack patterns (chosen by `bossPickRandomAttack(e, 3)`):
+       - **TRIPLE BEAM VOLLEY** — 3 fanned piercing shots from the eye
+       - **CLAW SPIKE** — drops a 70-frame-delay spike eruption under the player; on detonation, AOE damage + 5 upward shrapnel bullets + launches player up
+       - **SENTRY OVERCHARGE** — every alive orbital orb pulses and fires almost immediately
+     - **Orbital sentry orbs**: 4 in phase 1, +2 in phase 2 (`_phase2OrbsAdded` flag), each fires a tracking bullet on its own timer
+     - Phase 2 at 50% HP: faster orb spin (0.026 → 0.038), faster shoot timers, +2 orbs, pink shockwave
+     - Three segmented claw-legs (90° / 210° / 330° splay) with bobbing animation
+     - Dispatched in `updateEnemies()` boss block via `else if (e.subtype === 'warden')`
+   - `devSkipToBoss(stageIdx)` updated: stages 3+ now drop the player at `triggerX - 1000` (just before the antechamber entry gate) instead of `triggerX - 30` so the warden fight runs first.
+
+6. **Dev panel rework** in `index.html`:
+   - **EVOLVE button** changed back to **+1 tier per click** (it had jumped straight to CONVOY for height-bonus testing, but per-tier control is more useful day-to-day)
+   - **Per-tier evo buttons row**: BASE / MK-II / MK-III / OMEGA / APEX / PRIME / CONVOY — each button instantly sets the player to that tier (or devolves first if needed). Skips RC checks. The BASE button manually undoes all bonuses (the only way to actually devolve).
+   - **+100 🔩 SCRAP** utility button added
+   - **⚠ RESET SAVE** button (red border) — confirms then calls `save.reset()` + `location.reload()`
+
+7. **HUD additions**:
+   - SCRAP counter shown in the upper-right (orange, glow-tinted)
+   - Three-currency line in the shop UI
+   - Save flash indicator hooked into `save.tickFlash()`
+
+8. **Audio integration in gameplay** — every meaningful action triggers an SFX via `audio.play(name, { throttle? })`. Music auto-switches based on `pickMusicTrack()`.
+
+### What's now in code that the doc previously listed as "Pending"
+
+- ✅ Sound effects (item 5 of previous Pending list)
+- ✅ Save system (item 6 of previous Pending list)
+
+### Pending work (good prompts for the next session)
+
+1. **Remaining boss transformations** — only GUARD-1 and TITAN-LORD transform. SKYHAMMER, INFERNO-X, RAVAGER, CRYO-LORD, NULLIFIER, OMEGA-PRIME still need their phase-2 transform drawer + AI override (the per-subtype drawers `drawBossSkyhammerJet` / `drawBossInfernoBeast` / `drawBossRavagerTank` / `drawBossCryoGolem` / `drawBossNullifierRift` / `drawBossOmegaDemon` already exist as scaffolds at `~line 11397+`, but they aren't fully wired to the AI yet).
+2. **New enemy types** — SCREAMER kamikaze diver and SENTINEL laser-tripod were originally planned; `screamer` and `sentinel` already appear in the scrap-drop table but the AI/draw isn't implemented yet.
+3. **More stages** — 1-2 new stages reusing existing bosses with new themes is doable in 1 turn.
+4. **More obstacles in existing stages** — bump density in `addExtraHazards`, add a CRUSHER vertical-platform hazard, conveyor belts, falling debris.
+5. **PRIME/CONVOY unique vehicle forms** — they currently inherit APEX's starfighter; CONVOY does have the dedicated `hovertank` but the `vTypes` table has it sitting in the tier-6 slot rather than one variant per tier. PRIME could get its own jet variant.
+6. **Frame-counted state transitions** — two `setTimeout(() => { gameState = ... }, 1500)` calls remain (`~line 5479` win, `~line 5817` win). Both bypass hitstop/pause. Should be moved to a frame-based timer object.
+
+### Notable code pointers (current state)
+
+- `audio` IIFE — `~line 61`. Add SFX via `SFX.<name> = () => { ... }`. Trigger via `audio.play('<name>', { throttle: <ms> })`.
+- `save` IIFE — `~line 587`. Mark dirty via `save.markDirty()`; auto-flush every 3s.
+- `SHOP_ITEMS` — `~line 1141`. Crafting items have `craft: true`, `costScrap`, optional `cost`, and `craftDesc` fields.
+- `spawnHealingStation(x, groundY)` — `~line 4114`. Two per stage from `extendStage`.
+- `spawnMinibossAntechamber(wardenX)` — `~line 2398`. Entry-gate-locks-behind-player flow.
+- `updateMinibossWarden`/`drawMinibossWarden` — `~line 18010` / `~line 18167`.
+- `pickMusicTrack()` — `~line 542`. Authoritative on which music plays for each `gameState`.
+- `devSkipToBoss(stageIdx)` — `index.html` script block. Stages 3+ drop player at `triggerX - 1000` so antechamber fires first.
+
+---
+
+## Previous Session — May 24, 2026 (Morning)
+
+This is the prior session's MOST RECENT block, preserved verbatim for context.
+
+### What changed in that session (in order)
 
 1. **Transformer-look armor + fake-3D depth pass** for evolution tiers (helpers above `drawPlayer`):
    - `bevelPanel(x,y,w,h, base, hi, sh)` — reusable beveled metal panel
@@ -85,15 +188,16 @@ This block is the freshest context — read this first if dropping into a new ch
 
 11. **Dev panel**:
     - The 🛠 → **EVOLVE** button now jumps STRAIGHT to CONVOY (loops `evolvePlayer` until max tier) instead of one tier per click — needed because the cumulative height bonus only applies if you go through every tier
+    - *(NOTE — superseded by the evening session's per-tier evo button row.)*
 
-### Pending work (good prompts for the next session)
+### Pending work from the morning session — now status
 
-1. **Remaining boss transformations** — 6 of 8 bosses still need their phase-2 transform: SKYHAMMER (full jet — already a winged form, just need full-jet drawer), INFERNO-X (lava beast / fire elemental), RAVAGER (scorpion tank), CRYO-LORD (ice golem), NULLIFIER (void rift), OMEGA-PRIME (winged demon). Each follows the GUARD-1 pattern: trigger in phase-2 entrance, origin slots in `bossOrigin`, alternate drawer routed from `drawBoss<Subtype>`, AI override when transformed.
-2. **New enemy types** (originally planned: SCREAMER kamikaze diver, SENTINEL laser-tripod). Each needs an AI block + draw block + spawn integration (~150-200 lines per type). Skipped this session — 2 per session is realistic.
-3. **More stages** — 1-2 new stages reusing existing bosses with new themes is doable in 1 turn. Brand-new stage with new boss is multi-session (new STAGES entry, build function, dispatch, space cutscene, victory dialogue, dev panel update).
-4. **More obstacles in existing stages** — bump density in `addExtraHazards`, add a CRUSHER vertical-platform hazard, conveyor belts, falling debris.
-5. **Sound effects** — game is fully silent; Web Audio API would significantly enhance feel.
-6. **Save system** — localStorage for unlocked characters/weapons/evolutions.
+1. ❌ **Remaining boss transformations** — still pending (see current Pending list above).
+2. ❌ **New enemy types** (SCREAMER, SENTINEL) — still pending.
+3. ❌ **More stages** — still pending.
+4. ❌ **More obstacles in existing stages** — still pending.
+5. ✅ **Sound effects** — DONE in evening session (full Web Audio module + 24 SFX + 7 procedural music tracks).
+6. ✅ **Save system** — DONE in evening session (localStorage `neonRush.save.v1`).
 
 ### Notable code pointers (current state)
 
@@ -111,10 +215,10 @@ This block is the freshest context — read this first if dropping into a new ch
 
 ```
 /Users/darrwang/Downloads/nicholas/
-├── index.html          # Page wrapper, canvas, dev panel + keyboard shortcuts (~397 lines)
-├── game.js             # Entire game (~16,161 lines)
-├── README.md           # GitHub-facing readme (~75 lines)
-└── PROJECT_CONTEXT.md  # This file (~729 lines)
+├── index.html          # Page wrapper, canvas, dev panel + audio panel + keyboard shortcuts (~674 lines)
+├── game.js             # Entire game (~19,730 lines)
+├── README.md           # GitHub-facing readme (~80 lines)
+└── PROJECT_CONTEXT.md  # This file
 ```
 
 Run by opening `index.html` in a browser. No build step, no dependencies.
@@ -181,7 +285,8 @@ Single file (`game.js`) with global state. Main loop is `requestAnimationFrame(g
 | R | Evolution ability (PULSE BURST, ROCKET BARRAGE, OMEGA BLAST, APEX NOVA, PRIME BEAM, CONVOY MATRIX) |
 | **X** | **TRANSFORM** to vehicle / back to robot |
 | TAB | Swap to next unlocked character mid-stage |
-| E | Open shop (when near a shop) |
+| E | Open shop / use ⚒ craft bench / use ⚕ healing station (when in range) |
+| **M** | **Mute / unmute audio** |
 | ENTER | Start / advance dialogue / continue |
 | L (in shop) | Evolve (costs Robot Coins) |
 
@@ -193,7 +298,9 @@ Single file (`game.js`) with global state. Main loop is `requestAnimationFrame(g
 | **0** | Start a space battle for the current sector |
 | **9** | Toggle GOD MODE (auto-heal + invincibility) |
 
-🛠 DEV button (top-right) opens a panel with all boss-skip and utility buttons (FULL HEAL, +50 RC, +1000¢, EVOLVE, GOD MODE, KILL BOSS, UNLOCK ALL, SPACE BATTLE).
+🛠 DEV button (top-right) opens a panel with all boss-skip and utility buttons (FULL HEAL, +50 RC, +1000¢, +100 🔩 SCRAP, EVOLVE +1, GOD MODE, KILL BOSS, UNLOCK ALL, SPACE BATTLE, ⚠ RESET SAVE) plus a per-tier evolution row (BASE / MK-II / MK-III / OMEGA / APEX / PRIME / CONVOY) for instant tier switching.
+
+The audio panel (bottom-left, always visible) has a mute button and MUSIC + SFX volume sliders.
 
 ---
 
@@ -237,6 +344,21 @@ Each evolution tier maps to a unique vehicle silhouette:
 6. **Void Gateway** — boss NULLIFIER (PHASE STRIKE signature). HYDRA mini-boss with 5 destructible heads.
 7. **Command Citadel** — final boss OMEGA-PRIME, weapon: OMEGA BLASTER, ally: ECHO. **THRONE CINEMATIC** before dialogue.
 8. **Orbital Fortress** — final-final boss **TITAN-LORD**. Phase-1 humanoid mech, phase-2 transforms into a battleship spaceship at 50% HP. Curated elite-only spawn list. Stage unlocks **APEX** evolution.
+
+### Stage flow with mini-boss antechamber (stages 3-8)
+
+Stages 3+ insert a mini-boss arena between the level proper and the boss arena:
+
+```
+[LEVEL] → entry-gate → [WARDEN ANTECHAMBER ~880px] → exit-gate → [BOSS ARENA]
+```
+
+- **Entry gate** (red, `antechamberEntry: true`) sits at `bossTriggerX - 940`. Auto-opens on approach, then closes behind the player once they cross past it (locking them in with WARDEN-K).
+- **WARDEN-K** spawns at `bossTriggerX - 700`. Three-claw sentinel mini-boss — see Enemy Types table.
+- **Exit gate** is the regular `bossGate` with `requiresWardenDead: true`. Refuses to open until every `subtype === 'warden'` enemy is dead, then auto-opens permanently (so the player can backtrack).
+- Stages 1-2 still go straight from level → boss gate (no antechamber).
+
+`devSkipToBoss(stageIdx)` drops the player at `triggerX - 1000` (just before the entry gate) on stages 3+ so the warden fight runs first.
 
 ### Stage 4-8 arena scaling
 - Arena width: **2400px** (vs 1600 for stages 1-3)
@@ -413,7 +535,7 @@ Each non-Omega boss plays a unique scripted entrance before dialogue:
 
 ---
 
-## Enemy Types (14 total)
+## Enemy Types (14 mobs + WARDEN-K mini-boss = 15 total)
 
 | Enemy | Behavior |
 |-------|----------|
@@ -431,6 +553,7 @@ Each non-Omega boss plays a unique scripted entrance before dialogue:
 | mech | Transformers-style giant — 3 attack patterns (missiles/MG/plasma) |
 | hydraWalker | 3-headed patrolling walker (stage 4+). Each head fires its own colored bullet. Heads die at HP thresholds. 4 jointed legs that stride. |
 | scorpion | 4-leg artillery walker (stage 5+). Tail-mounted plasma cannon lobs charged blue arcs. |
+| **warden** (mini-boss) | **WARDEN-K** — sentinel-class mini-boss in the antechamber on stages 3-8. Three claw-legs, optic eye smoothly tracks player. Three rotating attacks: **TRIPLE BEAM VOLLEY** (3 fanned piercing shots from the eye), **CLAW SPIKE** (delayed-eruption ground spike under player + 5 upward shrapnel), **SENTRY OVERCHARGE** (every alive orbital orb pulses). 4 orbital sentry orbs in phase 1, +2 in phase 2. HP `320 + stage * 60`. |
 
 ### Defensive normalization (CRITICAL)
 At the top of every enemy AI tick, `updateEnemies()` runs:
@@ -522,8 +645,22 @@ Allies can double-jump to reach platforms.
 
 ## Currencies
 
-- **Coins** — buy weapons and stat upgrades
-- **Robot Coins (RC)** — evolution. Drop from elite enemies:
+Three currencies with separate sources and uses.
+
+- **Coins** — buy weapons and stat upgrades at the shop. Drop from most enemies and breakables.
+- **🔩 Scrap** — primary cost for crafting recipes (see below). Drops from breakables and **every enemy**:
+  - Boss: `40 + currentStage * 4`
+  - Mini-boss (WARDEN-K, HYDRA): 22
+  - hydraWalker / scorpion / mech: `10 + floor(currentStage * 1.5)`
+  - heavy / sniper: 6
+  - sentinel: 7 (enemy AI not yet implemented; drop table is staged)
+  - screamer: 5 (enemy AI not yet implemented; drop table is staged)
+  - shielder / jumper: 4
+  - bomber / sprinter / turret / ricochet: 3
+  - patrol / drone / swarm: 2
+  - default: 1
+  - Spawned as orange `coinPickup`s with `scrap: true` flag.
+- **◆ Robot Coins (RC)** — evolution. Drop from elite enemies:
   - Boss: 18 RC
   - Mini-boss (HYDRA): 10 RC
   - HYDRA-WALKER: 5 RC
@@ -531,6 +668,113 @@ Allies can double-jump to reach platforms.
   - Heavy/Sniper: 3 RC
   - Shielder/Jumper: 2 RC
   - Bomber/Sprinter/Turret: 1 RC
+
+### ⚒ Crafting recipes (scrap-driven)
+
+Available alongside regular shop items. Every recipe uses scrap as the primary cost; some hybrid with coins for the more powerful upgrades.
+
+| Recipe | Cost | Effect |
+|--------|------|--------|
+| REPAIR KIT | 30 scrap | Full HP restore + 1s i-frames |
+| ARMOR PLATE | 60 scrap + 40c | +30 max HP (permanent) |
+| AMMO OVERCHARGE | 80 scrap | +4 bullet damage (permanent) |
+| SERVO BOOST | 100 scrap + 60c | +0.3 movement speed (permanent) |
+| KINETIC SHIELD | 90 scrap | 4s invincibility (consumable) |
+| POWER CELL | 150 scrap + 80c | +1 extra jump (permanent) |
+| ENERGON CORE | 200 scrap | Convert scrap to 5 RC |
+
+### Scrap-trade items (escape valves)
+
+Intentionally stingy rates so scrap doesn't trivialize coins/RC.
+
+| Trade | Rate |
+|-------|------|
+| Trade scrap → coins | 50 scrap → 80c |
+| Trade scrap → RC | 25 scrap → 1 RC |
+
+---
+
+## Audio System (`const audio = (() => { ... })()` at ~line 61)
+
+Pure Web Audio API — no asset files, no build step. Music and SFX are generated procedurally so the game stays a single-file vanilla project.
+
+- Lazy `AudioContext` — created on first user gesture (browser autoplay policy)
+- Master / music / SFX gain nodes; mute, music volume, SFX volume settable independently
+- `audio.play(name, opts?)` — fire one-shot SFX with per-name throttle (default 30ms)
+- `audio.setMusic(name)` — switch background music with smooth crossfade
+- `audio.setMuted(bool)`, `audio.setMusicVol(0..1)`, `audio.setSfxVol(0..1)`, `audio.isMuted()`, `audio.getMusicVol()`, `audio.getSfxVol()`
+- `audio.unlock()` — call on first user gesture to start the AudioContext
+
+### SFX library (24 effects)
+
+`jump` `doubleJump` `wallJump` `dash` `roll` `shoot` `shootHeavy` `shootBeam` `rocket` `melee` `meleeHit` `axeSwing` `axeHit` `hit` `hurt` `crit` `explosion` `bossKill` `parry` `pound` `transform` `evolve` `coin` `heal` `death` `win` `bossIntro` `keyPickup` `ui` `warpIn`
+
+Each is a tone+noise composition. Add new ones by extending the `SFX` object inside the IIFE.
+
+### Music tracks (procedural, scheduled bar-by-bar)
+
+- `menu` — intro / character select
+- `cyber` — stages 1-3 (also boss dialogue + space transition)
+- `industrial` — stages 4-5
+- `void` — stage 6
+- `final` — stages 7-8 + evolution cutscene
+- `boss` — any time `enemies.some(e => e.type === 'boss' && e.hp > 0)` returns true
+- `victory` — stage complete + final win
+
+`pickMusicTrack()` is the authority on what should be playing. Called every frame from `gameLoop`; internal dedup makes repeats cheap. The music auto-crossfades when the result changes.
+
+### HTML controls (in `index.html`)
+
+- Bottom-left **audio panel** (always visible): mute button + MUSIC slider + SFX slider
+- **M key** also toggles mute (in addition to the button)
+- First keydown / click also calls `audio.unlock()` to start the context
+
+---
+
+## Save System (`const save = (() => { ... })()` at ~line 587)
+
+`localStorage` persistence under key `neonRush.save.v1` (version-gated — mismatched versions are ignored on load).
+
+**Persisted between sessions:**
+- Unlocked characters (`CHARACTERS[i].unlocked`)
+- Unlocked weapons (`player.weaponsUnlocked`)
+- Audio settings (muted, musicVol, sfxVol)
+- Meta stats: `totalCoins`, `totalScrap`, `totalRC`, `bossesDefeated`, `totalDeaths`, `totalWins`, `farthestStage`, `maxEvoLevel`
+
+**Intentionally NOT persisted** — every fresh run starts from zero with all unlocks intact:
+- Per-run state: HP, currencies, position, current stage, evolution level, bullet damage, weaponTier, max-jump bonus
+
+### API
+
+```js
+save.load()             // restore from localStorage at startup
+save.write()            // flush current state immediately
+save.reset()            // wipe + reset CHARACTERS unlocks (only [0] starts unlocked)
+save.markDirty()        // schedule autosave on next 3s tick
+save.bumpStat(k, n)     // increment a meta counter
+save.setStat(k, v)      // set a meta counter
+save.getMeta()          // read meta object
+save.isFlashing()       // for HUD "SAVED" indicator
+save.tickFlash()        // tick the flash timer (called from gameLoop)
+```
+
+### Auto-flush
+
+`setInterval(() => { if (dirty) write(); }, 3000)` — debounces frequent updates. Game-over screen displays the meta stats. Dev panel **⚠ RESET SAVE** button calls `save.reset()` then `location.reload()`.
+
+---
+
+## Healing Stations
+
+Reusable repair pillars scattered through every stage (two per stage).
+
+- **`HEAL_STATION_RECHARGE = 360`** (6s recharge after use)
+- **`HEAL_STATION_DURATION = 90`** (1.5s heal animation)
+- **`spawnHealingStation(x, groundY)`** — called from `extendStage`. Two per stage: one mid-stage at `~42% of maxX`, one pre-boss next to the shop at `maxX + 140`.
+- Player presses **E** in range to repair. Refuses if already at full HP. Heals ~1.5% maxHp/frame for 90 frames (full heal).
+- **Allies in 180px radius** get a one-shot 50% heal at `healTimer === 1`.
+- Particle stream from station to player during heal, finishing shockwave on completion. Recharge gauge visible on the pillar.
+- Shop wins if both shop and healing station are in range simultaneously (shared `shopKeyHeld` edge-trigger).
 
 ---
 
@@ -621,6 +865,17 @@ Allies can double-jump to reach platforms.
 
 ## Recent Major Additions (most recent first)
 
+**Evening session (May 24, 2026):**
+
+- **Audio system** — full Web Audio module with 24 procedural SFX + 7 procedural music tracks selected by `pickMusicTrack()` per `gameState`. M key + audio panel.
+- **Save system** — localStorage `neonRush.save.v1` with characters/weapons/audio/meta. 3s autosave.
+- **Scrap currency + crafting** — third currency, drops from breakables/enemies, drives 7 crafting recipes + 2 trade rates.
+- **Healing stations** — two per stage, E to repair, partial heal to allies in range.
+- **WARDEN-K mini-boss antechamber** — stages 3-8 add a locked-arena gauntlet between the level and the boss arena.
+- **Dev panel rework** — per-tier evo buttons (BASE/MK-II/.../CONVOY), +100 SCRAP button, ⚠ RESET SAVE button. EVOLVE button reverted to +1 per click.
+
+**Morning session and earlier:**
+
 0. **Transformers-look armor + fake-3D depth pass** — replaced the flat colored squares on the player with a chunky Transformers visual style (G1 Megatron / Bumblebee movie / Optimus movie reference). New helper functions live just above `drawPlayer()`:
    - `bevelPanel(x, y, w, h, color, accent, shadow)` — reusable beveled metal panel with rim lighting
    - `drawTfPauldron(...)` — chunky trapezoidal shoulder pad
@@ -672,15 +927,17 @@ Allies can double-jump to reach platforms.
 
 ## Known Issues / Pending Polish
 
-1. **PRIME/CONVOY use starfighter vehicle** — they currently inherit APEX's vehicle form. Could give PRIME its own jet variant and CONVOY a semi-truck.
-2. **Per-boss unique phase-3 attacks** — currently all bosses share the generic 12-bullet rage burst. Could specialize (e.g. INFERNO-X spits a wall of lava globs in phase 3, OMEGA-PRIME does triple twin-laser-eye burst, etc.).
-3. **Boss transformations** — the user asked for bosses to TRANSFORM. Currently only TITAN-LORD does (mech↔ship). Could add transformations to GUARD-1 (riot car), SKYHAMMER (full jet), RAVAGER (scorpion-tank), etc. Started but not implemented in the latest pass.
-4. **No sound effects** — game is fully silent. Web Audio API additions would significantly enhance feel.
-5. **No save system** — every run starts fresh. Could add localStorage for unlocked characters/weapons.
-6. **Performance** — bullet/particle counts can spike during boss circle bursts (less of an issue now that some patterns were trimmed).
+1. **PRIME/CONVOY use APEX's starfighter** for the vehicle slot. CONVOY *does* have a dedicated `hovertank` form but the `vTypes` table needs reorganizing so each tier 5/6 gets a unique vehicle. Could give PRIME its own jet variant.
+2. **Per-boss unique phase-3 attacks** — phase-2 entrances + phase-3 signatures already exist per subtype; the generic 12-bullet rage burst still runs alongside.
+3. **Boss transformations** — only GUARD-1 (riot tank) and TITAN-LORD (battleship) transform. Six bosses still need their phase-2 transform wired up. The drawer scaffolds (`drawBossSkyhammerJet`, `drawBossInfernoBeast`, `drawBossRavagerTank`, `drawBossCryoGolem`, `drawBossNullifierRift`, `drawBossOmegaDemon`) exist but the AI override + origin slots aren't fully connected for these.
+4. ~~**No sound effects**~~ — DONE (Web Audio module with 24 SFX + 7 procedural music tracks).
+5. ~~**No save system**~~ — DONE (localStorage `neonRush.save.v1`).
+6. **Performance** — bullet/particle counts can spike during boss circle bursts. `MAX_PARTICLES = 280` and `MAX_SHOCKWAVES = 24` caps help.
 7. **Dead helper code** — old portrait helpers (drawPortraitChest, drawPortraitHead, drawHelmetShape, etc.) exist after the new drawRobotPortrait but are unused.
-8. **HYDRA mini-boss in Stage 6** — already exists from older work; the new HYDRA-WALKER is a distinct smaller patrol enemy.
-9. **PRIME/CONVOY vehicle types** — line in `transform handler`: `const vTypes = ['bike', 'hover', 'tank', 'jet', 'starfighter']; player.vehicleType = vTypes[Math.min(player.evoLevel, vTypes.length - 1)];` — need to extend to 'primejet' and 'semi' for tiers 5/6.
+8. **HYDRA mini-boss in Stage 6** — already exists from older work; the HYDRA-WALKER is a distinct smaller patrol enemy. WARDEN-K is the new general-purpose mini-boss for stages 3-8.
+9. **PRIME/CONVOY vehicle types** — `transform` handler line: `const vTypes = ['bike', 'hover', 'tank', 'jet', 'starfighter', ?, 'hovertank']`. Tier 5 still needs a unique vehicle.
+10. **`screamer` and `sentinel` enemy types** appear in the scrap-drop table but the AI/draw code isn't implemented yet — they're staged for the next session.
+11. **Two `setTimeout` game-state transitions** at `~line 5479` and `~line 5817` bypass hitstop/pause. Should be moved to frame-counted timer objects.
 
 ---
 
@@ -693,37 +950,42 @@ Allies can double-jump to reach platforms.
 5. **Press X in gameplay to transform** to vehicle
 6. Read this file + scan `game.js` to refresh context
 7. Common things to ask for:
-   - **Boss transformations** (the user has asked multiple times for bosses to fold into vehicles like TITAN-LORD does)
-   - **Per-boss unique phase-3 attacks** (specialize the rage burst)
-   - **PRIME/CONVOY unique vehicle forms** (jet variant + semi-truck)
-   - Add sound effects (Web Audio API)
-   - Add save system (localStorage for unlocks)
-   - New monster types
+   - **Boss transformations** for the remaining 6 bosses (the user has asked multiple times for bosses to fold into vehicles like TITAN-LORD does)
+   - **SCREAMER + SENTINEL enemy AI** (drop tables already include them; just need the AI + draw blocks)
+   - **Per-boss unique phase-3 attacks** — replace the generic rage burst with subtype-specific patterns
+   - **PRIME/CONVOY unique vehicle forms** (jet variant for PRIME, semi-truck for CONVOY's robot mode tie-in)
    - More cutscenes / character lore
-   - Tweak balance (boss HP, character HP, RC costs)
+   - Tweak balance (boss HP, character HP, RC costs, scrap drop rates, craft recipe costs)
    - Polish UI / HUD
    - Add new mission puzzle types
    - Mobile/touch controls
+   - Add more crafting recipes / scrap sinks
+   - Add a 3rd healing station per stage on later levels
 
 ---
 
 ## Game Stats Summary
 
-- **~13,859 lines** of code in game.js
-- ~396 lines in index.html
+- **~19,730 lines** of code in game.js
+- ~674 lines in index.html
 - **8 main stages** + 7 space transitions + Omega throne cinematic + per-boss intro cinematics
-- **9 main bosses** (GUARD-1, SKYHAMMER, INFERNO-X, RAVAGER, CRYO-LORD, NULLIFIER, OMEGA-PRIME, TITAN-LORD) + 1 mini-boss (HYDRA)
-  - Each has 3 phases (rage at 25% HP)
+- **9 main bosses** (GUARD-1, SKYHAMMER, INFERNO-X, RAVAGER, CRYO-LORD, NULLIFIER, OMEGA-PRIME, TITAN-LORD) + 1 stage-6 mini-boss (HYDRA) + 1 general mini-boss (WARDEN-K, stages 3-8)
+  - Each main boss has 3 phases (rage at 25% HP)
+  - GUARD-1 transforms to riot tank at 50% HP
   - TITAN-LORD transforms to battleship at 50% HP
-- **14 enemy types**
+- **15 enemy types** (14 mobs + WARDEN-K mini-boss)
 - **19 weapons**
 - **8 playable characters**
 - **7 evolution tiers** with anime transformation cinematic
-- **5 vehicle forms** (bike/hover/tank/jet/starfighter) with per-vehicle physics + projectiles
+- **5 vehicle forms** (bike/hover/tank/jet/starfighter) + CONVOY-only hovertank with Matrix Ion Blast
+- **3 currencies** (Coins / 🔩 Scrap / ◆ RC) and **7 crafting recipes**
+- **2 healing stations per stage** with allied splash heal
+- **Procedural Web Audio** — 24 SFX + 7 music tracks selected by `pickMusicTrack()`
+- **localStorage save** for characters / weapons / audio / 8 meta stats
 - 7 rescue allies (max 2 active)
 - Mission puzzle entities: keys, laser grids, terminals
 - 7 movement abilities: walk, jump, double/triple/quadruple jump (per evo), wall jump, dash, dodge roll, slide
 - 3 defensive moves: parry, ground pound, perfect dodge
 - 3-hit melee combo
 - Cutscene types: boss intro (per-subtype), victory, space transit, evolution, throne
-- Dev tools: 🛠 button + keyboard shortcuts (1-8, 0, 9)
+- Dev tools: 🛠 button + per-tier evo buttons + ⚠ RESET SAVE + keyboard shortcuts (1-8, 0, 9, M)
