@@ -33,6 +33,695 @@ let evoTransform = null;  // active evolution transformation cinematic { fromLev
 let bossDefeatCutscene = null;  // post-boss victory dialogue { lines, idx, timer, nextState }
 let throneCutscene = null;  // Omega throne stand-up cinematic before final boss dialogue
 let bossIntro = null;       // generic per-subtype boss-intro cinematic before dialogue
+
+// Healing stations — reusable repair pillars scattered through stages.
+// Each station: { x, y, w, h, charge, maxCharge, cooldown, lastUsedAt, pulse,
+//                 healing: bool, healTimer: number }
+// Stations heal the player to full when interacted with (E key). After use
+// they deplete for ~6 seconds, then auto-recharge. Allies in range get a
+// partial heal when the station fires.
+let healingStations = [];
+let activeHealingStation = null;     // station the player is currently in range of
+
+// ============================================================================
+// AUDIO SYSTEM (Step 1 of polish pass — synthwave/industrial soundtrack + SFX)
+// ============================================================================
+// Pure Web Audio API — no asset files, no build step. Music and SFX are
+// generated procedurally so the game stays a single-file vanilla project.
+//
+//   audio.play(name, opts?)   — one-shot SFX
+//   audio.setMusic(name)      — switch background music (smooth crossfade)
+//   audio.setMuted(bool)      — global mute
+//   audio.setMusicVol(0..1)   — music volume
+//   audio.setSfxVol(0..1)     — sfx volume
+//
+// AudioContext is created lazily on first user interaction (browser autoplay
+// policy). All scheduling is done with absolute audio-clock times so we never
+// stutter on requestAnimationFrame jitter.
+const audio = (() => {
+    let ctx = null;
+    let masterGain = null;
+    let musicGain = null;
+    let sfxGain = null;
+    let muted = false;
+    let musicVol = 0.45;
+    let sfxVol = 0.6;
+    // Until the user makes a gesture, we hold off on creating the AudioContext.
+    // Browsers spam the console with autoplay warnings if we try too early, and
+    // creating the ctx upfront produces no sound anyway.
+    let unlocked = false;
+
+    let currentTrack = null;       // name of running music track
+    let activeMusic = null;        // { stop(), gain }
+    let musicScheduler = null;     // setInterval id
+    let lastMusicChange = 0;
+
+    // Last-played time for SFX throttling (prevents shrieking when many bullets fire at once)
+    const lastPlayed = new Map();
+
+    function ensure() {
+        if (!unlocked) return false;
+        if (!ctx) {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return false;
+            ctx = new AC();
+            masterGain = ctx.createGain();
+            masterGain.gain.value = muted ? 0 : 1;
+            masterGain.connect(ctx.destination);
+            musicGain = ctx.createGain();
+            musicGain.gain.value = musicVol;
+            musicGain.connect(masterGain);
+            sfxGain = ctx.createGain();
+            sfxGain.gain.value = sfxVol;
+            sfxGain.connect(masterGain);
+        }
+        if (ctx.state === 'suspended') ctx.resume();
+        return true;
+    }
+
+    // ---- Tiny synth helpers --------------------------------------------------
+    function tone(freq, dur, opts = {}) {
+        if (!ensure()) return;
+        const t0 = ctx.currentTime;
+        const type = opts.type || 'square';
+        const vol = (opts.vol != null ? opts.vol : 0.4);
+        const attack = opts.attack != null ? opts.attack : 0.005;
+        const decay = opts.decay != null ? opts.decay : dur;
+        const target = opts.target || 'sfx';
+        const dest = (target === 'music') ? musicGain : sfxGain;
+
+        const osc = ctx.createOscillator();
+        osc.type = type;
+        osc.frequency.value = freq;
+        if (opts.freqEnd != null) {
+            osc.frequency.exponentialRampToValueAtTime(Math.max(20, opts.freqEnd), t0 + dur);
+        }
+
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(vol, t0 + attack);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + Math.max(attack + 0.01, decay));
+
+        osc.connect(g);
+        if (opts.filter) {
+            const f = ctx.createBiquadFilter();
+            f.type = opts.filter.type || 'lowpass';
+            f.frequency.value = opts.filter.freq || 1200;
+            f.Q.value = opts.filter.q || 1;
+            g.connect(f);
+            f.connect(dest);
+        } else {
+            g.connect(dest);
+        }
+        osc.start(t0);
+        osc.stop(t0 + dur + 0.05);
+        return { osc, g };
+    }
+
+    function noise(dur, opts = {}) {
+        if (!ensure()) return;
+        const t0 = ctx.currentTime;
+        const sr = ctx.sampleRate;
+        const len = Math.max(1, Math.floor(sr * dur));
+        const buf = ctx.createBuffer(1, len, sr);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        const f = ctx.createBiquadFilter();
+        f.type = opts.filterType || 'bandpass';
+        f.frequency.value = opts.filterFreq || 1000;
+        f.Q.value = opts.q || 1;
+        const g = ctx.createGain();
+        const vol = opts.vol != null ? opts.vol : 0.3;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(vol, t0 + 0.005);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        src.connect(f); f.connect(g);
+        const target = opts.target || 'sfx';
+        g.connect(target === 'music' ? musicGain : sfxGain);
+        src.start(t0);
+        src.stop(t0 + dur + 0.02);
+        return { src, g, f };
+    }
+
+    // ---- SFX library ---------------------------------------------------------
+    const SFX = {
+        jump:        () => tone(560, 0.12, { type: 'square', freqEnd: 880, vol: 0.18, decay: 0.12 }),
+        doubleJump:  () => tone(740, 0.1,  { type: 'square', freqEnd: 1100, vol: 0.18, decay: 0.1 }),
+        wallJump:    () => tone(420, 0.1,  { type: 'sawtooth', freqEnd: 700, vol: 0.2, decay: 0.1 }),
+        dash:        () => { tone(900, 0.08, { type: 'sawtooth', freqEnd: 200, vol: 0.22, decay: 0.08 }); noise(0.1, { filterType: 'highpass', filterFreq: 2000, vol: 0.18 }); },
+        roll:        () => tone(320, 0.12, { type: 'triangle', freqEnd: 220, vol: 0.18 }),
+        shoot:       () => { tone(1100, 0.05, { type: 'square', freqEnd: 220, vol: 0.18, decay: 0.05 }); noise(0.04, { filterType: 'highpass', filterFreq: 3000, vol: 0.1 }); },
+        shootHeavy:  () => { tone(280, 0.12, { type: 'sawtooth', freqEnd: 80, vol: 0.32, decay: 0.12 }); noise(0.1, { filterType: 'lowpass', filterFreq: 800, vol: 0.22 }); },
+        shootBeam:   () => tone(1700, 0.18, { type: 'sawtooth', freqEnd: 800, vol: 0.22, decay: 0.18 }),
+        rocket:      () => { tone(180, 0.18, { type: 'sawtooth', freqEnd: 60, vol: 0.32, decay: 0.18 }); noise(0.18, { filterType: 'lowpass', filterFreq: 600, vol: 0.25 }); },
+        melee:       () => noise(0.06, { filterType: 'highpass', filterFreq: 1500, vol: 0.24 }),
+        meleeHit:    () => { tone(140, 0.08, { type: 'square', freqEnd: 60, vol: 0.3, decay: 0.08 }); noise(0.06, { filterType: 'bandpass', filterFreq: 800, q: 0.5, vol: 0.22 }); },
+        axeSwing:    () => { tone(620, 0.18, { type: 'sawtooth', freqEnd: 220, vol: 0.28, decay: 0.18 }); noise(0.1, { filterType: 'bandpass', filterFreq: 2200, q: 1, vol: 0.2 }); },
+        axeHit:      () => { tone(110, 0.18, { type: 'square', freqEnd: 50, vol: 0.36, decay: 0.18 }); noise(0.12, { filterType: 'lowpass', filterFreq: 700, vol: 0.3 }); },
+        hit:         () => { tone(180, 0.06, { type: 'square', freqEnd: 60, vol: 0.18, decay: 0.06 }); noise(0.06, { filterType: 'bandpass', filterFreq: 1500, vol: 0.14 }); },
+        hurt:        () => { tone(220, 0.18, { type: 'sawtooth', freqEnd: 110, vol: 0.32, decay: 0.18 }); noise(0.1, { filterType: 'lowpass', filterFreq: 1200, vol: 0.18 }); },
+        crit:        () => { tone(1500, 0.05, { type: 'square', vol: 0.18, decay: 0.05 }); tone(1900, 0.12, { type: 'square', freqEnd: 2400, vol: 0.22, decay: 0.12 }); },
+        explosion:   () => { tone(80, 0.4, { type: 'sawtooth', freqEnd: 30, vol: 0.45, decay: 0.4 }); noise(0.4, { filterType: 'lowpass', filterFreq: 800, vol: 0.4 }); },
+        bossKill:    () => { tone(60, 0.9, { type: 'sawtooth', freqEnd: 25, vol: 0.5, decay: 0.9 }); noise(0.7, { filterType: 'lowpass', filterFreq: 600, vol: 0.42 }); setTimeout(() => tone(880, 0.4, { type: 'square', freqEnd: 1320, vol: 0.3, decay: 0.4 }), 200); },
+        parry:       () => { tone(2400, 0.06, { type: 'square', vol: 0.3, decay: 0.06 }); tone(3200, 0.18, { type: 'sine', freqEnd: 1800, vol: 0.28, decay: 0.18 }); },
+        pound:       () => { tone(60, 0.5, { type: 'sawtooth', freqEnd: 22, vol: 0.5, decay: 0.5 }); noise(0.4, { filterType: 'lowpass', filterFreq: 500, vol: 0.4 }); },
+        transform:   () => { tone(220, 0.5, { type: 'sawtooth', freqEnd: 1200, vol: 0.32, decay: 0.5 }); noise(0.4, { filterType: 'bandpass', filterFreq: 2000, q: 2, vol: 0.18 }); },
+        evolve:      () => {
+            // Triumphant 4-note rising arpeggio
+            const notes = [440, 554, 659, 880];
+            notes.forEach((f, i) => setTimeout(() => tone(f, 0.3, { type: 'sawtooth', vol: 0.32, decay: 0.3 }), i * 110));
+            setTimeout(() => tone(1100, 0.6, { type: 'square', freqEnd: 1320, vol: 0.28, decay: 0.6 }), 440);
+        },
+        coin:        () => tone(1800, 0.06, { type: 'square', freqEnd: 2400, vol: 0.14, decay: 0.06 }),
+        heal:        () => { tone(660, 0.18, { type: 'sine', freqEnd: 990, vol: 0.22, decay: 0.18 }); setTimeout(() => tone(990, 0.18, { type: 'sine', freqEnd: 1320, vol: 0.22, decay: 0.18 }), 90); },
+        death:       () => { tone(330, 0.6, { type: 'sawtooth', freqEnd: 60, vol: 0.45, decay: 0.6 }); setTimeout(() => tone(220, 0.6, { type: 'sawtooth', freqEnd: 40, vol: 0.4, decay: 0.6 }), 200); },
+        win:         () => {
+            const notes = [523, 659, 784, 1047, 1319];
+            notes.forEach((f, i) => setTimeout(() => tone(f, 0.4, { type: 'sawtooth', vol: 0.32, decay: 0.4 }), i * 130));
+        },
+        bossIntro:   () => { tone(55, 1.2, { type: 'sawtooth', freqEnd: 28, vol: 0.5, decay: 1.2 }); noise(1.0, { filterType: 'lowpass', filterFreq: 500, vol: 0.32 }); setTimeout(() => tone(880, 0.18, { type: 'square', freqEnd: 220, vol: 0.28, decay: 0.18 }), 600); },
+        keyPickup:   () => { tone(1100, 0.12, { type: 'sine', freqEnd: 1650, vol: 0.28, decay: 0.12 }); setTimeout(() => tone(1650, 0.18, { type: 'sine', freqEnd: 2200, vol: 0.28, decay: 0.18 }), 80); },
+        ui:          () => tone(880, 0.05, { type: 'square', vol: 0.16, decay: 0.05 }),
+        warpIn:      () => { tone(110, 0.6, { type: 'sawtooth', freqEnd: 1200, vol: 0.34, decay: 0.6 }); noise(0.5, { filterType: 'highpass', filterFreq: 1500, vol: 0.22 }); }
+    };
+
+    function play(name, opts = {}) {
+        if (muted) return;
+        if (!ensure()) return;
+        const fn = SFX[name];
+        if (!fn) return;
+        // Throttle: don't play same SFX more than once per N ms
+        const throttle = opts.throttle != null ? opts.throttle : 30;
+        const now = performance.now();
+        const last = lastPlayed.get(name) || 0;
+        if (now - last < throttle) return;
+        lastPlayed.set(name, now);
+        try { fn(); } catch (err) { /* swallow audio errors so gameplay never breaks */ }
+    }
+
+    // ---- Music ---------------------------------------------------------------
+    // Tracks are procedurally scheduled bar-by-bar. Each track defines:
+    //   bpm:    tempo
+    //   bass:   array of MIDI-ish notes per beat (length = beatsPerBar)
+    //   lead:   optional 16th-note sequence
+    //   pad:    optional held chord (frequency)
+    //   drums:  pattern of {kick, snare, hat} per 16th note
+    //
+    // We schedule one bar ahead, swap tracks with a 0.5s crossfade.
+    const TRACKS = {
+        // Menu / intro — slow synthwave arpeggio
+        menu: {
+            bpm: 90,
+            bassNotes: [55, 55, 55, 0, 73, 73, 0, 73],
+            leadNotes: [220, 0, 277, 0, 330, 0, 277, 0,  220, 0, 277, 0, 330, 0, 440, 0],
+            padFreqs: [110, 165],
+            drumPattern: [1,0,0,0, 2,0,0,0, 1,0,0,0, 2,0,0,0],
+            hatPattern:  [0,1,0,1, 0,1,0,1, 0,1,0,1, 0,1,0,1]
+        },
+        // Stages 1-3: cyber/neon cruise
+        cyber: {
+            bpm: 116,
+            bassNotes: [55, 0, 55, 0, 73, 0, 65, 55],
+            leadNotes: [330, 0, 0, 415, 440, 0, 330, 0,  370, 0, 415, 0, 440, 0, 494, 0],
+            padFreqs: [110, 165],
+            drumPattern: [1,0,0,0, 2,0,0,0, 1,0,1,0, 2,0,0,0],
+            hatPattern:  [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1]
+        },
+        // Stages 4-5: heavier industrial
+        industrial: {
+            bpm: 128,
+            bassNotes: [49, 49, 0, 49, 55, 0, 55, 0],
+            leadNotes: [294, 0, 349, 0, 294, 0, 220, 0,  349, 0, 392, 0, 440, 0, 294, 0],
+            padFreqs: [98, 147],
+            drumPattern: [1,0,0,1, 2,0,1,0, 1,0,0,0, 2,0,1,1],
+            hatPattern:  [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1]
+        },
+        // Stage 6: void — eerie pad-heavy
+        void: {
+            bpm: 100,
+            bassNotes: [41, 0, 49, 0, 41, 0, 55, 0],
+            leadNotes: [330, 0, 392, 0, 0, 330, 0, 415,  0, 392, 0, 330, 0, 0, 247, 0],
+            padFreqs: [82, 123, 196],
+            drumPattern: [1,0,0,0, 0,0,2,0, 1,0,0,0, 0,0,2,0],
+            hatPattern:  [0,0,1,0, 0,0,1,0, 0,0,1,0, 0,0,1,0]
+        },
+        // Stages 7-8 (final stretch)
+        final: {
+            bpm: 138,
+            bassNotes: [44, 44, 49, 0, 55, 49, 44, 0],
+            leadNotes: [262, 0, 330, 392, 440, 0, 330, 262,  370, 0, 440, 494, 587, 0, 440, 370],
+            padFreqs: [87, 131, 175],
+            drumPattern: [1,0,1,0, 2,0,0,1, 1,0,1,0, 2,0,1,1],
+            hatPattern:  [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1]
+        },
+        // Boss music — aggressive
+        boss: {
+            bpm: 142,
+            bassNotes: [41, 41, 41, 0, 49, 49, 49, 41],
+            leadNotes: [277, 330, 277, 220, 277, 330, 392, 440,  392, 330, 277, 330, 392, 440, 523, 587],
+            padFreqs: [82, 110, 165],
+            drumPattern: [1,0,0,1, 2,0,1,0, 1,0,1,1, 2,0,1,1],
+            hatPattern:  [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1]
+        },
+        // Victory swell after boss kill (one-shot, 4s)
+        victory: {
+            bpm: 100,
+            bassNotes: [55, 73, 82, 73, 55, 73, 82, 110],
+            leadNotes: [440, 0, 554, 0, 659, 0, 880, 0,  659, 0, 880, 0, 1047, 0, 1319, 0],
+            padFreqs: [110, 165, 220],
+            drumPattern: [1,0,0,0, 2,0,0,0, 1,0,0,0, 2,0,0,1],
+            hatPattern:  [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1]
+        }
+    };
+
+    // Convert MIDI-ish low note to Hz (A1=55 base). Our "notes" are actually frequencies
+    // in the 40-90 range; we treat them as Hz directly for the bass synth.
+    function midiToFreq(n) {
+        if (n === 0) return 0;
+        return n;  // we use raw Hz numbers in the track defs above for simplicity
+    }
+
+    function startMusic(name) {
+        if (!ensure()) return;
+        if (currentTrack === name && activeMusic) return;
+        // Stop previous
+        if (activeMusic) {
+            const old = activeMusic;
+            old.fading = true;
+            try {
+                old.gain.gain.cancelScheduledValues(ctx.currentTime);
+                old.gain.gain.setValueAtTime(old.gain.gain.value, ctx.currentTime);
+                old.gain.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
+                setTimeout(() => old.stop && old.stop(), 600);
+            } catch (e) {}
+        }
+        currentTrack = name;
+        if (!name || !TRACKS[name]) {
+            activeMusic = null;
+            return;
+        }
+        const track = TRACKS[name];
+        const trackGain = ctx.createGain();
+        trackGain.gain.value = 0.0001;
+        trackGain.gain.linearRampToValueAtTime(1, ctx.currentTime + 0.5);
+        trackGain.connect(musicGain);
+
+        let stopped = false;
+        const sources = [];
+
+        const beatLen = 60 / track.bpm;
+        const sixteenth = beatLen / 4;
+        const barLen = beatLen * 4;
+        let nextBarTime = ctx.currentTime + 0.05;
+
+        function scheduleBar(t0) {
+            if (stopped) return;
+            // Pad chord (held for whole bar)
+            if (track.padFreqs) {
+                track.padFreqs.forEach((f) => {
+                    const o = ctx.createOscillator();
+                    o.type = 'sawtooth';
+                    o.frequency.value = f;
+                    const g = ctx.createGain();
+                    g.gain.setValueAtTime(0.0001, t0);
+                    g.gain.linearRampToValueAtTime(0.05, t0 + 0.3);
+                    g.gain.linearRampToValueAtTime(0.04, t0 + barLen - 0.1);
+                    g.gain.linearRampToValueAtTime(0.0001, t0 + barLen);
+                    const filt = ctx.createBiquadFilter();
+                    filt.type = 'lowpass';
+                    filt.frequency.value = 1200;
+                    filt.Q.value = 4;
+                    o.connect(g); g.connect(filt); filt.connect(trackGain);
+                    o.start(t0); o.stop(t0 + barLen + 0.05);
+                    sources.push(o);
+                });
+            }
+            // Bass — one note per beat
+            track.bassNotes.forEach((n, i) => {
+                if (n === 0) return;
+                const t = t0 + i * (barLen / track.bassNotes.length);
+                const dur = (barLen / track.bassNotes.length) * 0.9;
+                const o = ctx.createOscillator();
+                o.type = 'square';
+                o.frequency.value = midiToFreq(n);
+                const g = ctx.createGain();
+                g.gain.setValueAtTime(0.0001, t);
+                g.gain.exponentialRampToValueAtTime(0.18, t + 0.005);
+                g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+                const filt = ctx.createBiquadFilter();
+                filt.type = 'lowpass';
+                filt.frequency.value = 600;
+                o.connect(g); g.connect(filt); filt.connect(trackGain);
+                o.start(t); o.stop(t + dur + 0.02);
+                sources.push(o);
+            });
+            // Lead — 16th notes
+            if (track.leadNotes) {
+                track.leadNotes.forEach((n, i) => {
+                    if (n === 0) return;
+                    const t = t0 + i * sixteenth;
+                    const dur = sixteenth * 0.85;
+                    const o = ctx.createOscillator();
+                    o.type = 'sawtooth';
+                    o.frequency.value = n;
+                    const g = ctx.createGain();
+                    g.gain.setValueAtTime(0.0001, t);
+                    g.gain.exponentialRampToValueAtTime(0.07, t + 0.005);
+                    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+                    const filt = ctx.createBiquadFilter();
+                    filt.type = 'lowpass';
+                    filt.frequency.value = 2400;
+                    filt.Q.value = 2;
+                    o.connect(g); g.connect(filt); filt.connect(trackGain);
+                    o.start(t); o.stop(t + dur + 0.02);
+                    sources.push(o);
+                });
+            }
+            // Drums — kick (1), snare (2)
+            track.drumPattern.forEach((d, i) => {
+                if (d === 0) return;
+                const t = t0 + i * sixteenth;
+                if (d === 1) {
+                    // Kick
+                    const o = ctx.createOscillator();
+                    o.type = 'sine';
+                    o.frequency.setValueAtTime(140, t);
+                    o.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+                    const g = ctx.createGain();
+                    g.gain.setValueAtTime(0.0001, t);
+                    g.gain.exponentialRampToValueAtTime(0.36, t + 0.005);
+                    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+                    o.connect(g); g.connect(trackGain);
+                    o.start(t); o.stop(t + 0.2);
+                    sources.push(o);
+                } else if (d === 2) {
+                    // Snare = noise + tone click
+                    const sr = ctx.sampleRate;
+                    const len = Math.floor(sr * 0.12);
+                    const buf = ctx.createBuffer(1, len, sr);
+                    const data = buf.getChannelData(0);
+                    for (let j = 0; j < len; j++) data[j] = (Math.random() * 2 - 1) * (1 - j / len);
+                    const src = ctx.createBufferSource();
+                    src.buffer = buf;
+                    const filt = ctx.createBiquadFilter();
+                    filt.type = 'highpass';
+                    filt.frequency.value = 1200;
+                    const g = ctx.createGain();
+                    g.gain.setValueAtTime(0.0001, t);
+                    g.gain.exponentialRampToValueAtTime(0.22, t + 0.003);
+                    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+                    src.connect(filt); filt.connect(g); g.connect(trackGain);
+                    src.start(t); src.stop(t + 0.14);
+                    sources.push(src);
+                }
+            });
+            // Hat
+            if (track.hatPattern) {
+                track.hatPattern.forEach((h, i) => {
+                    if (h === 0) return;
+                    const t = t0 + i * sixteenth;
+                    const sr = ctx.sampleRate;
+                    const len = Math.floor(sr * 0.04);
+                    const buf = ctx.createBuffer(1, len, sr);
+                    const data = buf.getChannelData(0);
+                    for (let j = 0; j < len; j++) data[j] = (Math.random() * 2 - 1) * (1 - j / len);
+                    const src = ctx.createBufferSource();
+                    src.buffer = buf;
+                    const filt = ctx.createBiquadFilter();
+                    filt.type = 'highpass';
+                    filt.frequency.value = 6000;
+                    const g = ctx.createGain();
+                    g.gain.setValueAtTime(0.0001, t);
+                    g.gain.exponentialRampToValueAtTime(0.07, t + 0.001);
+                    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+                    src.connect(filt); filt.connect(g); g.connect(trackGain);
+                    src.start(t); src.stop(t + 0.05);
+                    sources.push(src);
+                });
+            }
+        }
+
+        // Schedule the first bar immediately and a heartbeat to schedule subsequent bars
+        scheduleBar(nextBarTime);
+        nextBarTime += barLen;
+        const intervalId = setInterval(() => {
+            if (stopped) return;
+            const now = ctx.currentTime;
+            // Always keep ~1 bar scheduled ahead
+            while (nextBarTime < now + barLen + 0.2) {
+                scheduleBar(nextBarTime);
+                nextBarTime += barLen;
+            }
+        }, 250);
+
+        activeMusic = {
+            gain: trackGain,
+            stop: () => {
+                stopped = true;
+                clearInterval(intervalId);
+                try { trackGain.disconnect(); } catch (e) {}
+                sources.forEach((s) => { try { s.stop(); } catch (e) {} });
+            }
+        };
+    }
+
+    function setMusic(name) {
+        // Throttle music changes — at least 200ms between switches to avoid thrash
+        const now = performance.now();
+        if (now - lastMusicChange < 200 && currentTrack === name) return;
+        if (currentTrack === name) return;
+        lastMusicChange = now;
+        if (!ensure()) return;
+        startMusic(name);
+    }
+
+    function setMuted(b) {
+        muted = !!b;
+        if (masterGain) masterGain.gain.value = muted ? 0 : 1;
+        if (typeof save !== 'undefined') {
+            saveData_audioMuted = muted;
+            save.markDirty();
+        }
+    }
+    function setMusicVol(v) {
+        musicVol = Math.max(0, Math.min(1, v));
+        if (musicGain) musicGain.gain.value = musicVol;
+        if (typeof save !== 'undefined') {
+            saveData_musicVol = musicVol;
+            save.markDirty();
+        }
+    }
+    function setSfxVol(v) {
+        sfxVol = Math.max(0, Math.min(1, v));
+        if (sfxGain) sfxGain.gain.value = sfxVol;
+        if (typeof save !== 'undefined') {
+            saveData_sfxVol = sfxVol;
+            save.markDirty();
+        }
+    }
+    function getMusicVol() { return musicVol; }
+    function getSfxVol() { return sfxVol; }
+    function isMuted() { return muted; }
+    function getCurrentTrack() { return currentTrack; }
+
+    // Lazy init on first user input. Browsers require a gesture to unlock audio.
+    function unlock() {
+        unlocked = true;
+        ensure();
+        if (ctx && ctx.state === 'suspended') ctx.resume();
+    }
+
+    return { play, setMusic, setMuted, setMusicVol, setSfxVol, getMusicVol, getSfxVol, isMuted, getCurrentTrack, unlock };
+})();
+
+// Pick the right music track based on game state, current stage, and whether
+// a boss is currently engaged. Called every frame from gameLoop — internal
+// dedup makes repeat calls cheap.
+function pickMusicTrack() {
+    if (gameState === 'intro' || gameState === 'charSelect' || gameState === 'midCharSelect') return 'menu';
+    if (gameState === 'won') return 'victory';
+    if (gameState === 'dead') return null;
+    if (gameState === 'spaceTransition') return 'cyber';
+    if (gameState === 'stageComplete') return 'victory';
+    if (gameState === 'evoCutscene') return 'final';
+    if (gameState === 'throneCutscene' || gameState === 'bossIntro') return 'boss';
+    if (gameState === 'cutscene') {
+        // During boss dialogue, hold the boss track if an arena boss is alive
+        const hasBoss = enemies && enemies.some(e => e.type === 'boss');
+        if (hasBoss) return 'boss';
+        return 'cyber';
+    }
+    if (gameState === 'playing') {
+        // If a boss is in play, switch to boss track regardless of stage
+        const hasBoss = enemies && enemies.some(e => e.type === 'boss' && e.hp > 0);
+        if (hasBoss) return 'boss';
+        const s = currentStage || 0;
+        if (s <= 2) return 'cyber';        // Stages 1-3
+        if (s <= 4) return 'industrial';    // Stages 4-5
+        if (s === 5) return 'void';         // Stage 6
+        return 'final';                     // Stages 7-8
+    }
+    return 'menu';
+}
+
+// ============================================================================
+// SAVE SYSTEM (Step 5) — localStorage persistence
+// ============================================================================
+// Persists between browser sessions: unlocked characters, unlocked weapons,
+// audio settings, and meta-progression stats. Per-run state (HP, currencies,
+// position, stage) intentionally does NOT persist — every fresh run starts
+// from scratch but with all your unlocks intact.
+//
+//   save.load()          — restore state from localStorage at startup
+//   save.write()         — flush current state to localStorage
+//   save.reset()         — wipe save and reload fresh
+//   save.bumpStat(k, n)  — increment a meta counter
+//
+// Storage shape:
+//   { v: 1, characters: [bool], weapons: [bool],
+//     audio: {muted, musicVol, sfxVol},
+//     meta: {totalCoins, totalScrap, totalRC, bossesDefeated, totalDeaths,
+//            totalWins, farthestStage, maxEvoLevel} }
+const save = (() => {
+    const STORAGE_KEY = 'neonRush.save.v1';
+    const VERSION = 1;
+    let dirty = false;
+    let saveFlashTimer = 0;        // for HUD "SAVED" indicator
+    let lastSavedTs = 0;
+    const meta = {
+        totalCoins: 0,
+        totalScrap: 0,
+        totalRC: 0,
+        bossesDefeated: 0,
+        totalDeaths: 0,
+        totalWins: 0,
+        farthestStage: 0,
+        maxEvoLevel: 0
+    };
+
+    function safeGet() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return null;
+            const obj = JSON.parse(raw);
+            if (!obj || typeof obj !== 'object') return null;
+            if (obj.v !== VERSION) return null;
+            return obj;
+        } catch (e) {
+            return null;
+        }
+    }
+    function safeSet(obj) {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function load() {
+        const data = safeGet();
+        if (!data) return false;
+        // Apply character unlocks
+        if (Array.isArray(data.characters) && typeof CHARACTERS !== 'undefined') {
+            for (let i = 0; i < CHARACTERS.length && i < data.characters.length; i++) {
+                if (data.characters[i]) CHARACTERS[i].unlocked = true;
+            }
+        }
+        // Apply weapon unlocks (deferred — player object may not exist yet)
+        if (Array.isArray(data.weapons)) {
+            // Cache in module so applyCharacter restore can use it
+            saveData_weapons = data.weapons.slice();
+        }
+        // Apply audio settings
+        if (data.audio && typeof audio !== 'undefined') {
+            if (typeof data.audio.musicVol === 'number') audio.setMusicVol(data.audio.musicVol);
+            if (typeof data.audio.sfxVol === 'number') audio.setSfxVol(data.audio.sfxVol);
+            if (typeof data.audio.muted === 'boolean' && data.audio.muted) audio.setMuted(true);
+            // Also mirror the muted flag into the index.html UI if present
+            if (typeof data.audio.muted === 'boolean') saveData_audioMuted = data.audio.muted;
+        }
+        // Apply meta stats
+        if (data.meta && typeof data.meta === 'object') {
+            for (const k in meta) {
+                if (typeof data.meta[k] === 'number') meta[k] = data.meta[k];
+            }
+        }
+        return true;
+    }
+
+    function snapshot() {
+        return {
+            v: VERSION,
+            characters: (typeof CHARACTERS !== 'undefined') ? CHARACTERS.map(c => !!c.unlocked) : [],
+            weapons: (typeof player !== 'undefined' && player && Array.isArray(player.weaponsUnlocked))
+                ? player.weaponsUnlocked.slice()
+                : (saveData_weapons ? saveData_weapons.slice() : []),
+            audio: {
+                muted: typeof audio !== 'undefined' ? audio.isMuted() : false,
+                musicVol: saveData_musicVol,
+                sfxVol: saveData_sfxVol
+            },
+            meta: { ...meta }
+        };
+    }
+
+    function write() {
+        const ok = safeSet(snapshot());
+        if (ok) {
+            saveFlashTimer = 60;
+            lastSavedTs = Date.now();
+        }
+        dirty = false;
+    }
+
+    function markDirty() { dirty = true; }
+    // Auto-flush every ~3s if dirty (cheap, debounces frequent updates)
+    setInterval(() => { if (dirty) write(); }, 3000);
+
+    function reset() {
+        try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+        // Reset CHARACTERS unlocks to original (only first one starts unlocked)
+        if (typeof CHARACTERS !== 'undefined') {
+            for (let i = 0; i < CHARACTERS.length; i++) {
+                CHARACTERS[i].unlocked = (i === 0);
+            }
+        }
+        // Reset meta
+        for (const k in meta) meta[k] = 0;
+    }
+
+    function bumpStat(k, n) {
+        if (typeof meta[k] === 'number') {
+            meta[k] += (n || 1);
+            markDirty();
+        }
+    }
+    function setStat(k, v) {
+        if (k in meta) {
+            meta[k] = v;
+            markDirty();
+        }
+    }
+    function getMeta() { return meta; }
+    function isFlashing() { return saveFlashTimer > 0; }
+    function tickFlash() { if (saveFlashTimer > 0) saveFlashTimer--; }
+
+    return {
+        load, write, reset, markDirty, bumpStat, setStat, getMeta,
+        isFlashing, tickFlash
+    };
+})();
+
+// Persisted weapons array (filled by save.load before player exists, applied
+// during applyCharacter / startup). Same for muted/volume.
+let saveData_weapons = null;
+let saveData_audioMuted = false;
+let saveData_musicVol = 0.45;
+let saveData_sfxVol = 0.6;
 let stageBgTint = '#0a0a0f';
 
 // Weapon definitions - tier 0 starter, tiers 1-7 are unique boss-themed weapons.
@@ -255,7 +944,7 @@ const EVOLUTIONS = [
         upgrades: []
     },
     {
-        name: 'MK-II',   rcCost: 16,   hpBonus: 60,  dmgBonus: 1.25, speedBonus: 0.4,
+        name: 'MK-II',   rcCost: 16,   hpBonus: 30,  dmgBonus: 1.10, speedBonus: 0.2,
         sizeBonus: 6,
         widthBonus: 2,    // narrow gain (stays sleek)
         heightBonus: 12,  // taller frame
@@ -263,26 +952,26 @@ const EVOLUTIONS = [
         ability: 'pulseShot', abilityKey: 'KeyR',
         description: 'Twin pulse cannons mounted on shoulders. Larger frame.',
         upgrades: [
-            '+60 Max HP',
-            '+25% Damage',
-            '+0.4 Move Speed',
+            '+30 Max HP',
+            '+10% Damage',
+            '+0.2 Move Speed',
             'Frame size +6 (bigger silhouette)',
             'Pulse cannon side-arm (auto-fires with main shot)',
             '[R] PULSE BURST - 3 quick energy shots'
         ]
     },
     {
-        name: 'MK-III',  rcCost: 38,   hpBonus: 120, dmgBonus: 1.55, speedBonus: 0.6,
+        name: 'MK-III',  rcCost: 38,   hpBonus: 60,  dmgBonus: 1.20, speedBonus: 0.3,
         sizeBonus: 8,
-        widthBonus: 3,    // still narrow, more chest plate
-        heightBonus: 18,  // significantly taller — Optimus Prime-style
+        widthBonus: 3,
+        heightBonus: 18,
         sideArm: 'rocket',
         ability: 'rocketBarrage', abilityKey: 'KeyR',
         description: 'Heavy rocket launcher + jetpack frame. Towering build.',
         upgrades: [
-            '+120 Max HP',
-            '+55% Damage',
-            '+0.6 Move Speed',
+            '+60 Max HP',
+            '+20% Damage',
+            '+0.3 Move Speed',
             'Frame size +8 (heavy mech)',
             'Twin rocket launcher (auto-fires with main shot)',
             '[R] ROCKET BARRAGE - 5 homing rockets',
@@ -290,56 +979,54 @@ const EVOLUTIONS = [
         ]
     },
     {
-        name: 'OMEGA',   rcCost: 75,   hpBonus: 250, dmgBonus: 2.0, speedBonus: 0.9,
+        name: 'OMEGA',   rcCost: 75,   hpBonus: 100, dmgBonus: 1.30, speedBonus: 0.4,
         sizeBonus: 10,
-        widthBonus: 4,    // commanding shoulders, still proportionate
-        heightBonus: 38,  // colossal vertical presence (boosted from 26)
+        widthBonus: 4,
+        heightBonus: 38,
         sideArm: 'omega',
         ability: 'omegaBlast', abilityKey: 'KeyR',
         description: 'Final form. Plasma core + missile array. Colossal frame.',
         upgrades: [
-            '+250 Max HP',
-            '+100% Damage (DOUBLE)',
-            '+0.9 Move Speed',
+            '+100 Max HP',
+            '+30% Damage',
+            '+0.4 Move Speed',
             'Frame size +10 (colossus)',
             'Quad missile array (auto-fires with main shot)',
             '[R] OMEGA BLAST - massive AOE plasma wave',
-            'Aura damage: enemies near you take burn damage',
-            'Permanent damage immunity flicker'
+            'Aura damage: enemies near you take burn damage'
         ]
     },
     {
-        name: 'APEX',    rcCost: 130,  hpBonus: 400, dmgBonus: 2.6, speedBonus: 1.2,
+        name: 'APEX',    rcCost: 130,  hpBonus: 160, dmgBonus: 1.40, speedBonus: 0.5,
         sizeBonus: 12,
-        widthBonus: 5,    // ascended shoulders, plated chest
-        heightBonus: 50,  // skyscraper-tall — Convoy/Apex tier (boosted from 34)
+        widthBonus: 5,
+        heightBonus: 50,
         sideArm: 'apex',
         ability: 'apexNova', abilityKey: 'KeyR',
-        description: 'Ascended frame. Quad plasma cannons + halo blade rig. Skyscraper-tall.',
+        description: 'Ascended frame. Quad plasma cannons + halo blade rig.',
         upgrades: [
-            '+400 Max HP',
-            '+160% Damage (2.6×)',
-            '+1.2 Move Speed',
+            '+160 Max HP',
+            '+40% Damage',
+            '+0.5 Move Speed',
             'Frame size +12 (titan tier)',
             'Quad plasma cannons (auto-fires with main shot)',
             '[R] APEX NOVA — full-screen plasma flash',
             'Halo blade rig orbits player',
-            'Aura damage doubled (vs OMEGA)',
             'Bullet reflection while dashing'
         ]
     },
     {
-        name: 'PRIME',   rcCost: 60,   hpBonus: 400, dmgBonus: 2.6, speedBonus: 0.5,
+        name: 'PRIME',   rcCost: 60,   hpBonus: 220, dmgBonus: 1.50, speedBonus: 0.5,
         sizeBonus: 14,
-        widthBonus: 3,    // narrower than APEX — proportional, not fat
-        heightBonus: 90,  // way taller — Prime/Convoy proportions, towering (boosted from 70)
+        widthBonus: 3,
+        heightBonus: 90,
         sideArm: 'prime',
         ability: 'primeBeam', abilityKey: 'KeyR',
-        description: 'Triple-form Prime frame. Tank treads on the legs, jet wings on the back, dual sword rigs.',
+        description: 'Triple-form Prime frame. Tank treads, jet wings, dual sword rigs.',
         upgrades: [
-            '+600 Max HP',
-            '+240% Damage (3.4×)',
-            '+1.5 Move Speed',
+            '+220 Max HP',
+            '+50% Damage',
+            '+0.5 Move Speed',
             'Frame size +14 (Prime class — towering height)',
             'Six-cannon side-arm volley (auto-fires)',
             '[R] PRIME BEAM — sweeping orbital cannon',
@@ -349,25 +1036,25 @@ const EVOLUTIONS = [
         ]
     },
     {
-        name: 'CONVOY',  rcCost: 80,   hpBonus: 600, dmgBonus: 3.5, speedBonus: 0.6,
+        name: 'CONVOY',  rcCost: 80,   hpBonus: 320, dmgBonus: 1.65, speedBonus: 0.6,
         sizeBonus: 16,
-        widthBonus: 4,    // narrower body — Convoy is TALL, not bulky
-        heightBonus: 600, // proper Optimus tower (boosted from 480)
+        widthBonus: 4,
+        heightBonus: 600,
         sideArm: 'convoy',
         ability: 'convoyMatrix', abilityKey: 'KeyR',
         description: 'CONVOY frame. Truck-cab shoulders, dual-sword rig, full vehicle plating. Final form.',
         upgrades: [
-            '+900 Max HP',
-            '+350% Damage (4.5×)',
-            '+1.9 Move Speed',
+            '+320 Max HP',
+            '+65% Damage',
+            '+0.6 Move Speed',
             'Frame size +16 (Convoy class — towering)',
             'Eight-cannon side-arm storm (auto-fires)',
             '[R] CONVOY MATRIX — screen-clear holy beam',
             'Truck-cab shoulders + visible vehicle hood plating',
             'Dual sword rig (animated)',
             'Quadruple jump baseline',
-            'Aura tier 3: enemies in 200px take 16 dmg/30f',
-            '+10% damage reduction (innate)'
+            'Aura tier 3: enemies in 200px take 8 dmg/30f',
+            '+5% damage reduction (innate)'
         ]
     }
 ];
@@ -399,6 +1086,7 @@ const player = {
     jumpHeld: false,
     coins: 0,
     robotCoins: 0,            // RC - rare currency for evolution
+    scrap: 0,                 // SCRAP - currency from breakables/enemies, used at shops & crafting
     evoLevel: 0,              // 0 = base, 1 = MK-II, 2 = MK-III, 3 = OMEGA FORM
     bulletDamage: 0,         // additive damage bonus (from "Damage +5" upgrade)
     weaponTier: 0,            // index into WEAPONS (currently equipped)
@@ -470,7 +1158,42 @@ const SHOP_ITEMS = [
     { key: 'B', name: 'Buy: SOUL CANNON',    cost: 950, action: p => { p.weaponsUnlocked[18] = true; p.weaponTier = 18; }, weapon: 18 },
     { key: 'N', name: 'Buy: BFG-9000',       cost: 800, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
     { key: 'M', name: 'Switch Weapon ▶',     cost: 0,   action: p => { switchWeapon(p); }, repeatable: true, switcher: true },
-    { key: 'L', name: 'EVOLVE',              cost: 0,   action: p => { evolvePlayer(p); }, evolution: true }
+    { key: 'L', name: 'EVOLVE',              cost: 0,   action: p => { evolvePlayer(p); }, evolution: true },
+    // Scrap-metal trades. Scrap is plentiful, so the rates are stingy on
+    // purpose — these are escape valves, not main income.
+    { key: 'Z', name: 'Trade: 50 SCRAP → 80¢', cost: 0, costScrap: 50, action: p => { p.coins += 80; }, repeatable: true, scrapTrade: true },
+    { key: 'X', name: 'Trade: 25 SCRAP → 1 RC', cost: 0, costScrap: 25, action: p => { p.robotCoins += 1; }, repeatable: true, scrapTrade: true },
+    // === CRAFTING — uses scrap as primary cost. Some recipes also need coins.
+    // Crafted items are permanent stat upgrades or consumable boosts. The
+    // scrap economy lets the player spend the constant breakable/enemy drops.
+    { key: 'C', name: '⚒ Craft: REPAIR KIT', costScrap: 30, cost: 0,
+      action: p => { p.hp = p.maxHp; p.invincible = Math.max(p.invincible, 60); },
+      repeatable: true, craft: true,
+      craftDesc: 'Full HP restore + 1s i-frames' },
+    { key: 'D', name: '⚒ Craft: ARMOR PLATE', costScrap: 60, cost: 40,
+      action: p => { p.maxHp += 30; p.hp += 30; },
+      repeatable: true, craft: true,
+      craftDesc: '+30 max HP (permanent)' },
+    { key: 'F', name: '⚒ Craft: AMMO OVERCHARGE', costScrap: 80, cost: 0,
+      action: p => { p.bulletDamage += 4; },
+      repeatable: true, craft: true,
+      craftDesc: '+4 bullet damage (permanent)' },
+    { key: 'G', name: '⚒ Craft: SERVO BOOST', costScrap: 100, cost: 60,
+      action: p => { p.speed += 0.3; },
+      repeatable: true, craft: true,
+      craftDesc: '+0.3 movement speed' },
+    { key: 'H', name: '⚒ Craft: KINETIC SHIELD', costScrap: 90, cost: 0,
+      action: p => { p.invincible = Math.max(p.invincible, 240); },
+      repeatable: true, craft: true,
+      craftDesc: '4 seconds of invincibility' },
+    { key: 'J', name: '⚒ Craft: POWER CELL', costScrap: 150, cost: 80,
+      action: p => { p.maxJumpsBonus += 1; },
+      repeatable: true, craft: true,
+      craftDesc: '+1 extra jump (permanent)' },
+    { key: 'K', name: '⚒ Craft: ENERGON CORE', costScrap: 200, cost: 0,
+      action: p => { p.robotCoins += 5; },
+      repeatable: true, craft: true,
+      craftDesc: 'Convert scrap into 5 RC (better rate)' }
 ];
 
 // Trigger an evolution-specific active ability (R key)
@@ -697,6 +1420,7 @@ function evolvePlayer(p) {
     shopMessage = { text: `★ EVOLVED TO ${evo.name} ★`, timer: 240, color: EVO_COLORS[next] ? EVO_COLORS[next].glow : '#ffff00' };
     // Show the upgrade list popup (after the transform finishes, the popup remains)
     evoUnlockPopup = { evo: evo, timer: 360, evoLevel: next };
+    audio.play('evolve');
 }
 
 function switchWeapon(p) {
@@ -1086,6 +1810,8 @@ function executeMelee() {
     if (player.meleeCombo === 0) player.meleeCombo = 3; // wrap to 3rd hit
     const stage = player.meleeCombo;  // 1, 2, or 3
     const isAxe = player.evoLevel >= 6;     // CONVOY → Energon Axe
+    // Play swing sound (axe vs punch). Hit-confirm sound plays after we know if we hit something.
+    audio.play(isAxe ? 'axeSwing' : 'melee');
     // Damage profile: axe roughly 2.4× the punches and the finisher hits hard
     let dmg, range, knockback;
     if (isAxe) {
@@ -1190,6 +1916,7 @@ function executeMelee() {
     // Hitting an enemy gives the player a tiny damage immunity reward
     if (hitCount > 0) {
         player.invincible = Math.max(player.invincible, 6);
+        audio.play(isAxe ? 'axeHit' : 'meleeHit');
     }
 }
 
@@ -1576,6 +2303,11 @@ function buildLevel() {
     stageBgTint = stage.bgTint;
     arenaTheme = null;  // reset arena theme
 
+    // Clear interactables that aren't reset by individual stage builders
+    healingStations = [];
+    activeHealingStation = null;
+    antechamberState = null;
+
     if (currentStage === 0)      buildStage1();
     else if (currentStage === 1) buildStage2();
     else if (currentStage === 2) buildStage3();
@@ -1645,8 +2377,43 @@ function spawnBossGate() {
         x: gx, y: 150, w: 50, h: 400,  // y=150 to 550 = ground
         open: false,
         animTimer: 0,
-        color: stage.bossColor || '#ff00ff'
+        color: stage.bossColor || '#ff00ff',
+        // If an antechamber was set up earlier in buildLevel, this gate
+        // requires the WARDEN-K mini-boss to be dead before it'll open.
+        requiresWardenDead: !!antechamberState
     });
+}
+
+// Mini-boss antechamber gates — pair of gates that lock the player inside
+// a small arena until the WARDEN-K mini-boss is killed. Stages 3+ get this
+// gauntlet between the level proper and the boss arena.
+//
+//   Stage layout becomes: [LEVEL] → entry-gate → [WARDEN ANTECHAMBER] → exit-gate → [BOSS ARENA]
+//
+//   - entry-gate auto-opens on approach (like a normal bossGate)
+//   - then closes behind the player when they cross into the antechamber
+//   - exit-gate stays closed until warden is dead
+//   - exit-gate becomes the existing bossGate, gated by `requiresWardenDead`
+let antechamberState = null;   // { entryGateIdx, locked: bool, wardenSubtype }
+function spawnMinibossAntechamber(wardenX) {
+    const stage = STAGES[currentStage];
+    if (!stage || !stage.bossTriggerX) return;
+    // Entry gate: 120px before the warden's left edge so the player walks INTO
+    // the antechamber and gets locked in. Player triggers it by getting close.
+    const entryX = wardenX - 240;
+    bossGates.push({
+        x: entryX, y: 150, w: 50, h: 400,
+        open: false,
+        animTimer: 0,
+        color: '#ff4466',
+        antechamberEntry: true,    // auto-opens on approach, then closes behind player
+        closedBehind: false        // becomes true once player walks past it
+    });
+    antechamberState = {
+        entryGateIdx: bossGates.length - 1,
+        locked: false,
+        wardenSubtype: 'warden'
+    };
 }
 
 // Merge adjacent ground segments so the map feels continuous (only big gaps remain)
@@ -1687,6 +2454,11 @@ function buildBossArena(stageIdx, playerX, boss) {
 
     // Wipe out existing platforms/decorations in the arena range to make it clean
     platforms = platforms.filter(p => !(p.x + p.w > arenaStartX - 50 && p.x < arenaEndX + 200));
+
+    // Strip healing stations from inside the arena — boss fights should not
+    // have free heal pillars sitting around.
+    healingStations = healingStations.filter(s =>
+        !(s.x + s.w > arenaStartX - 50 && s.x < arenaEndX + 200));
 
     // STAGES 4+: clear out non-boss enemies inside the arena range so the
     // boss fight is a clean 1v1 (with allies) — no chip damage from random
@@ -1967,6 +2739,15 @@ function extendStage() {
     // Add a shop
     shops.push({ x: maxX + 280, y: groundY - 40, w: 50, h: 40 });
 
+    // Add 2 healing stations at strategic spots:
+    //   - one mid-stage (~30% through the playable run, near the first elite cluster)
+    //   - one near the shop (post-extension safe zone, before boss)
+    // Station #1: mid-stage. Place at ~40% of maxX so it's after early enemies.
+    const midStageX = Math.floor(maxX * 0.42);
+    spawnHealingStation(midStageX, groundY);
+    // Station #2: pre-boss safe zone next to the shop
+    spawnHealingStation(maxX + 140, groundY);
+
     // Update danger zone for the boss
     if (dangerZones.length > 0) {
         const last = dangerZones[dangerZones.length - 1];
@@ -2242,6 +3023,80 @@ function spawnEliteEnemies(stage) {
             shootTimer: 90,
             color: '#0a3a4a'
         });
+    }
+    // Stage 2+ gets SCREAMER (kamikaze diver) — high above the player,
+    // locks on, dives in a red telegraph beam. 2 spawns from stage 4+.
+    if (stage >= 1) {
+        const wave = stage >= 3 ? 2 : 1;
+        for (let i = 0; i < wave; i++) {
+            const baseX = 1100 + i * 1100 + stage * 60;
+            const baseY = 140 + (i % 2 === 0 ? 0 : 40);
+            enemies.push({
+                x: baseX, y: baseY, w: 32, h: 26,
+                type: 'screamer',
+                hp: 60 + stage * 15, maxHp: 60 + stage * 15,
+                vx: 0, vy: 0, baseY,
+                state: 'idle', floatTimer: 0,
+                shootTimer: 90 + i * 60,
+                color: '#ff2244'
+            });
+        }
+    }
+    // Stage 3+ gets SENTINEL (laser tripod) — stationary, sweeps an arc with
+    // a charged red beam. Place on raised platforms and at chokepoints.
+    if (stage >= 2) {
+        const baseX = 1700 + stage * 70;
+        enemies.push({
+            x: baseX, y: 510, w: 38, h: 40,
+            type: 'sentinel',
+            hp: 140 + stage * 25, maxHp: 140 + stage * 25,
+            vx: 0, vy: 0,
+            shootTimer: 60,
+            beamPrepTimer: 240,
+            state: 'aim',
+            turretAngle: 0,
+            color: '#ff8844'
+        });
+        // Late stages get a 2nd sentinel
+        if (stage >= 4) {
+            enemies.push({
+                x: baseX + 900, y: 510, w: 38, h: 40,
+                type: 'sentinel',
+                hp: 160 + stage * 25, maxHp: 160 + stage * 25,
+                vx: 0, vy: 0,
+                shootTimer: 90,
+                beamPrepTimer: 380,
+                state: 'aim',
+                turretAngle: 0,
+                color: '#ffaa44'
+            });
+        }
+    }
+    // Stage 3+ gets WARDEN-K (sentinel-class mini-boss) in a dedicated
+    // antechamber before the boss arena. The flow is:
+    // and the stage boss instead of just another patrol replacement.
+    if (stage >= 2) {
+        const stg = STAGES[stage];
+        const triggerX = (stg && stg.bossTriggerX) || 4000;
+        const baseY = 360;
+        const hp = 320 + stage * 60;
+        // Warden sits ~700px before the boss trigger, in the antechamber
+        // between the entry gate (triggerX - 940) and the exit/boss gate
+        // (triggerX - 60). That gives roughly an 880px-wide arena.
+        const wardenX = triggerX - 700;
+        enemies.push({
+            x: wardenX, y: baseY, w: 56, h: 100,
+            type: 'miniboss', subtype: 'warden',
+            hp, maxHp: hp, phase: 1,
+            shootTimer: 80, moveTimer: 0, attackPattern: 0,
+            baseX: wardenX, baseY,
+            vx: 0, vy: 0, facing: -1,
+            color: '#ff4466'
+        });
+        // Spawn the antechamber entry gate. The boss gate (which spawns
+        // AFTER this) will auto-detect the antechamber and lock itself
+        // until the warden is dead.
+        spawnMinibossAntechamber(wardenX);
     }
 }
 // ===== STAGE BUILDERS =====
@@ -2982,6 +3837,7 @@ function spawnExplosion(x, y) {
     screenShake = 8;
     // Shockwave ring for visual impact
     shockwaves.push({ x, y, r: 6, maxR: 80, color: '#ffaa44', alpha: 1 });
+    audio.play('explosion');
 }
 
 // Spawn a brief expanding ring (used for big hits, crits, evolution etc.).
@@ -3103,9 +3959,18 @@ function updateCoins() {
                 player.robotCoins += c.value;
                 spawnParticles(c.x, c.y, '#ff00ff', 8, 4);
                 floatTexts.push({ text: '+1 RC', x: c.x, y: c.y, life: 50, color: '#ff44ff' });
+                audio.play('keyPickup');
+                if (typeof save !== 'undefined') save.bumpStat('totalRC', c.value);
+            } else if (c.scrap) {
+                player.scrap += c.value;
+                spawnParticles(c.x, c.y, '#ff8844', 4, 2);
+                audio.play('coin', { throttle: 60 });
+                if (typeof save !== 'undefined') save.bumpStat('totalScrap', c.value);
             } else {
                 player.coins += c.value;
                 spawnParticles(c.x, c.y, '#ffdd44', 4, 2);
+                audio.play('coin', { throttle: 60 });
+                if (typeof save !== 'undefined') save.bumpStat('totalCoins', c.value);
             }
             coinPickups.splice(i, 1);
         }
@@ -3147,6 +4012,7 @@ function updateHealthDrops() {
             player.hp = Math.min(player.maxHp, player.hp + h.heal);
             healthDrops.splice(i, 1);
             spawnParticles(h.x, h.y, '#ff66aa', 8, 3);
+            audio.play('heal');
         }
     }
 }
@@ -3181,25 +4047,40 @@ function updateShop() {
             else if (/^[0-9]$/.test(item.key)) code = 'Digit' + item.key;
             else code = 'Key' + item.key;
             if (keys[code] && !player.shopBuyHeld) {
+                // Determine which currency the item costs (defaults to coins)
+                const scrapCost = item.costScrap || 0;
+                const rcCost = item.costRC || 0;
+                const coinCost = item.cost || 0;
                 // If weapon already owned, treat purchase as switch
                 if (item.weapon && player.weaponsUnlocked[item.weapon]) {
                     player.weaponTier = item.weapon;
                     shopMessage = { text: `Equipped: ${WEAPONS[item.weapon].name}`, timer: 60, color: WEAPONS[item.weapon].color };
-                } else if (player.coins >= item.cost) {
-                    if (item.cost > 0) player.coins -= item.cost;
-                    item.action(player);
-                    if (item.switcher) {
-                        const newW = WEAPONS[player.weaponTier];
-                        shopMessage = { text: `Switched to: ${newW.name}`, timer: 60, color: newW.color };
-                    } else if (item.weapon) {
-                        const wpn = WEAPONS[item.weapon];
-                        shopMessage = { text: `Bought: ${wpn.name}`, timer: 90, color: wpn.color };
-                    } else {
-                        shopMessage = { text: `Bought: ${item.name}`, timer: 60, color: '#00ff66' };
-                    }
-                    spawnParticles(player.x + player.w / 2, player.y, '#00ffaa', 10, 3);
                 } else {
-                    shopMessage = { text: 'Not enough coins!', timer: 60, color: '#ff3333' };
+                    const canAffordCoins = player.coins >= coinCost;
+                    const canAffordScrap = player.scrap >= scrapCost;
+                    const canAffordRC = player.robotCoins >= rcCost;
+                    if (canAffordCoins && canAffordScrap && canAffordRC) {
+                        if (coinCost > 0) player.coins -= coinCost;
+                        if (scrapCost > 0) player.scrap -= scrapCost;
+                        if (rcCost > 0) player.robotCoins -= rcCost;
+                        item.action(player);
+                        if (item.switcher) {
+                            const newW = WEAPONS[player.weaponTier];
+                            shopMessage = { text: `Switched to: ${newW.name}`, timer: 60, color: newW.color };
+                        } else if (item.weapon) {
+                            const wpn = WEAPONS[item.weapon];
+                            shopMessage = { text: `Bought: ${wpn.name}`, timer: 90, color: wpn.color };
+                        } else {
+                            shopMessage = { text: `Bought: ${item.name}`, timer: 60, color: '#00ff66' };
+                        }
+                        spawnParticles(player.x + player.w / 2, player.y, '#00ffaa', 10, 3);
+                    } else {
+                        // Tell player WHICH currency was short
+                        let msg = 'Not enough coins!';
+                        if (!canAffordScrap) msg = `Need ${scrapCost} scrap (have ${player.scrap})`;
+                        else if (!canAffordRC) msg = `Need ${rcCost} RC (have ${player.robotCoins})`;
+                        shopMessage = { text: msg, timer: 60, color: '#ff3333' };
+                    }
                 }
                 player.shopBuyHeld = true;
             }
@@ -3221,13 +4102,300 @@ function updateShop() {
     }
 }
 
+// ============================================================================
+// HEALING STATIONS (Step 2 of polish pass)
+// ============================================================================
+// Reusable repair pillars scattered through stages. Player walks up, presses E
+// to heal to full HP. Station then depletes for 6 seconds before recharging.
+// Allies in range get a partial heal when the station fires too.
+const HEAL_STATION_RECHARGE = 360;      // 6 seconds at 60fps
+const HEAL_STATION_DURATION = 90;       // healing animation length (1.5s)
+
+function spawnHealingStation(x, groundY) {
+    healingStations.push({
+        x, y: groundY - 60, w: 38, h: 60,
+        charge: 1,                     // 0..1 — visual gauge
+        cooldown: 0,                   // frames until recharged
+        healing: false,
+        healTimer: 0,                  // counts up during heal animation
+        pulse: Math.random() * Math.PI * 2  // random phase so multiple stations don't blink in sync
+    });
+}
+
+function updateHealingStations() {
+    if (gameState !== 'playing') return;
+    activeHealingStation = null;
+    for (const s of healingStations) {
+        // Pulse animation always ticks
+        s.pulse += 0.06;
+        // Cooldown recharge
+        if (s.cooldown > 0) {
+            s.cooldown--;
+            s.charge = Math.min(1, 1 - (s.cooldown / HEAL_STATION_RECHARGE));
+        } else {
+            s.charge = 1;
+        }
+        // Active heal animation tick
+        if (s.healing) {
+            s.healTimer++;
+            // Steady heal stream — 1.5% of maxHp per frame for ~1.5s totals 100%
+            const healPerFrame = Math.max(1, Math.round(player.maxHp * 0.015));
+            if (player.hp < player.maxHp) {
+                player.hp = Math.min(player.maxHp, player.hp + healPerFrame);
+            }
+            // Particle stream from station to player
+            if (s.healTimer % 2 === 0) {
+                const sx = s.x + s.w / 2;
+                const sy = s.y + 8;
+                const px = player.x + player.w / 2;
+                const py = player.y + player.h / 2;
+                spawnParticles(sx + (Math.random() - 0.5) * 14, sy + (Math.random() - 0.5) * 14,
+                    '#66ff88', 1, 1);
+                // Trail toward player
+                const t = Math.random();
+                const mx = sx + (px - sx) * t;
+                const my = sy + (py - sy) * t;
+                spawnParticles(mx, my, '#88ffaa', 1, 1);
+            }
+            // Heal allies in range too (50% heal)
+            if (s.healTimer === 1) {
+                for (const a of allies) {
+                    const dx = (a.x + a.w / 2) - (s.x + s.w / 2);
+                    const dy = (a.y + a.h / 2) - (s.y + s.h / 2);
+                    if (dx * dx + dy * dy < 180 * 180) {
+                        a.hp = Math.min(a.maxHp, a.hp + Math.round(a.maxHp * 0.5));
+                        spawnParticles(a.x + a.w / 2, a.y + a.h / 2, '#66ff88', 8, 3);
+                    }
+                }
+            }
+            if (s.healTimer >= HEAL_STATION_DURATION) {
+                s.healing = false;
+                s.healTimer = 0;
+                s.cooldown = HEAL_STATION_RECHARGE;
+                s.charge = 0;
+                spawnShockwave(s.x + s.w / 2, s.y + s.h / 2, 60, '#66ff88');
+            }
+        }
+        // Range detection — slightly bigger than the station so the prompt
+        // shows a tiny bit before the player visually walks up to it
+        if (player.x + player.w > s.x - 24 && player.x < s.x + s.w + 24 &&
+            player.y + player.h > s.y - 30 && player.y < s.y + s.h + 8) {
+            activeHealingStation = s;
+        }
+    }
+
+    // Interaction: pressing E (only when no shop is also in range — shop wins)
+    // Reuse the shop's `shopKeyHeld` edge-trigger so we don't double-fire on the
+    // same press. We trigger BEFORE the shop logic uses the key, but only when
+    // no shop is in range (activeShop is null).
+    if (!activeShop && activeHealingStation && keys['KeyE'] && !player.shopKeyHeld) {
+        const s = activeHealingStation;
+        if (s.cooldown <= 0 && !s.healing) {
+            if (player.hp >= player.maxHp) {
+                shopMessage = { text: 'Already at full HP', timer: 60, color: '#88ff88' };
+            } else {
+                s.healing = true;
+                s.healTimer = 0;
+                spawnParticles(s.x + s.w / 2, s.y + 8, '#66ff88', 18, 5);
+                spawnShockwave(s.x + s.w / 2, s.y + 8, 50, '#66ff88');
+                audio.play('heal');
+                shopMessage = { text: '⚕ REPAIRING ⚕', timer: 90, color: '#66ff88' };
+            }
+            // Block the shop's edge-trigger from firing this same press
+            player.shopKeyHeld = true;
+        } else if (s.cooldown > 0) {
+            const secs = (s.cooldown / 60).toFixed(1);
+            shopMessage = { text: `Recharging (${secs}s)`, timer: 30, color: '#ffaa44' };
+            player.shopKeyHeld = true;
+        }
+    }
+}
+
+function drawHealingStations() {
+    for (const s of healingStations) {
+        const sx = s.x - camera.x;
+        const sy = s.y - camera.y;
+
+        const charged = s.cooldown <= 0;
+        const pulse = (Math.sin(s.pulse) + 1) * 0.5;  // 0..1
+        const baseColor = charged ? '#1a3a28' : '#2a1a18';
+        const accentColor = charged ? '#66ff88' : '#ff6644';
+        const glowColor = charged ? '#aaffcc' : '#ff8866';
+
+        // Pillar base
+        const baseY = sy + s.h - 12;
+        ctx.fillStyle = '#222';
+        ctx.fillRect(sx - 4, baseY, s.w + 8, 12);
+        ctx.fillStyle = '#444';
+        ctx.fillRect(sx - 4, baseY, s.w + 8, 3);
+
+        // Pillar body
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(sx, sy + 16, s.w, s.h - 28);
+        // Inner glow channel (lighter)
+        ctx.fillStyle = '#0a0a0f';
+        ctx.fillRect(sx + 8, sy + 22, s.w - 16, s.h - 40);
+
+        // Charge gauge — vertical bar inside the channel
+        const gaugeH = (s.h - 40) * s.charge;
+        if (s.charge > 0.01) {
+            const grad = ctx.createLinearGradient(0, sy + s.h - 18 - gaugeH, 0, sy + s.h - 18);
+            grad.addColorStop(0, glowColor);
+            grad.addColorStop(1, accentColor);
+            ctx.fillStyle = grad;
+            ctx.fillRect(sx + 9, sy + s.h - 18 - gaugeH, s.w - 18, gaugeH);
+        }
+
+        // Top emitter dome
+        const domeR = 10;
+        const cx = sx + s.w / 2;
+        const cy = sy + 12;
+        ctx.fillStyle = baseColor;
+        ctx.beginPath();
+        ctx.arc(cx, cy, domeR, Math.PI, 0);
+        ctx.fill();
+
+        // Glowing core inside dome
+        ctx.shadowColor = accentColor;
+        ctx.shadowBlur = charged ? 14 + pulse * 10 : 4;
+        ctx.fillStyle = accentColor;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 4 + pulse * 1.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // Big medical cross on the front of the pillar
+        ctx.fillStyle = charged ? glowColor : '#552222';
+        ctx.shadowColor = accentColor;
+        ctx.shadowBlur = charged ? 8 : 0;
+        ctx.fillRect(sx + s.w / 2 - 3, sy + 22, 6, 18);
+        ctx.fillRect(sx + s.w / 2 - 8, sy + 27, 16, 8);
+        ctx.shadowBlur = 0;
+
+        // Side LED indicators
+        for (let i = 0; i < 3; i++) {
+            const ledY = sy + 22 + i * 8;
+            const lit = charged && pulse > i * 0.3;
+            ctx.fillStyle = lit ? accentColor : '#222';
+            ctx.fillRect(sx + 2, ledY, 3, 3);
+            ctx.fillRect(sx + s.w - 5, ledY, 3, 3);
+        }
+
+        // Active heal beam
+        if (s.healing) {
+            const px = (player.x + player.w / 2) - camera.x;
+            const py = (player.y + player.h / 2) - camera.y;
+            ctx.save();
+            const flicker = 0.7 + Math.sin(s.healTimer * 0.4) * 0.3;
+            ctx.globalAlpha = flicker;
+            ctx.strokeStyle = '#aaffcc';
+            ctx.lineWidth = 5 + Math.sin(s.healTimer * 0.6) * 2;
+            ctx.shadowColor = '#66ff88';
+            ctx.shadowBlur = 18;
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            // Slight bezier curve for organic feel
+            const midX = (cx + px) / 2 + Math.sin(s.healTimer * 0.2) * 12;
+            const midY = (cy + py) / 2 - 20;
+            ctx.quadraticCurveTo(midX, midY, px, py);
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+
+        // "PRESS E TO REPAIR" hint when in range
+        if (activeHealingStation === s) {
+            const blink = Math.floor(performance.now() / 400) % 2 === 0;
+            if (blink) {
+                let text;
+                let color;
+                if (!charged) {
+                    text = `RECHARGING ${(s.cooldown / 60).toFixed(1)}s`;
+                    color = '#ffaa44';
+                } else if (player.hp >= player.maxHp) {
+                    text = 'HP FULL';
+                    color = '#88ff88';
+                } else {
+                    text = 'PRESS E TO REPAIR';
+                    color = '#66ff88';
+                }
+                ctx.fillStyle = color;
+                ctx.shadowColor = color;
+                ctx.shadowBlur = 8;
+                ctx.font = 'bold 12px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText(text, cx, sy - 14);
+                ctx.shadowBlur = 0;
+                ctx.textAlign = 'left';
+            }
+        }
+    }
+}
+
 // Player update
 function updatePlayer() {
     if (gameState !== 'playing') return;
 
     // Animate boss gates opening when player approaches
     for (const bg of bossGates) {
+        // Antechamber entry gate: auto-opens on approach, then closes behind
+        // the player once they walk past it (locking them in with the warden).
+        if (bg.antechamberEntry) {
+            const px = player.x + player.w / 2;
+            const gx = bg.x + bg.w / 2;
+            const dist = Math.abs(px - gx);
+            if (!bg.closedBehind) {
+                // First phase: auto-open as the player approaches
+                if (!bg.open) {
+                    if (dist < 200) {
+                        bg.animTimer = Math.min(60, bg.animTimer + 1);
+                        if (bg.animTimer >= 60) {
+                            bg.open = true;
+                            spawnParticles(bg.x + bg.w / 2, bg.y + bg.h / 2, bg.color, 30, 6);
+                            screenShake = 8;
+                        }
+                    } else {
+                        bg.animTimer = Math.max(0, bg.animTimer - 1);
+                    }
+                } else if (px > gx + 60) {
+                    // Player has crossed past the entry gate — slam it shut
+                    bg.open = false;
+                    bg.animTimer = 0;
+                    bg.closedBehind = true;
+                    spawnParticles(bg.x + bg.w / 2, bg.y + bg.h / 2, bg.color, 24, 8);
+                    spawnShockwave(bg.x + bg.w / 2, bg.y + bg.h / 2, 80, bg.color);
+                    screenShake = 14;
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: '⚠ MINI-BOSS: WARDEN-K ⚠', timer: 180, color: '#ff4466' };
+                    }
+                    audio.play('bossIntro');
+                }
+            } else {
+                // Phase 2: stays locked closed until warden is dead, then
+                // auto-opens permanently so the player can backtrack.
+                const wardenAlive = enemies.some(e => e.subtype === 'warden');
+                if (!wardenAlive && !bg.open) {
+                    bg.open = true;
+                    bg.animTimer = 60;
+                    spawnParticles(bg.x + bg.w / 2, bg.y + bg.h / 2, '#66ff88', 30, 6);
+                    spawnShockwave(bg.x + bg.w / 2, bg.y + bg.h / 2, 80, '#66ff88');
+                }
+            }
+            continue;
+        }
+
+        // Standard boss gate logic
         if (bg.open) continue;
+        // If this gate requires the warden to be dead, refuse to open while
+        // any warden is alive on the field.
+        if (bg.requiresWardenDead) {
+            const wardenAlive = enemies.some(e => e.subtype === 'warden');
+            if (wardenAlive) {
+                // Drain the open animation back to zero so we don't sneak through
+                bg.animTimer = Math.max(0, bg.animTimer - 1);
+                continue;
+            }
+        }
         const dist = Math.abs((player.x + player.w/2) - (bg.x + bg.w/2));
         if (dist < 200) {
             bg.animTimer = Math.min(60, bg.animTimer + 1);
@@ -3401,14 +4569,17 @@ function updatePlayer() {
             player.jumpBuffer = 0;
             player.coyoteTime = 0;
             spawnParticles(player.x + (player.wallDir > 0 ? 0 : player.w), player.y + player.h / 2, '#00ffaa', 5, 3);
+            audio.play('wallJump');
         } else if (player.coyoteTime > 0 || player.jumps < player.maxJumps + player.maxJumpsBonus) {
             // Ground jump (or coyote-time jump) — counts as first jump
             if (player.coyoteTime > 0 && player.jumps === 0) {
                 player.vy = player.jumpForce;
                 player.jumps = 1;
+                audio.play('jump');
             } else if (player.jumps < player.maxJumps + player.maxJumpsBonus) {
                 player.vy = player.jumpForce * (player.jumps === 0 ? 1 : 0.85);
                 player.jumps++;
+                audio.play(player.jumps === 1 ? 'jump' : 'doubleJump');
             }
             player.jumpBuffer = 0;
             player.coyoteTime = 0;
@@ -3433,6 +4604,7 @@ function updatePlayer() {
         player.dashDir = { x: dx / len, y: dy / len };
         player.vy = 0;
         spawnParticles(player.x + player.w / 2, player.y + player.h / 2, '#00ffaa', 8, 4);
+        audio.play('dash');
     }
 
     if (player.dashing) {
@@ -3463,6 +4635,7 @@ function updatePlayer() {
         player.invincible = Math.max(player.invincible, 18);
         player.h = 24;       // duck profile during roll
         spawnParticles(player.x + player.w / 2, player.y + player.h, '#88ddff', 10, 3);
+        audio.play('roll');
     }
     player.rollKeyHeld = rollKeyDown;
     if (player.rolling) {
@@ -3490,6 +4663,7 @@ function updatePlayer() {
         player.parryTimer = 14;
         player.parryCooldown = 60;
         spawnParticles(player.x + player.w / 2, player.y + player.h / 2, '#ffffff', 10, 3);
+        audio.play('ui');
     }
     player.parryKeyHeld = keys['KeyC'];
     if (player.parrying && player.parryTimer <= 0) {
@@ -3504,6 +4678,7 @@ function updatePlayer() {
         player.vy = 0;
         player.vx = 0;
         spawnParticles(player.x + player.w / 2, player.y + player.h, '#ffaa44', 10, 3);
+        audio.play('dash');
     }
     player.poundKeyHeld = (keys['KeyS'] || keys['ArrowDown']);
     if (player.pounding) {
@@ -3619,6 +4794,7 @@ function updatePlayer() {
                     spawnParticles(cx, cy, '#ffcc88', 18, 5);
                     screenShake = 18;
                     applyHitStop(4);
+                    audio.play('pound');
                     // AOE damage to enemies in radius
                     const radius = 130;
                     const dmg = 60 + Math.round((player.dmgMul || 1) * 30);
@@ -3833,6 +5009,7 @@ function updatePlayer() {
         spawnShockwave(player.x + player.w/2, player.y + player.h/2, 60, player.charColor || '#00ddff');
         spawnParticles(player.x + player.w/2, player.y + player.h/2, player.charAccent || '#00ffaa', 18, 6);
         screenShake = 6;
+        audio.play('transform');
     }
     player.transformHeld = xPressed;
     // Animate the transform progress
@@ -3914,8 +5091,20 @@ function updatePlayer() {
     if (canFire && player.shootCooldown <= 0 && !blockedByVehicle) {
         if (canShootInVehicle) {
             shootVehicleProjectile();
+            // Vehicle weapons get heavier sound. Tank/hovertank = rocket, others = beam
+            if (player.vehicleType === 'tank' || player.vehicleType === 'hovertank') {
+                audio.play('rocket');
+            } else {
+                audio.play('shootBeam');
+            }
         } else {
             shootBullet();
+            // Pick SFX flavor by weapon tier — explosive weapons sound heavy
+            if (w.explosive || w.bullets >= 5) {
+                audio.play('shootHeavy');
+            } else {
+                audio.play('shoot');
+            }
         }
         let cd = w.cooldown * player.fireRateMul;
         // Bullet storm ability halves cooldown
@@ -4190,6 +5379,26 @@ function updateBullets() {
                     if (plat.hp <= 0) {
                         spawnParticles(plat.x + plat.w / 2, plat.y + plat.h / 2, '#aa6622', 25, 5);
                         screenShake = 6;
+                        // SCRAP DROP — every breakable yields some scrap.
+                        // Size scales with crate HP and stage. Cache crates
+                        // give a chunkier bonus pile.
+                        {
+                            const cx2 = plat.x + plat.w / 2;
+                            const cy2 = plat.y + plat.h / 2;
+                            const baseScrap = Math.max(1, Math.round((plat.hp_max || plat.hp || 60) / 30));
+                            const bonus = plat.cache ? 6 + currentStage * 2 : 0;
+                            const total = baseScrap + bonus + Math.floor(Math.random() * 2);
+                            for (let cc = 0; cc < total; cc++) {
+                                const ang = Math.random() * Math.PI * 2;
+                                const spd = 1.5 + Math.random() * 3.5;
+                                coinPickups.push({
+                                    x: cx2, y: cy2,
+                                    vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd - 2.5,
+                                    value: 1, life: 700,
+                                    scrap: true
+                                });
+                            }
+                        }
                         // Drop hidden cache
                         if (plat.cache) {
                             const cx2 = plat.x + plat.w / 2;
@@ -4469,6 +5678,7 @@ function updateBullets() {
 
 function handleEnemyKilled(e, j) {
     spawnExplosion(e.x + e.w / 2, e.y + e.h / 2);
+    if (e.type === 'boss') audio.play('bossKill');
     score += e.type === 'boss' ? 500 : 100;
     // Combo system - more coins/score with combo
     comboCount++;
@@ -4497,6 +5707,8 @@ function handleEnemyKilled(e, j) {
     else if (e.type === 'mech') rcDrop = 4;
     else if (e.type === 'heavy' || e.type === 'sniper') rcDrop = 3;
     else if (e.type === 'shielder' || e.type === 'jumper') rcDrop = 2;
+    else if (e.type === 'sentinel') rcDrop = 3;
+    else if (e.type === 'screamer') rcDrop = 2;
     else if (e.type === 'bomber' || e.type === 'sprinter' || e.type === 'turret') rcDrop = 1;
     for (let c = 0; c < rcDrop; c++) {
         const ang = Math.random() * Math.PI * 2;
@@ -4508,6 +5720,32 @@ function handleEnemyKilled(e, j) {
             vy: Math.sin(ang) * spd - 4,
             value: 1, life: 700,
             robotCoin: true
+        });
+    }
+    // Drop SCRAP from every defeated robot. Scales with size/elite tier so
+    // bigger enemies are worth farming. Bosses dump a small pile to fund
+    // post-fight crafting.
+    let scrapDrop = 0;
+    if (e.type === 'boss') scrapDrop = 40 + currentStage * 4;
+    else if (e.type === 'miniboss') scrapDrop = 22;
+    else if (e.type === 'hydraWalker' || e.type === 'scorpion' || e.type === 'mech') scrapDrop = 10 + Math.floor(currentStage * 1.5);
+    else if (e.type === 'heavy' || e.type === 'sniper') scrapDrop = 6;
+    else if (e.type === 'sentinel') scrapDrop = 7;
+    else if (e.type === 'screamer') scrapDrop = 5;
+    else if (e.type === 'shielder' || e.type === 'jumper') scrapDrop = 4;
+    else if (e.type === 'bomber' || e.type === 'sprinter' || e.type === 'turret' || e.type === 'ricochet') scrapDrop = 3;
+    else if (e.type === 'patrol' || e.type === 'drone' || e.type === 'swarm') scrapDrop = 2;
+    else scrapDrop = 1;
+    for (let c = 0; c < scrapDrop; c++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 1.5 + Math.random() * 3.5;
+        coinPickups.push({
+            x: e.x + e.w / 2,
+            y: e.y + e.h / 2,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd - 3,
+            value: 1, life: 650,
+            scrap: true
         });
     }
     // Drop a health pack on ~25% of normal enemies, always on bosses
@@ -4532,6 +5770,13 @@ function handleEnemyKilled(e, j) {
         // Unlock character if any
         for (const ch of CHARACTERS) {
             if (ch.unlockedBy === currentStage + 1) ch.unlocked = true;
+        }
+        // SAVE: persist boss kill — bossesDefeated++, farthestStage, char/weapon unlocks
+        if (typeof save !== 'undefined') {
+            save.bumpStat('bossesDefeated');
+            const meta = save.getMeta();
+            if ((currentStage + 1) > meta.farthestStage) save.setStat('farthestStage', currentStage + 1);
+            save.markDirty();
         }
         // Open arena gates (boss is dead, lockdown lifted)
         for (const ag of arenaGates) {
@@ -4591,6 +5836,50 @@ function handleEnemyKilled(e, j) {
         }
         // else: wait for cage to be broken
     }
+}
+
+// ============================================================================
+// CINEMATIC BOSS ATTACK SYSTEM (Step 7 polish)
+// ============================================================================
+// Helpers to make boss attacks feel unpredictable + cinematic.
+//
+//   bossPickRandomAttack(e, count)   — random 0..count-1, but never the same
+//                                       pattern twice in a row
+//   bossTelegraph(e, color, dur)     — dramatic 30-frame warning before a
+//                                       big signature attack (red flash,
+//                                       boss glow, screen shake building up)
+//   bossSignatureCue(e, name, color) — on-screen banner during signature
+//                                       attacks ("⚡ INFERNAL EYE BEAMS ⚡")
+function bossPickRandomAttack(e, count) {
+    if (typeof e._lastPattern !== 'number') e._lastPattern = -1;
+    if (count <= 1) return 0;
+    let next;
+    let attempts = 0;
+    do {
+        next = Math.floor(Math.random() * count);
+        attempts++;
+    } while (next === e._lastPattern && attempts < 5);
+    e._lastPattern = next;
+    return next;
+}
+
+// Run a 30-frame telegraph before a signature attack. Sets boss.telegraphTimer
+// which the renderer reads to flash the boss in warning color. While telegraph
+// is running, no other attacks fire.
+function bossTelegraph(e, color, dur) {
+    e.telegraphTimer = dur || 30;
+    e.telegraphColor = color || '#ff4444';
+    spawnShockwave(e.x + e.w / 2, e.y + e.h / 2, 60, color);
+    spawnParticles(e.x + e.w / 2, e.y + e.h / 2, color, 12, 6);
+}
+
+// Show a brief signature-attack banner mid-screen ("⚡ ATTACK NAME ⚡")
+function bossSignatureCue(e, name, color) {
+    if (typeof shopMessage !== 'undefined') {
+        shopMessage = { text: '⚡ ' + name + ' ⚡', timer: 90, color: color || '#ffff44' };
+    }
+    spawnShockwave(e.x + e.w / 2, e.y + e.h / 2, 100, color || '#ffff44');
+    screenShake = Math.max(screenShake, 8);
 }
 
 // Per-boss attack origin helper. Returns world-space {x,y} for a named slot
@@ -5109,6 +6398,173 @@ function updateEnemies() {
                     e.aimTimer = 0;
                 }
             }
+        } else if (e.type === 'screamer') {
+            // SCREAMER — flying kamikaze that lurks high, locks onto player,
+            // then dives at high speed with a red telegraph beam. Explodes
+            // on contact OR when its dive ends.
+            //
+            // States: 'idle' (drifting high), 'lock' (telegraphed lock-on),
+            //         'dive' (committed plunge toward target),
+            //         'recover' (failed dive, briefly stunned)
+            if (!e.state) e.state = 'idle';
+            e.floatTimer = (e.floatTimer || 0) + 0.05 * slowMul;
+            const dxs = (player.x + player.w / 2) - (e.x + e.w / 2);
+            const dys = (player.y + player.h / 2) - (e.y + e.h / 2);
+            const distS = Math.sqrt(dxs * dxs + dys * dys);
+
+            if (e.state === 'idle') {
+                // Hover at home altitude, drift toward player horizontally
+                e.y = e.baseY + Math.sin(e.floatTimer) * 14;
+                e.x += Math.sign(dxs) * 1.6 * slowMul;
+                e.shootTimer = (e.shootTimer || 0) - slowMul;
+                if (e.shootTimer <= 0 && distS < 360 && Math.abs(dys) > 60) {
+                    e.state = 'lock';
+                    e.lockTimer = 35;
+                    e.diveTargetX = player.x + player.w / 2;
+                    e.diveTargetY = player.y + player.h / 2;
+                    audio.play('shootBeam');
+                }
+            } else if (e.state === 'lock') {
+                e.lockTimer -= slowMul;
+                e.x += Math.sin(e.lockTimer * 0.3) * 0.6;
+                if (e.lockTimer <= 0) {
+                    e.state = 'dive';
+                    const dvx = e.diveTargetX - (e.x + e.w / 2);
+                    const dvy = e.diveTargetY - (e.y + e.h / 2);
+                    const dvL = Math.sqrt(dvx * dvx + dvy * dvy) || 1;
+                    e.vx = (dvx / dvL) * 14;
+                    e.vy = (dvy / dvL) * 14;
+                    e.diveTimer = 60;
+                    audio.play('rocket');
+                    spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#ff2244', 14, 6);
+                }
+            } else if (e.state === 'dive') {
+                e.x += e.vx * slowMul;
+                e.y += e.vy * slowMul;
+                e.diveTimer -= slowMul;
+                if (e.diveTimer % 2 === 0) {
+                    spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#ff4466', 2, 5);
+                    spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#ffff00', 1, 4);
+                }
+                if (rectCollide(e, player) && player.invincible <= 0) {
+                    spawnExplosion(e.x + e.w / 2, e.y + e.h / 2);
+                    spawnShockwave(e.x + e.w / 2, e.y + e.h / 2, 90, '#ff2244');
+                    spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#ff8800', 30, 8);
+                    screenShake = 18;
+                    player.hp -= 18;
+                    hitFlash = Math.min(1, hitFlash + 0.6);
+                    applyHitStop(4);
+                    player.invincible = 50;
+                    player.vx = Math.sign(player.x - e.x) * 8;
+                    player.vy = -10;
+                    e.hp = 0;
+                    const idx = enemies.indexOf(e);
+                    if (idx >= 0) handleEnemyKilled(e, idx);
+                    if (player.hp <= 0) { gameState = 'dead'; spawnExplosion(player.x + player.w/2, player.y + player.h/2); }
+                    continue;
+                }
+                let hitGround = false;
+                for (const plat of platforms) {
+                    if ((plat.type === 'ground' || plat.type === 'platform') &&
+                        e.x + e.w / 2 > plat.x && e.x + e.w / 2 < plat.x + plat.w &&
+                        e.y + e.h > plat.y && e.y < plat.y + plat.h) {
+                        hitGround = true;
+                        break;
+                    }
+                }
+                if (hitGround || e.diveTimer <= 0) {
+                    e.state = 'recover';
+                    e.recoverTimer = 40;
+                    e.vx = 0; e.vy = 0;
+                    spawnParticles(e.x + e.w / 2, e.y + e.h, '#ffaa00', 16, 6);
+                }
+            } else if (e.state === 'recover') {
+                e.recoverTimer -= slowMul;
+                e.y -= 1.5 * slowMul;
+                if (e.recoverTimer <= 0) {
+                    e.state = 'idle';
+                    e.shootTimer = 90 + Math.random() * 60;
+                    e.y = e.baseY;
+                }
+            }
+        } else if (e.type === 'sentinel') {
+            // SENTINEL — stationary tripod with a rotating laser turret.
+            // Slow piercing shots + a long telegraphed sweeping beam attack.
+            if (!e.state) e.state = 'aim';
+            const dxn = (player.x + player.w / 2) - (e.x + e.w / 2);
+            const dyn = (player.y + player.h / 2) - (e.y + e.h / 2);
+            const targetA = Math.atan2(dyn, dxn);
+            if (typeof e.turretAngle !== 'number') e.turretAngle = targetA;
+            let dA = targetA - e.turretAngle;
+            while (dA > Math.PI) dA -= Math.PI * 2;
+            while (dA < -Math.PI) dA += Math.PI * 2;
+            e.turretAngle += dA * 0.06;
+
+            if (e.state === 'aim') {
+                e.shootTimer -= slowMul;
+                e.beamPrepTimer = (e.beamPrepTimer || 0) - slowMul;
+                if (e.shootTimer <= 0 && distToPlayer < 700) {
+                    enemyBullets.push({
+                        x: e.x + e.w / 2 + Math.cos(e.turretAngle) * 18,
+                        y: e.y + e.h / 2 + Math.sin(e.turretAngle) * 18,
+                        vx: Math.cos(e.turretAngle) * 6,
+                        vy: Math.sin(e.turretAngle) * 6,
+                        life: 130, damage: 12,
+                        color: '#ff8844', glow: '#ff4400', size: 5,
+                        pierce: true, hitEnemies: new Set()
+                    });
+                    spawnParticles(e.x + e.w / 2 + Math.cos(e.turretAngle) * 22,
+                                   e.y + e.h / 2 + Math.sin(e.turretAngle) * 22,
+                                   '#ff8844', 4, 4);
+                    e.shootTimer = 95;
+                }
+                if (e.beamPrepTimer <= 0 && distToPlayer < 600) {
+                    e.state = 'charge';
+                    e.chargeTimer = 75;
+                    e.beamStartAngle = e.turretAngle - 0.6;
+                    e.beamSweepDir = Math.sign(dxn) || 1;
+                    audio.play('shootBeam');
+                }
+            } else if (e.state === 'charge') {
+                e.chargeTimer -= slowMul;
+                e.turretAngle += (e.beamStartAngle - e.turretAngle) * 0.1;
+                if (e.chargeTimer % 3 === 0) {
+                    const tx = e.x + e.w / 2 + Math.cos(e.turretAngle) * 22;
+                    const ty = e.y + e.h / 2 + Math.sin(e.turretAngle) * 22;
+                    spawnParticles(tx, ty, '#ff2244', 3, 4);
+                }
+                if (e.chargeTimer <= 0) {
+                    e.state = 'sweep';
+                    e.sweepTimer = 40;
+                    audio.play('explosion');
+                }
+            } else if (e.state === 'sweep') {
+                e.sweepTimer -= slowMul;
+                const t = 1 - (e.sweepTimer / 40);
+                e.turretAngle = e.beamStartAngle + e.beamSweepDir * t * 1.4;
+                const tx = e.x + e.w / 2;
+                const ty = e.y + e.h / 2;
+                for (let r = 30; r < 800; r += 80) {
+                    enemyBullets.push({
+                        x: tx + Math.cos(e.turretAngle) * r,
+                        y: ty + Math.sin(e.turretAngle) * r,
+                        vx: 0, vy: 0,
+                        life: 4, damage: 14,
+                        color: '#ff2244', glow: '#ff0000', size: 7, big: true
+                    });
+                }
+                if (e.sweepTimer <= 0) {
+                    e.state = 'cool';
+                    e.coolTimer = 110;
+                }
+            } else if (e.state === 'cool') {
+                e.coolTimer -= slowMul;
+                if (e.coolTimer <= 0) {
+                    e.state = 'aim';
+                    e.beamPrepTimer = 350;
+                    e.shootTimer = 60;
+                }
+            }
         } else if (e.type === 'patrol') {
             // Smart patrol - aware of player. If player is within sight (and visible), chase.
             const seePlayer = distToPlayer < 350 && Math.abs(player.y - e.y) < 100;
@@ -5176,6 +6632,21 @@ function updateEnemies() {
             e.moveTimer += slowMul;
             // Decrement phase-transition flash timer for the renderer
             if (e.phaseFlashTimer && e.phaseFlashTimer > 0) e.phaseFlashTimer--;
+            // Decrement signature-attack telegraph timer; while it's active
+            // the boss flashes in warning color but doesn't attack.
+            if (e.telegraphTimer && e.telegraphTimer > 0) {
+                e.telegraphTimer--;
+                // Add tension particles + slight shake during telegraph
+                if (e.telegraphTimer % 4 === 0) {
+                    spawnParticles(
+                        e.x + e.w / 2 + (Math.random() - 0.5) * e.w,
+                        e.y + e.h / 2 + (Math.random() - 0.5) * e.h,
+                        e.telegraphColor || '#ff4444', 2, 4
+                    );
+                }
+                screenShake = Math.max(screenShake, 3);
+                continue;  // skip rest of AI tick — boss is "charging up"
+            }
             if (e.phase === 1 && e.hp < e.maxHp * 0.5) {
                 e.phase = 2;
                 // === PHASE 2 CINEMATIC TRANSITION ===
@@ -5232,6 +6703,12 @@ function updateEnemies() {
                         });
                     }
                 } else if (e.subtype === 'skyhammer') {
+                    // SKYHAMMER → F-22 RAPTOR JET. Sleek war-jet form, bombing runs.
+                    e.transformed = true;
+                    e.transformTimer = 1;
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: '⚠ SKYHAMMER: RAPTOR JET MODE ⚠', timer: 240, color: '#88ddff' };
+                    }
                     // 5 simultaneous bombs in an arc above the boss
                     for (let i = -2; i <= 2; i++) {
                         enemyBullets.push({
@@ -5242,6 +6719,12 @@ function updateEnemies() {
                         });
                     }
                 } else if (e.subtype === 'inferno') {
+                    // INFERNO-X → LAVA BEAST. Quadrupedal magma demon form.
+                    e.transformed = true;
+                    e.transformTimer = 1;
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: '⚠ INFERNO-X: LAVA BEAST MODE ⚠', timer: 240, color: '#ff4400' };
+                    }
                     // Lava ring — 14 globs outward
                     for (let i = 0; i < 14; i++) {
                         const ang = (i / 14) * Math.PI * 2;
@@ -5252,6 +6735,12 @@ function updateEnemies() {
                         });
                     }
                 } else if (e.subtype === 'ravager') {
+                    // RAVAGER → SCORPION TANK. Treaded tank with saw-tail-arms.
+                    e.transformed = true;
+                    e.transformTimer = 1;
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: '⚠ RAVAGER: SCORPION TANK MODE ⚠', timer: 240, color: '#88ff44' };
+                    }
                     // Saw-disc burst — 8 spinning projectiles
                     for (let i = 0; i < 8; i++) {
                         const ang = (i / 8) * Math.PI * 2 + Math.PI / 8;
@@ -5262,6 +6751,12 @@ function updateEnemies() {
                         });
                     }
                 } else if (e.subtype === 'cryo') {
+                    // CRYO-LORD → ICE GOLEM. Hulking crystalline giant.
+                    e.transformed = true;
+                    e.transformTimer = 1;
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: '⚠ CRYO-LORD: ICE GOLEM MODE ⚠', timer: 240, color: '#aaeeff' };
+                    }
                     // Ice shotgun — 10-bullet narrow cone toward player with slow effect
                     for (let a = -4; a <= 5; a++) {
                         const ang = playerAngle2 + a * 0.07;
@@ -5272,6 +6767,12 @@ function updateEnemies() {
                         });
                     }
                 } else if (e.subtype === 'nullifier') {
+                    // NULLIFIER → VOID RIFT. No body — just a swirling dark portal.
+                    e.transformed = true;
+                    e.transformTimer = 1;
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: '⚠ NULLIFIER: VOID RIFT FORM ⚠', timer: 240, color: '#cc66ff' };
+                    }
                     // Phase-blink rings — 3 small rings spawn around the boss
                     for (let r = 0; r < 3; r++) {
                         const orbX = cx2 + Math.cos(r * 2.1) * 80;
@@ -5285,6 +6786,12 @@ function updateEnemies() {
                         }
                     }
                 } else if (e.subtype === 'omega') {
+                    // OMEGA-PRIME → WINGED DEMON. Demonic gargoyle form.
+                    e.transformed = true;
+                    e.transformTimer = 1;
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: '⚠ OMEGA-PRIME: DEMON ASCENSION ⚠', timer: 240, color: '#ffffff' };
+                    }
                     // Twin laser-eye spread + 8 outer ring
                     const oL = bossOrigin(e, 'leftEye');
                     const oR = bossOrigin(e, 'rightEye');
@@ -5407,6 +6914,66 @@ function updateEnemies() {
                     }
                 }
             } else if (e.subtype === 'skyhammer') {
+                // === RAPTOR JET TRANSFORMATION ===
+                if (e.transformTimer > 0 && e.transformTimer < 90) {
+                    e.transformTimer++;
+                    e.shootTimer = 30;
+                }
+                if (e.transformed && e.transformTimer >= 90) {
+                    // High-speed strafing jet — sweeps horizontally tracking player
+                    const targetX = player.x + player.w / 2 + 160 * Math.sign((e.x + e.w/2) - player.x);
+                    const jetSpd = 3.0 * slowMul;
+                    if (Math.abs((e.x + e.w/2) - targetX) > 30) {
+                        e.x += Math.sign(targetX - (e.x + e.w/2)) * jetSpd;
+                    }
+                    e.y = e.baseY - 60 + Math.sin(e.moveTimer * 0.05) * 18;
+                    e.shootTimer -= slowMul;
+                    if (e.shootTimer <= 0) {
+                        e.attackPattern = bossPickRandomAttack(e, 3);
+                        if (e.attackPattern === 0) {
+                            // 6-bomb carpet drop from belly
+                            const o = bossOrigin(e, 'belly');
+                            muzzleFlash(o.x, o.y, '#88ddff', '#0088ff', true);
+                            for (let i = -2; i <= 3; i++) {
+                                enemyBullets.push({
+                                    x: o.x + i * 22, y: o.y, vx: i * 0.8, vy: 5,
+                                    life: 130, damage: 12, color: '#88ddff', glow: '#0088ff',
+                                    size: 7, big: true, gravity: 0.1
+                                });
+                            }
+                            e.shootTimer = e.phase === 3 ? 28 : 42;
+                        } else if (e.attackPattern === 1) {
+                            // Twin missile barrage from wing pods
+                            const oL = bossOrigin(e, 'leftPod');
+                            const oR = bossOrigin(e, 'rightPod');
+                            muzzleFlash(oL.x, oL.y, '#ffaa00', '#ff4400', true);
+                            muzzleFlash(oR.x, oR.y, '#ffaa00', '#ff4400', true);
+                            for (const o of [oL, oR]) {
+                                for (let a = -1; a <= 1; a++) {
+                                    const ang = playerAngle + a * 0.12;
+                                    enemyBullets.push({
+                                        x: o.x, y: o.y, vx: Math.cos(ang) * 7, vy: Math.sin(ang) * 7,
+                                        life: 100, damage: 13, color: '#ffaa00', glow: '#ff4400',
+                                        size: 6, big: true, homing: true
+                                    });
+                                }
+                            }
+                            e.shootTimer = e.phase === 3 ? 32 : 50;
+                        } else {
+                            // Vulcan cannon — rapid forward burst
+                            for (let i = 0; i < 8; i++) {
+                                const ang = playerAngle + (Math.random() - 0.5) * 0.15;
+                                enemyBullets.push({
+                                    x: e.x + e.w/2, y: e.y + e.h/2,
+                                    vx: Math.cos(ang) * 9, vy: Math.sin(ang) * 9,
+                                    life: 90, damage: 8, color: '#ffffaa', glow: '#ffff00', size: 4
+                                });
+                            }
+                            spawnParticles(e.x + e.w/2, e.y + e.h/2, '#ffffaa', 12, 6);
+                            e.shootTimer = e.phase === 3 ? 24 : 38;
+                        }
+                    }
+                } else {
                 // SKYHAMMER: flies high, drops bombs from BELLY, fires missiles from SHOULDER PODS
                 e.y = e.baseY + Math.sin(e.moveTimer * 0.025) * 60;
                 e.x = e.baseX + Math.sin(e.moveTimer * 0.01) * 120;
@@ -5426,7 +6993,7 @@ function updateEnemies() {
                         e.shootTimer = 50;
                     } else {
                         // Phase 2: alternate bombs (belly) + missiles (shoulder pods)
-                        e.attackPattern = (e.attackPattern + 1) % 2;
+                        e.attackPattern = bossPickRandomAttack(e, 2);
                         if (e.attackPattern === 0) {
                             const o = bossOrigin(e, 'belly');
                             muzzleFlash(o.x, o.y, '#88ddff', '#0088ff', true);
@@ -5457,14 +7024,72 @@ function updateEnemies() {
                         e.shootTimer = 40;
                     }
                 }
+                }
             } else if (e.subtype === 'inferno') {
+                // === LAVA BEAST TRANSFORMATION ===
+                if (e.transformTimer > 0 && e.transformTimer < 90) {
+                    e.transformTimer++;
+                    e.shootTimer = 30;
+                }
+                if (e.transformed && e.transformTimer >= 90) {
+                    // Quadrupedal magma demon — low to ground, charges at player periodically
+                    e.y = e.baseY + 30;  // sit lower (on all fours)
+                    // Slow ground crawl toward player
+                    const targetX = player.x + player.w / 2;
+                    const crawlSpd = 1.2 * slowMul;
+                    if (Math.abs((e.x + e.w/2) - targetX) > 100) {
+                        e.x += Math.sign(targetX - (e.x + e.w/2)) * crawlSpd;
+                    }
+                    e.shootTimer -= slowMul;
+                    if (e.shootTimer <= 0) {
+                        e.attackPattern = bossPickRandomAttack(e, 3);
+                        if (e.attackPattern === 0) {
+                            // FIRE BREATH — wide cone of lava globs from mouth
+                            const o = bossOrigin(e, 'mouth');
+                            muzzleFlash(o.x, o.y, '#ff4400', '#ff8800', true);
+                            for (let a = -3; a <= 3; a++) {
+                                const ang = playerAngle + a * 0.1;
+                                enemyBullets.push({
+                                    x: o.x, y: o.y, vx: Math.cos(ang) * 6, vy: Math.sin(ang) * 6,
+                                    life: 80, damage: 11, color: '#ff6622', glow: '#ff8800',
+                                    size: 6, big: true, burn: true, burnDmg: 5, burnDur: 50
+                                });
+                            }
+                            e.shootTimer = e.phase === 3 ? 35 : 55;
+                        } else if (e.attackPattern === 1) {
+                            // MAGMA POOLS — 5 lava globs lobbed in arcs onto ground
+                            for (let i = -2; i <= 2; i++) {
+                                enemyBullets.push({
+                                    x: e.x + e.w/2, y: e.y + e.h/2,
+                                    vx: i * 2.2, vy: -7,
+                                    life: 130, damage: 14, lavaGlob: true,
+                                    color: '#ff4400', glow: '#ff8800', size: 7, big: true
+                                });
+                            }
+                            spawnShockwave(e.x + e.w/2, e.y + e.h/2, 80, '#ff6600');
+                            e.shootTimer = e.phase === 3 ? 50 : 75;
+                        } else {
+                            // EMBER STORM — 12-bullet ring of slow burning embers
+                            for (let i = 0; i < 12; i++) {
+                                const ang = (i / 12) * Math.PI * 2;
+                                enemyBullets.push({
+                                    x: e.x + e.w/2, y: e.y + e.h/2,
+                                    vx: Math.cos(ang) * 3.5, vy: Math.sin(ang) * 3.5,
+                                    life: 110, damage: 9, color: '#ff8844', glow: '#ff4400',
+                                    size: 5, burn: true, burnDmg: 3, burnDur: 40
+                                });
+                            }
+                            e.shootTimer = e.phase === 3 ? 40 : 60;
+                        }
+                    }
+                } else {
                 // INFERNO-X: rapid fire, frequent circle bursts, and LAVA GLOBS
                 e.y = e.baseY + Math.sin(e.moveTimer * 0.03) * 50;
                 e.x = e.baseX + Math.cos(e.moveTimer * 0.02) * 80;
                 e.shootTimer -= slowMul;
                 if (e.shootTimer <= 0) {
                     if (e.phase === 1) {
-                        e.attackPattern = (e.attackPattern + 1) % 5;
+                        e.attackPattern = bossPickRandomAttack(e, 5);
                         if (e.attackPattern < 3) {
                             // Aimed triple
                             for (let a = -1; a <= 1; a++) {
@@ -5496,7 +7121,7 @@ function updateEnemies() {
                             e.shootTimer = 80;
                         }
                     } else {
-                        e.attackPattern = (e.attackPattern + 1) % 4;
+                        e.attackPattern = bossPickRandomAttack(e, 4);
                         if (e.attackPattern < 2) {
                             for (let a = -2; a <= 2; a++) {
                                 const angle = playerAngle + a * 0.18;
@@ -5528,7 +7153,82 @@ function updateEnemies() {
                         }
                     }
                 }
+                }
             } else if (e.subtype === 'ravager') {
+                // === SCORPION TANK TRANSFORMATION ===
+                if (e.transformTimer > 0 && e.transformTimer < 90) {
+                    e.transformTimer++;
+                    e.shootTimer = 30;
+                }
+                if (e.transformed && e.transformTimer >= 90) {
+                    // Treaded tank with saw-tail mortar — patrols ground, fires arcing shots
+                    e.y = e.baseY + 36;  // settle on tracks
+                    // Tank patrol — moves toward player but maintains distance
+                    const targetX = player.x + player.w / 2;
+                    const dx = (e.x + e.w/2) - targetX;
+                    const tankSpd = 2.0 * slowMul;
+                    if (Math.abs(dx) > 200) {
+                        e.x -= Math.sign(dx) * tankSpd;
+                    } else if (Math.abs(dx) < 140) {
+                        e.x += Math.sign(dx) * tankSpd * 0.7;
+                    }
+                    e.shootTimer -= slowMul;
+                    if (e.shootTimer <= 0) {
+                        e.attackPattern = bossPickRandomAttack(e, 3);
+                        if (e.attackPattern === 0) {
+                            // SAW DISC SALVO — 5 spinning blades from twin saw arms
+                            const oL = bossOrigin(e, 'leftSaw');
+                            const oR = bossOrigin(e, 'rightSaw');
+                            muzzleFlash(oL.x, oL.y, '#88ff44', '#22ff00', true);
+                            muzzleFlash(oR.x, oR.y, '#88ff44', '#22ff00', true);
+                            for (const o of [oL, oR]) {
+                                for (let s = -1; s <= 1; s++) {
+                                    const ang = playerAngle + s * 0.12;
+                                    enemyBullets.push({
+                                        x: o.x, y: o.y, vx: Math.cos(ang) * 7, vy: Math.sin(ang) * 7,
+                                        life: 100, damage: 13, color: '#88ff44', glow: '#22ff00',
+                                        size: 7, big: true
+                                    });
+                                }
+                            }
+                            e.shootTimer = e.phase === 3 ? 30 : 45;
+                        } else if (e.attackPattern === 1) {
+                            // MORTAR ARC — 3 high-arc shots that crash near player
+                            const o = bossOrigin(e, 'tail');
+                            muzzleFlash(o.x, o.y, '#aaff66', '#88ff00', true);
+                            for (let i = -1; i <= 1; i++) {
+                                const aimX = player.x + i * 80;
+                                const dist = aimX - o.x;
+                                enemyBullets.push({
+                                    x: o.x, y: o.y,
+                                    vx: dist / 60,
+                                    vy: -10,
+                                    life: 130, damage: 15,
+                                    color: '#aaff66', glow: '#88ff00', size: 8, big: true,
+                                    gravity: 0.18
+                                });
+                            }
+                            e.shootTimer = e.phase === 3 ? 50 : 70;
+                        } else {
+                            // CHARGE — sudden tank lunge with shockwave
+                            const charge = Math.sign(targetX - (e.x + e.w/2));
+                            e.x += charge * 120;
+                            spawnShockwave(e.x + e.w/2, e.y + e.h/2, 100, '#88ff44');
+                            spawnParticles(e.x + e.w/2, e.y + e.h, '#88ff44', 16, 6);
+                            screenShake = Math.max(screenShake, 10);
+                            // 4 close-range projectiles
+                            for (let a = -1.5; a <= 1.5; a += 1) {
+                                const ang = (charge > 0 ? 0 : Math.PI) + a * 0.3;
+                                enemyBullets.push({
+                                    x: e.x + e.w/2, y: e.y + e.h/2,
+                                    vx: Math.cos(ang) * 6, vy: Math.sin(ang) * 6,
+                                    life: 70, damage: 11, color: '#88ff44', glow: '#22ff00', size: 6, big: true
+                                });
+                            }
+                            e.shootTimer = e.phase === 3 ? 40 : 60;
+                        }
+                    }
+                } else {
                 // RAVAGER: charges side to side, sprays bullets
                 e.y = e.baseY + Math.sin(e.moveTimer * 0.04) * 30;
                 e.x = e.baseX + Math.sin(e.moveTimer * 0.025) * 150;  // bigger horizontal sweep
@@ -5543,7 +7243,7 @@ function updateEnemies() {
                         e.shootTimer = 18;
                     } else {
                         // Phase 2: faster spray + occasional spread shot
-                        e.attackPattern = (e.attackPattern + 1) % 5;
+                        e.attackPattern = bossPickRandomAttack(e, 5);
                         if (e.attackPattern < 4) {
                             for (let i = 0; i < 3; i++) {
                                 const angle = playerAngle + (Math.random() - 0.5) * 0.5;
@@ -5559,14 +7259,74 @@ function updateEnemies() {
                         }
                     }
                 }
+                }
             } else if (e.subtype === 'cryo') {
+                // === ICE GOLEM TRANSFORMATION ===
+                if (e.transformTimer > 0 && e.transformTimer < 90) {
+                    e.transformTimer++;
+                    e.shootTimer = 30;
+                }
+                if (e.transformed && e.transformTimer >= 90) {
+                    // Hulking stationary giant — slow drift, slam attacks + freezing rings
+                    e.y = e.baseY + 10 + Math.sin(e.moveTimer * 0.012) * 6;
+                    e.x = e.baseX + Math.sin(e.moveTimer * 0.008) * 30;
+                    e.shootTimer -= slowMul;
+                    if (e.shootTimer <= 0) {
+                        e.attackPattern = bossPickRandomAttack(e, 3);
+                        if (e.attackPattern === 0) {
+                            // ICE PILLAR SLAM — 5 frost spikes erupt at ground in a line
+                            const baseGroundY = 540;
+                            for (let i = -2; i <= 2; i++) {
+                                const sx = (e.x + e.w/2) + i * 90;
+                                spawnShockwave(sx, baseGroundY, 60, '#aaeeff');
+                                // Spike bullets shoot upward briefly
+                                enemyBullets.push({
+                                    x: sx, y: baseGroundY,
+                                    vx: 0, vy: -7,
+                                    life: 60, damage: 12,
+                                    color: '#aaeeff', glow: '#88ccff', size: 6, big: true,
+                                    slow: true, slowFactor: 0.5, slowDur: 60
+                                });
+                            }
+                            spawnParticles(e.x + e.w/2, e.y + e.h, '#aaeeff', 24, 6);
+                            screenShake = Math.max(screenShake, 12);
+                            e.shootTimer = e.phase === 3 ? 50 : 70;
+                        } else if (e.attackPattern === 1) {
+                            // FREEZING RING — 14 slow homing snowflakes
+                            for (let i = 0; i < 14; i++) {
+                                const ang = (i / 14) * Math.PI * 2;
+                                enemyBullets.push({
+                                    x: e.x + e.w/2, y: e.y + e.h/2,
+                                    vx: Math.cos(ang) * 3, vy: Math.sin(ang) * 3,
+                                    life: 130, damage: 9, color: '#aaeeff', glow: '#66ccff',
+                                    size: 5, slow: true, slowFactor: 0.55, slowDur: 70,
+                                    homing: true
+                                });
+                            }
+                            e.shootTimer = e.phase === 3 ? 45 : 65;
+                        } else {
+                            // BLIZZARD WALL — vertical column of slow ice shards from above
+                            for (let i = -3; i <= 3; i++) {
+                                enemyBullets.push({
+                                    x: player.x + player.w/2 + i * 60, y: e.y - 100,
+                                    vx: 0, vy: 4,
+                                    life: 110, damage: 10,
+                                    color: '#aaeeff', glow: '#88ccff', size: 6, big: true,
+                                    slow: true, slowFactor: 0.5, slowDur: 50
+                                });
+                            }
+                            spawnShockwave(e.x + e.w/2, e.y, 100, '#aaeeff');
+                            e.shootTimer = e.phase === 3 ? 55 : 80;
+                        }
+                    }
+                } else {
                 // CRYO-LORD: ice shots from SCEPTER, frost rings from CHEST CRYSTAL
                 e.y = e.baseY + Math.sin(e.moveTimer * 0.018) * 60;
                 e.x = e.baseX + Math.cos(e.moveTimer * 0.012) * 100;
                 e.shootTimer -= slowMul;
                 if (e.shootTimer <= 0) {
                     if (e.phase === 1) {
-                        e.attackPattern = (e.attackPattern + 1) % 3;
+                        e.attackPattern = bossPickRandomAttack(e, 3);
                         if (e.attackPattern === 0) {
                             // Wide ice burst from SCEPTER
                             const o = bossOrigin(e, 'scepter');
@@ -5596,7 +7356,7 @@ function updateEnemies() {
                         }
                     } else {
                         // Phase 2: faster + double rings
-                        e.attackPattern = (e.attackPattern + 1) % 3;
+                        e.attackPattern = bossPickRandomAttack(e, 3);
                         if (e.attackPattern === 0) {
                             const o = bossOrigin(e, 'scepter');
                             muzzleFlash(o.x, o.y, '#ffaaff', '#88ccff', true);
@@ -5624,7 +7384,70 @@ function updateEnemies() {
                         }
                     }
                 }
+                }
             } else if (e.subtype === 'nullifier') {
+                // === VOID RIFT TRANSFORMATION ===
+                if (e.transformTimer > 0 && e.transformTimer < 90) {
+                    e.transformTimer++;
+                    e.shootTimer = 30;
+                }
+                if (e.transformed && e.transformTimer >= 90) {
+                    // Stationary swirling portal — no body, just rings + tentacles
+                    // Teleport less often, fire more bullets
+                    if (e.moveTimer % 320 === 319) {
+                        e.x = e.baseX + (Math.random() - 0.5) * 240;
+                        e.y = e.baseY + (Math.random() - 0.5) * 120;
+                        spawnParticles(e.x + e.w/2, e.y + e.h/2, '#aa00ff', 30, 7);
+                        spawnShockwave(e.x + e.w/2, e.y + e.h/2, 90, '#aa00ff');
+                    }
+                    e.shootTimer -= slowMul;
+                    if (e.shootTimer <= 0) {
+                        e.attackPattern = bossPickRandomAttack(e, 3);
+                        const cx = e.x + e.w/2;
+                        const cy = e.y + e.h/2;
+                        if (e.attackPattern === 0) {
+                            // VOID TENTACLES — 6 spiraling bullets that orbit before lunging
+                            for (let i = 0; i < 6; i++) {
+                                const ang = (i / 6) * Math.PI * 2 + e.moveTimer * 0.01;
+                                enemyBullets.push({
+                                    x: cx + Math.cos(ang) * 30, y: cy + Math.sin(ang) * 30,
+                                    vx: Math.cos(ang) * 5, vy: Math.sin(ang) * 5,
+                                    life: 110, damage: 11, color: '#cc66ff', glow: '#aa00ff',
+                                    size: 6, big: true
+                                });
+                            }
+                            spawnShockwave(cx, cy, 60, '#aa00ff');
+                            e.shootTimer = e.phase === 3 ? 35 : 50;
+                        } else if (e.attackPattern === 1) {
+                            // RIFT BURST — 16-bullet ring outward
+                            for (let i = 0; i < 16; i++) {
+                                const ang = (i / 16) * Math.PI * 2;
+                                enemyBullets.push({
+                                    x: cx, y: cy,
+                                    vx: Math.cos(ang) * 4.5, vy: Math.sin(ang) * 4.5,
+                                    life: 100, damage: 9, color: '#cc66ff', glow: '#aa00ff', size: 5
+                                });
+                            }
+                            e.shootTimer = e.phase === 3 ? 40 : 60;
+                        } else {
+                            // PHASE STRIKE — 3 rings teleport-spawn around player
+                            for (let r = 0; r < 3; r++) {
+                                const px = player.x + player.w/2 + (Math.random() - 0.5) * 240;
+                                const py = player.y + player.h/2 + (Math.random() - 0.5) * 200;
+                                spawnParticles(px, py, '#aa00ff', 14, 5);
+                                for (let a = 0; a < 8; a++) {
+                                    const ang = (a / 8) * Math.PI * 2;
+                                    enemyBullets.push({
+                                        x: px, y: py,
+                                        vx: Math.cos(ang) * 3.5, vy: Math.sin(ang) * 3.5,
+                                        life: 80, damage: 10, color: '#cc66ff', glow: '#aa00ff', size: 5
+                                    });
+                                }
+                            }
+                            e.shootTimer = e.phase === 3 ? 50 : 75;
+                        }
+                    }
+                } else {
                 // NULLIFIER: teleports occasionally, dense bullet patterns + PHASE STRIKE
                 if (e.moveTimer % 240 === 239) {
                     // Standard teleport to a new spot near the right side of the arena
@@ -5637,7 +7460,7 @@ function updateEnemies() {
                 }
                 e.shootTimer -= slowMul;
                 if (e.shootTimer <= 0) {
-                    e.attackPattern = (e.attackPattern + 1) % (e.phase === 1 ? 4 : 5);
+                    e.attackPattern = bossPickRandomAttack(e, e.phase === 1 ? 4 : 5);
                     if (e.attackPattern === 0) {
                         // Twin spirals
                         const t = e.moveTimer * 0.2;
@@ -5700,6 +7523,7 @@ function updateEnemies() {
                         e.shootTimer = 45;
                     }
                 }
+                }
             } else if (e.subtype === 'hydra') {
                 // HYDRA - multi-headed monster boss. Each head fires its own pattern.
                 if (!e.heads) {
@@ -5747,12 +7571,88 @@ function updateEnemies() {
                     e.hp = 0;
                 }
             } else if (e.subtype === 'omega') {
+                // === DEMON ASCENSION TRANSFORMATION ===
+                if (e.transformTimer > 0 && e.transformTimer < 90) {
+                    e.transformTimer++;
+                    e.shootTimer = 30;
+                }
+                if (e.transformed && e.transformTimer >= 90) {
+                    // Winged demon — hovers higher, dual-eye beams + claw projectiles + wing-flap shockwaves
+                    e.y = e.baseY - 50 + Math.sin(e.moveTimer * 0.025) * 35;
+                    e.x = e.baseX + Math.sin(e.moveTimer * 0.018) * 130;
+                    e.shootTimer -= slowMul;
+                    if (e.shootTimer <= 0) {
+                        e.attackPattern = bossPickRandomAttack(e, 4);
+                        if (e.attackPattern === 0) {
+                            // INFERNAL EYE BEAMS — sustained piercing twin lasers
+                            const oL = bossOrigin(e, 'leftEye');
+                            const oR = bossOrigin(e, 'rightEye');
+                            muzzleFlash(oL.x, oL.y, '#ff4400', '#ff0000', true);
+                            muzzleFlash(oR.x, oR.y, '#ff4400', '#ff0000', true);
+                            for (const o of [oL, oR]) {
+                                for (let i = 0; i < 5; i++) {
+                                    enemyBullets.push({
+                                        x: o.x, y: o.y,
+                                        vx: Math.cos(playerAngle) * (8 + i * 0.4),
+                                        vy: Math.sin(playerAngle) * (8 + i * 0.4),
+                                        life: 100, damage: 16, color: '#ff4400', glow: '#ff0000',
+                                        size: 6, big: true, pierce: true
+                                    });
+                                }
+                            }
+                            screenShake = Math.max(screenShake, 12);
+                            e.shootTimer = e.phase === 3 ? 30 : 50;
+                        } else if (e.attackPattern === 1) {
+                            // CLAW SLASH — 6 dark crescent projectiles
+                            const cx = e.x + e.w/2;
+                            const cy = e.y + e.h/2;
+                            for (let i = -2; i <= 3; i++) {
+                                const ang = playerAngle + i * 0.18;
+                                enemyBullets.push({
+                                    x: cx, y: cy, vx: Math.cos(ang) * 7.5, vy: Math.sin(ang) * 7.5,
+                                    life: 90, damage: 13, color: '#ff66ff', glow: '#cc00ff',
+                                    size: 7, big: true
+                                });
+                            }
+                            spawnParticles(cx, cy, '#cc00ff', 14, 6);
+                            e.shootTimer = e.phase === 3 ? 28 : 42;
+                        } else if (e.attackPattern === 2) {
+                            // WING-FLAP SHOCKWAVE — 24-bullet ring + visual shockwave
+                            const cx = e.x + e.w/2;
+                            const cy = e.y + e.h/2;
+                            spawnShockwave(cx, cy, 200, '#ffaaff');
+                            spawnShockwave(cx, cy, 280, '#ff44ff');
+                            for (let a = 0; a < 24; a++) {
+                                const ang = (a / 24) * Math.PI * 2;
+                                enemyBullets.push({
+                                    x: cx, y: cy, vx: Math.cos(ang) * 4.5, vy: Math.sin(ang) * 4.5,
+                                    life: 110, damage: 11, color: '#ffaaff', glow: '#ff44ff', size: 5
+                                });
+                            }
+                            screenShake = Math.max(screenShake, 14);
+                            e.shootTimer = e.phase === 3 ? 60 : 85;
+                        } else {
+                            // SUMMON IMPS — 4 homing bullets that home onto the player
+                            for (let i = 0; i < 4; i++) {
+                                const ang = (i / 4) * Math.PI * 2;
+                                enemyBullets.push({
+                                    x: e.x + e.w/2, y: e.y + e.h/2,
+                                    vx: Math.cos(ang) * 2.5, vy: Math.sin(ang) * 2.5,
+                                    life: 180, damage: 12, color: '#ff66cc', glow: '#ff00aa',
+                                    size: 6, big: true, homing: true
+                                });
+                            }
+                            e.shootTimer = e.phase === 3 ? 40 : 60;
+                        }
+                    }
+                } else {
                 // OMEGA-PRIME: huge final boss with all attack types
                 e.y = e.baseY + Math.sin(e.moveTimer * 0.02) * 60;
                 e.x = e.baseX + Math.sin(e.moveTimer * 0.015) * 100;
                 e.shootTimer -= slowMul;
                 if (e.shootTimer <= 0) {
-                    e.attackPattern = (e.attackPattern + 1) % (e.phase === 1 ? 5 : 6);
+                    // RANDOM attack selection — never same pattern twice in a row
+                    e.attackPattern = bossPickRandomAttack(e, e.phase === 1 ? 5 : 6);
                     if (e.attackPattern === 0) {
                         // Wide spread from CHEST OMEGA emblem
                         const o = bossOrigin(e, 'chestOmega');
@@ -5764,6 +7664,14 @@ function updateEnemies() {
                         e.shootTimer = e.phase === 1 ? 50 : 35;
                     } else if (e.attackPattern === 1) {
                         // SIGNATURE: TWIN LASER EYES — two converging beams from each eye
+                        // Telegraph first if we haven't done one yet for this attack
+                        if (!e._telegraphedThisShot) {
+                            bossTelegraph(e, '#ff00ff', 35);
+                            bossSignatureCue(e, 'TWIN LASER EYES', '#ff44ff');
+                            e._telegraphedThisShot = true;
+                            continue;  // bail this iteration — we'll re-enter after telegraph
+                        }
+                        e._telegraphedThisShot = false;
                         const oL = bossOrigin(e, 'leftEye');
                         const oR = bossOrigin(e, 'rightEye');
                         muzzleFlash(oL.x, oL.y, '#ff44ff', '#ff00ff', true);
@@ -5828,8 +7736,14 @@ function updateEnemies() {
                         e.shootTimer = 90;
                     }
                 }
+                }
             } else if (e.subtype === 'titan') {
                 updateBossTitan(e, playerAngle, slowMul);
+            } else if (e.subtype === 'warden') {
+                // WARDEN-K — sentinel-class mini-boss. Hovers, tracks player
+                // with its optic eye, fires triple beams, drops spike claws,
+                // and deploys orbital sentry orbs.
+                updateMinibossWarden(e, playerAngle, slowMul);
             }
 
             // PHASE 3 RAGE — bonus shootTimer decrement so all bosses fire ~35% faster.
@@ -6096,6 +8010,7 @@ function updateEnemies() {
                 spawnParticles(b.x, b.y, '#ffffff', 14, 5);
                 spawnShockwave(b.x, b.y, 60, '#ffffff');
                 floatTexts.push({ text: 'PARRY!', x: b.x, y: b.y - 8, life: 45, color: '#ffffff' });
+                audio.play('parry');
                 // Find nearest enemy to aim the deflected shot at
                 let target = null;
                 let bestDist = 99999;
@@ -6142,8 +8057,10 @@ function updateEnemies() {
                 screenShake = b.big ? 12 : 5;
                 spawnParticles(b.x, b.y, '#ff0000', b.big ? 12 : 5, b.big ? 5 : 3);
                 enemyBullets.splice(i, 1);
+                audio.play('hurt');
                 if (player.hp <= 0) {
                     gameState = 'dead';
+                    audio.play('death');
                     spawnExplosion(player.x + player.w / 2, player.y + player.h / 2);
                 }
             }
@@ -9062,6 +10979,42 @@ function drawBossBody(ex, ey, e) {
         ctx.restore();
     }
 
+    // === TELEGRAPH FLASH ===
+    // Strobing warning before a signature attack. Boss shimmers in telegraph
+    // color so the player knows something big is coming.
+    if (e.telegraphTimer && e.telegraphTimer > 0) {
+        const tColor = e.telegraphColor || '#ff4444';
+        const cx = ex + e.w / 2;
+        const cy = ey + e.h / 2;
+        // Strobing rim
+        const strobe = (e.telegraphTimer % 6) < 3;
+        ctx.save();
+        ctx.globalAlpha = strobe ? 0.7 : 0.35;
+        ctx.strokeStyle = tColor;
+        ctx.shadowColor = tColor;
+        ctx.shadowBlur = 20;
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(cx, cy, e.w * 0.7, 0, Math.PI * 2);
+        ctx.stroke();
+        // Charge rays converging on boss
+        for (let i = 0; i < 6; i++) {
+            const ang = (i / 6) * Math.PI * 2 + e.telegraphTimer * 0.05;
+            const rOuter = e.w * 1.4;
+            const rInner = e.w * 0.7;
+            ctx.globalAlpha = strobe ? 0.6 : 0.3;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(cx + Math.cos(ang) * rOuter, cy + Math.sin(ang) * rOuter);
+            ctx.lineTo(cx + Math.cos(ang) * rInner, cy + Math.sin(ang) * rInner);
+            ctx.stroke();
+        }
+        ctx.restore();
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 1;
+    }
+
     switch (e.subtype) {
         case 'guard':     drawBossGuard(ex, ey, e); break;
         case 'skyhammer': drawBossSkyhammer(ex, ey, e); break;
@@ -9384,8 +11337,813 @@ function drawBossGuardTank(ex, ey, e) {
     drawBossHpCore(ex, ey, e, main, 12);
 }
 
+// =====================================================================
+// BOSS TRANSFORMATIONS — Phase 2 alternate-form drawers (Step 6)
+// =====================================================================
+// Each transformed boss has a dramatically different silhouette than its
+// humanoid base form. They share a common pattern:
+//   - Mid-transform fold-down anim (transformTimer 0..90) shows fragments
+//     coming together with sparks + counter-rotating energy ring
+//   - Once transformed (timer >= 90) draw the new form
+// Pattern matches drawBossGuardTank from the GUARD-1 transformation work.
+
+// Helper: shared fold-down animation overlay shown during 0..90 timer phase.
+// Returns true if the animation is still playing (caller should bail or
+// composite this on top of the current frame).
+function drawBossTransformFold(ex, ey, e, color) {
+    if (!(e.transformTimer > 0 && e.transformTimer < 90)) return false;
+    const t = e.transformTimer / 90;
+    const cx = ex + e.w / 2;
+    const cy = ey + e.h / 2;
+    ctx.save();
+    // Counter-rotating energy rings
+    for (let r = 0; r < 2; r++) {
+        const dir = r === 0 ? 1 : -1;
+        ctx.strokeStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 14;
+        ctx.lineWidth = 3;
+        ctx.globalAlpha = 0.55 * (1 - t);
+        ctx.beginPath();
+        const radius = 50 + (1 - t) * 40 + r * 12;
+        for (let a = 0; a < 8; a++) {
+            const ang = (a / 8) * Math.PI * 2 + dir * e.transformTimer * 0.08;
+            const px = cx + Math.cos(ang) * radius;
+            const py = cy + Math.sin(ang) * radius;
+            if (a === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+    }
+    // Energy core flare
+    ctx.globalAlpha = 0.5 + Math.sin(e.transformTimer * 0.4) * 0.2;
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowBlur = 22;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 12 + Math.sin(e.transformTimer * 0.3) * 5, 0, Math.PI * 2);
+    ctx.fill();
+    // Sparks every few frames
+    if (e.transformTimer % 4 === 0) {
+        for (let i = 0; i < 4; i++) {
+            const a = Math.random() * Math.PI * 2;
+            spawnParticles(cx + Math.cos(a) * 30, cy + Math.sin(a) * 30, color, 2, 5);
+        }
+    }
+    ctx.restore();
+    return true;
+}
+
+// SKYHAMMER → RAPTOR JET (sleek war-jet, twin afterburners, wing pods)
+function drawBossSkyhammerJet(ex, ey, e) {
+    const phase3 = e.phase === 3;
+    const cx = ex + e.w / 2;
+    const cy = ey + e.h / 2;
+    const hull = phase3 ? '#1a3a5a' : '#2a4a6a';
+    const accent = phase3 ? '#88ddff' : '#aaeeff';
+    const glow = phase3 ? '#0088ff' : '#44aaff';
+
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(cx, ey + e.h + 12, e.w / 2 + 16, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === Twin afterburner flames (back) ===
+    const flameLen = 50 + Math.sin(e.moveTimer * 0.2) * 8;
+    for (const sgn of [-1, 1]) {
+        const fx = cx - 70;
+        const fy = cy + sgn * 18;
+        const grad = ctx.createLinearGradient(fx, fy, fx - flameLen, fy);
+        grad.addColorStop(0, '#ffffff');
+        grad.addColorStop(0.4, '#88ddff');
+        grad.addColorStop(1, 'rgba(0,68,170,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(fx, fy - 6);
+        ctx.lineTo(fx - flameLen, fy);
+        ctx.lineTo(fx, fy + 6);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // === Wings (swept-back delta) ===
+    ctx.fillStyle = hull;
+    ctx.beginPath();
+    ctx.moveTo(cx - 30, cy - 4);
+    ctx.lineTo(cx + 50, cy - 38);
+    ctx.lineTo(cx + 30, cy - 8);
+    ctx.lineTo(cx - 10, cy - 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx - 30, cy + 4);
+    ctx.lineTo(cx + 50, cy + 38);
+    ctx.lineTo(cx + 30, cy + 8);
+    ctx.lineTo(cx - 10, cy + 8);
+    ctx.closePath();
+    ctx.fill();
+    // Wing edge glow
+    ctx.strokeStyle = accent;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 8;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 30, cy - 4); ctx.lineTo(cx + 50, cy - 38);
+    ctx.moveTo(cx - 30, cy + 4); ctx.lineTo(cx + 50, cy + 38);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // === Wing missile pods ===
+    ctx.fillStyle = '#444';
+    for (const sgn of [-1, 1]) {
+        const px = cx + 20;
+        const py = cy + sgn * 28;
+        ctx.fillRect(px, py - 4, 26, 8);
+        // Missile tips
+        ctx.fillStyle = '#ff4400';
+        ctx.beginPath();
+        ctx.moveTo(px + 26, py - 4);
+        ctx.lineTo(px + 32, py);
+        ctx.lineTo(px + 26, py + 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#444';
+    }
+
+    // === Fuselage (sleek body pointing right) ===
+    ctx.fillStyle = hull;
+    ctx.beginPath();
+    ctx.moveTo(cx - 60, cy);
+    ctx.lineTo(cx - 50, cy - 14);
+    ctx.lineTo(cx + 60, cy - 8);
+    ctx.lineTo(cx + 75, cy);
+    ctx.lineTo(cx + 60, cy + 8);
+    ctx.lineTo(cx - 50, cy + 14);
+    ctx.closePath();
+    ctx.fill();
+
+    // Cockpit canopy
+    ctx.fillStyle = accent;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.ellipse(cx + 40, cy - 4, 14, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Nose intake
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(cx + 70, cy, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Tail fin
+    ctx.fillStyle = hull;
+    ctx.beginPath();
+    ctx.moveTo(cx - 50, cy - 14);
+    ctx.lineTo(cx - 60, cy - 32);
+    ctx.lineTo(cx - 35, cy - 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = accent;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 6;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx - 50, cy - 14); ctx.lineTo(cx - 60, cy - 32);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    drawBossTransformFold(ex, ey, e, '#88ddff');
+    drawBossHpCore(ex, ey, e, accent, 12);
+}
+
+// INFERNO-X → LAVA BEAST (quadrupedal magma demon, exposed lava cracks)
+function drawBossInfernoBeast(ex, ey, e) {
+    const phase3 = e.phase === 3;
+    const cx = ex + e.w / 2;
+    const cy = ey + e.h / 2;
+    const main = phase3 ? '#aa1100' : '#cc2200';
+    const cracks = phase3 ? '#ffff00' : '#ff8800';
+    const flame = '#ff4400';
+
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.ellipse(cx, ey + e.h + 14, e.w / 2 + 18, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === 4 legs (quadrupedal stance) ===
+    const legSwing = Math.sin(e.moveTimer * 0.08) * 4;
+    for (let i = 0; i < 4; i++) {
+        const lx = cx + (i - 1.5) * 28;
+        const ly = cy + 22;
+        const swing = (i % 2 === 0) ? legSwing : -legSwing;
+        ctx.fillStyle = '#330000';
+        ctx.fillRect(lx - 5, ly, 10, 36 + swing);
+        // Magma joint
+        ctx.fillStyle = cracks;
+        ctx.shadowColor = cracks;
+        ctx.shadowBlur = 6;
+        ctx.fillRect(lx - 4, ly + 14, 8, 4);
+        ctx.shadowBlur = 0;
+        // Claws
+        ctx.fillStyle = '#666';
+        ctx.beginPath();
+        ctx.moveTo(lx - 6, ly + 36);
+        ctx.lineTo(lx, ly + 44);
+        ctx.lineTo(lx + 6, ly + 36);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // === Body (low-slung, rocky shell) ===
+    const bodyGrad = ctx.createRadialGradient(cx, cy, 8, cx, cy, e.w / 2);
+    bodyGrad.addColorStop(0, cracks);
+    bodyGrad.addColorStop(0.3, main);
+    bodyGrad.addColorStop(1, '#220000');
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 12, e.w / 2 + 6, e.h / 2 - 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Lava crack pattern across the back
+    ctx.strokeStyle = cracks;
+    ctx.shadowColor = cracks;
+    ctx.shadowBlur = 8;
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 5; i++) {
+        const x1 = cx - 40 + i * 22;
+        const y1 = cy - 5 + Math.sin(i * 1.4) * 6;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x1 + 12, y1 + 6 + Math.sin(i) * 4);
+        ctx.lineTo(x1 + 18, y1 + 2);
+        ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // === Head (forward, low) ===
+    const headX = cx + 35;
+    const headY = cy + 6;
+    ctx.fillStyle = main;
+    ctx.beginPath();
+    ctx.arc(headX, headY, 22, 0, Math.PI * 2);
+    ctx.fill();
+    // Glowing eyes
+    ctx.fillStyle = cracks;
+    ctx.shadowColor = cracks;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(headX + 8, headY - 6, 3, 0, Math.PI * 2);
+    ctx.arc(headX + 8, headY + 4, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Open mouth with flame
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(headX + 14, headY + 8, 7, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = flame;
+    ctx.shadowColor = flame;
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.arc(headX + 17, headY + 8, 3 + Math.sin(e.moveTimer * 0.3) * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Twin horns
+    ctx.fillStyle = '#330000';
+    ctx.beginPath();
+    ctx.moveTo(headX - 4, headY - 18);
+    ctx.lineTo(headX, headY - 30);
+    ctx.lineTo(headX + 4, headY - 16);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(headX + 8, headY - 18);
+    ctx.lineTo(headX + 12, headY - 28);
+    ctx.lineTo(headX + 16, headY - 16);
+    ctx.fill();
+
+    // Fire breath wisp idle
+    if (e.moveTimer % 6 === 0) {
+        spawnParticles(headX + 20, headY + 8, flame, 2, 3);
+    }
+
+    drawBossTransformFold(ex, ey, e, '#ff4400');
+    drawBossHpCore(ex, ey, e, cracks, 12);
+}
+
+// RAVAGER → SCORPION TANK (treaded tank with twin saw-arms, mortar tail)
+function drawBossRavagerTank(ex, ey, e) {
+    const phase3 = e.phase === 3;
+    const cx = ex + e.w / 2;
+    const cy = ey + e.h / 2;
+    const armor = phase3 ? '#225522' : '#446644';
+    const accent = phase3 ? '#aaff66' : '#88ff44';
+    const glow = phase3 ? '#22ff00' : '#66ff22';
+
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.ellipse(cx, ey + e.h + 8, e.w / 2 + 18, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === Treads (full width) ===
+    const treadY = cy + 28;
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(cx - 60, treadY, 120, 22);
+    // Tread segments
+    ctx.fillStyle = '#333';
+    const phase = (e.moveTimer * 0.15) % 14;
+    for (let i = 0; i < 9; i++) {
+        const sx = cx - 58 + i * 14 - phase;
+        ctx.fillRect(sx, treadY + 2, 10, 18);
+    }
+    // Tread wheels
+    ctx.fillStyle = '#888';
+    for (let i = 0; i < 4; i++) {
+        ctx.beginPath();
+        ctx.arc(cx - 50 + i * 33, treadY + 11, 8, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // === Hull (broad, sloped) ===
+    ctx.fillStyle = armor;
+    ctx.beginPath();
+    ctx.moveTo(cx - 56, treadY);
+    ctx.lineTo(cx - 50, cy - 8);
+    ctx.lineTo(cx + 50, cy - 8);
+    ctx.lineTo(cx + 56, treadY);
+    ctx.closePath();
+    ctx.fill();
+    // Hull seam glow
+    ctx.fillStyle = accent;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 6;
+    ctx.fillRect(cx - 50, cy - 4, 100, 2);
+    ctx.shadowBlur = 0;
+
+    // === Twin saw-arm cannons (top) ===
+    for (const sgn of [-1, 1]) {
+        const sx = cx + sgn * 26;
+        const sy = cy - 14;
+        // Mount
+        ctx.fillStyle = '#222';
+        ctx.fillRect(sx - 6, sy - 4, 12, 12);
+        // Spinning saw
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(e.moveTimer * 0.3 * sgn);
+        ctx.fillStyle = accent;
+        ctx.shadowColor = glow;
+        ctx.shadowBlur = 8;
+        for (let i = 0; i < 6; i++) {
+            ctx.rotate(Math.PI / 3);
+            ctx.beginPath();
+            ctx.moveTo(0, -10);
+            ctx.lineTo(3, -14);
+            ctx.lineTo(-3, -14);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.fillStyle = '#222';
+        ctx.beginPath();
+        ctx.arc(0, 0, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        ctx.shadowBlur = 0;
+    }
+
+    // === Scorpion tail (curving up + back, with mortar ===
+    ctx.strokeStyle = armor;
+    ctx.lineWidth = 12;
+    ctx.beginPath();
+    ctx.moveTo(cx - 58, cy - 4);
+    ctx.quadraticCurveTo(cx - 80, cy - 50, cx - 50, cy - 70);
+    ctx.stroke();
+    // Tail tip mortar
+    ctx.fillStyle = armor;
+    ctx.beginPath();
+    ctx.arc(cx - 50, cy - 70, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(cx - 48, cy - 72, 5, 0, Math.PI * 2);
+    ctx.fill();
+    // Mortar charge glow
+    ctx.fillStyle = accent;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.arc(cx - 48, cy - 72, 2 + Math.sin(e.moveTimer * 0.2) * 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // === Center cyclops eye on hull ===
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(cx, cy + 6, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = accent;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.arc(cx, cy + 6, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    drawBossTransformFold(ex, ey, e, '#88ff44');
+    drawBossHpCore(ex, ey, e, accent, 12);
+}
+
+// CRYO-LORD → ICE GOLEM (massive crystalline giant, frost armor plates)
+function drawBossCryoGolem(ex, ey, e) {
+    const phase3 = e.phase === 3;
+    const cx = ex + e.w / 2;
+    const cy = ey + e.h / 2;
+    const ice = phase3 ? '#88ccff' : '#aaeeff';
+    const dark = phase3 ? '#446699' : '#5588bb';
+    const glow = '#ddf6ff';
+
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath();
+    ctx.ellipse(cx, ey + e.h + 16, e.w / 2 + 20, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === Massive legs (thick, blocky) ===
+    for (const sgn of [-1, 1]) {
+        const lx = cx + sgn * 22;
+        // Thigh
+        ctx.fillStyle = dark;
+        ctx.fillRect(lx - 14, cy + 30, 28, 30);
+        // Calf
+        ctx.fillStyle = ice;
+        ctx.fillRect(lx - 12, cy + 60, 24, 24);
+        // Foot
+        ctx.fillStyle = dark;
+        ctx.fillRect(lx - 18, cy + 82, 36, 8);
+        // Crystal seams
+        ctx.fillStyle = glow;
+        ctx.shadowColor = glow;
+        ctx.shadowBlur = 6;
+        ctx.fillRect(lx - 1, cy + 30, 2, 30);
+        ctx.fillRect(lx - 1, cy + 60, 2, 24);
+        ctx.shadowBlur = 0;
+    }
+
+    // === Massive torso (chunky, square) ===
+    ctx.fillStyle = dark;
+    ctx.fillRect(cx - 44, cy - 14, 88, 50);
+    // Center crystal
+    ctx.fillStyle = ice;
+    ctx.fillRect(cx - 36, cy - 8, 72, 38);
+    // Center icy core
+    ctx.fillStyle = glow;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 8);
+    ctx.lineTo(cx + 18, cy + 8);
+    ctx.lineTo(cx, cy + 28);
+    ctx.lineTo(cx - 18, cy + 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // === Massive arms ===
+    for (const sgn of [-1, 1]) {
+        const ax = cx + sgn * 50;
+        // Shoulder
+        ctx.fillStyle = ice;
+        ctx.beginPath();
+        ctx.arc(ax, cy - 4, 18, 0, Math.PI * 2);
+        ctx.fill();
+        // Upper arm
+        ctx.fillStyle = dark;
+        ctx.fillRect(ax - 12, cy + 8, 24, 30);
+        // Lower arm (held forward)
+        ctx.fillStyle = ice;
+        ctx.fillRect(ax - 14, cy + 36, 28, 26);
+        // Massive fist
+        ctx.fillStyle = dark;
+        ctx.beginPath();
+        ctx.arc(ax, cy + 70, 16, 0, Math.PI * 2);
+        ctx.fill();
+        // Frost spikes on knuckles
+        ctx.fillStyle = glow;
+        ctx.shadowColor = glow;
+        ctx.shadowBlur = 8;
+        for (let i = -1; i <= 1; i++) {
+            ctx.beginPath();
+            ctx.moveTo(ax + i * 8, cy + 60);
+            ctx.lineTo(ax + i * 8 - 2, cy + 50);
+            ctx.lineTo(ax + i * 8 + 2, cy + 50);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+    }
+
+    // === Crowned head ===
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.arc(cx, cy - 30, 22, 0, Math.PI * 2);
+    ctx.fill();
+    // Frost beard
+    ctx.fillStyle = ice;
+    ctx.beginPath();
+    ctx.moveTo(cx - 16, cy - 22);
+    ctx.lineTo(cx - 12, cy - 6);
+    ctx.lineTo(cx + 12, cy - 6);
+    ctx.lineTo(cx + 16, cy - 22);
+    ctx.closePath();
+    ctx.fill();
+    // Eyes (icy slits)
+    ctx.fillStyle = glow;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 10;
+    ctx.fillRect(cx - 12, cy - 32, 6, 3);
+    ctx.fillRect(cx + 6, cy - 32, 6, 3);
+    ctx.shadowBlur = 0;
+    // Ice crown spikes
+    ctx.fillStyle = ice;
+    for (let i = -2; i <= 2; i++) {
+        const sx = cx + i * 8;
+        ctx.beginPath();
+        ctx.moveTo(sx, cy - 50);
+        ctx.lineTo(sx - 4, cy - 38);
+        ctx.lineTo(sx + 4, cy - 38);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // Frost particle aura
+    if (e.moveTimer % 4 === 0) {
+        spawnParticles(cx + (Math.random() - 0.5) * e.w, cy + (Math.random() - 0.5) * e.h, ice, 1, 2);
+    }
+
+    drawBossTransformFold(ex, ey, e, '#aaeeff');
+    drawBossHpCore(ex, ey, e, ice, 12);
+}
+
+// NULLIFIER → VOID RIFT (no body — swirling dark portal with rotating rings)
+function drawBossNullifierRift(ex, ey, e) {
+    const phase3 = e.phase === 3;
+    const cx = ex + e.w / 2;
+    const cy = ey + e.h / 2;
+    const main = phase3 ? '#ff44ff' : '#aa44ff';
+    const dark = '#000010';
+    const accent = phase3 ? '#ffaaff' : '#cc88ff';
+
+    // === Dark void core ===
+    const coreGrad = ctx.createRadialGradient(cx, cy, 4, cx, cy, e.w);
+    coreGrad.addColorStop(0, '#000');
+    coreGrad.addColorStop(0.5, dark);
+    coreGrad.addColorStop(1, 'rgba(20,0,40,0)');
+    ctx.fillStyle = coreGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, e.w, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === Counter-rotating energy rings ===
+    for (let r = 0; r < 4; r++) {
+        const dir = r % 2 === 0 ? 1 : -1;
+        const radius = 38 + r * 14;
+        const rot = e.moveTimer * 0.04 * dir;
+        ctx.strokeStyle = main;
+        ctx.shadowColor = main;
+        ctx.shadowBlur = 14;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.7 - r * 0.12;
+        ctx.beginPath();
+        // Hexagonal rings with gaps
+        for (let a = 0; a < 8; a++) {
+            const ang = (a / 8) * Math.PI * 2 + rot;
+            const px = cx + Math.cos(ang) * radius;
+            const py = cy + Math.sin(ang) * radius;
+            if (a === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+    }
+    ctx.shadowBlur = 0;
+
+    // === Tentacle wisps (4 around the rift) ===
+    for (let i = 0; i < 4; i++) {
+        const baseAng = (i / 4) * Math.PI * 2 + Math.sin(e.moveTimer * 0.02) * 0.3;
+        const baseR = 60;
+        const tipR = 90 + Math.sin(e.moveTimer * 0.06 + i) * 16;
+        const bx = cx + Math.cos(baseAng) * baseR;
+        const by = cy + Math.sin(baseAng) * baseR;
+        const tx = cx + Math.cos(baseAng) * tipR;
+        const ty = cy + Math.sin(baseAng) * tipR;
+        ctx.strokeStyle = accent;
+        ctx.shadowColor = main;
+        ctx.shadowBlur = 8;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        const midX = (bx + tx) / 2 + Math.cos(baseAng + Math.PI / 2) * Math.sin(e.moveTimer * 0.1 + i) * 12;
+        const midY = (by + ty) / 2 + Math.sin(baseAng + Math.PI / 2) * Math.sin(e.moveTimer * 0.1 + i) * 12;
+        ctx.quadraticCurveTo(midX, midY, tx, ty);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        // Tip energy orb
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.arc(tx, ty, 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // === Singular eye in the center of the rift ===
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 14, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = main;
+    ctx.shadowColor = main;
+    ctx.shadowBlur = 16;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5 + Math.sin(e.moveTimer * 0.15) * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Dark sparks streaming inward
+    if (e.moveTimer % 3 === 0) {
+        const a = Math.random() * Math.PI * 2;
+        spawnParticles(cx + Math.cos(a) * 110, cy + Math.sin(a) * 110, main, 1, 2);
+    }
+
+    drawBossTransformFold(ex, ey, e, '#aa44ff');
+    drawBossHpCore(ex, ey, e, main, 12);
+}
+
+// OMEGA-PRIME → WINGED DEMON (massive batwings, demonic visor, claws)
+function drawBossOmegaDemon(ex, ey, e) {
+    const phase3 = e.phase === 3;
+    const cx = ex + e.w / 2;
+    const cy = ey + e.h / 2;
+    const dark = phase3 ? '#220011' : '#330022';
+    const accent = phase3 ? '#ff0044' : '#ff44aa';
+    const glow = phase3 ? '#ff0000' : '#ff44ff';
+
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath();
+    ctx.ellipse(cx, ey + e.h + 18, e.w / 2 + 28, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === Massive bat wings (behind body) ===
+    const wingFlap = Math.sin(e.moveTimer * 0.06) * 8;
+    for (const sgn of [-1, 1]) {
+        ctx.save();
+        ctx.translate(cx + sgn * 30, cy - 20);
+        ctx.fillStyle = dark;
+        ctx.shadowColor = glow;
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(sgn * (60 + wingFlap), -50);
+        ctx.lineTo(sgn * (90 + wingFlap), -10);
+        ctx.lineTo(sgn * (80 + wingFlap), 30);
+        ctx.lineTo(sgn * (50 + wingFlap), 50);
+        ctx.lineTo(sgn * 20, 30);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // Wing membrane veins
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 1.5;
+        for (let i = 0; i < 4; i++) {
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(sgn * (40 + i * 12 + wingFlap), -30 + i * 14);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    // === Demonic body (humanoid, hunched) ===
+    ctx.fillStyle = dark;
+    // Torso
+    ctx.beginPath();
+    ctx.moveTo(cx - 22, cy - 14);
+    ctx.lineTo(cx + 22, cy - 14);
+    ctx.lineTo(cx + 28, cy + 30);
+    ctx.lineTo(cx - 28, cy + 30);
+    ctx.closePath();
+    ctx.fill();
+    // Pectoral plates with accent
+    ctx.fillStyle = accent;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 8;
+    ctx.fillRect(cx - 18, cy - 12, 16, 12);
+    ctx.fillRect(cx + 2, cy - 12, 16, 12);
+    ctx.shadowBlur = 0;
+
+    // Arms (long, clawed)
+    for (const sgn of [-1, 1]) {
+        ctx.fillStyle = dark;
+        // Upper arm
+        ctx.fillRect(cx + sgn * 24 - 8, cy - 8, 16, 30);
+        // Forearm
+        ctx.fillRect(cx + sgn * 28 - 7, cy + 22, 14, 26);
+        // Claws (3 fingers)
+        ctx.fillStyle = accent;
+        ctx.shadowColor = glow;
+        ctx.shadowBlur = 6;
+        for (let i = -1; i <= 1; i++) {
+            ctx.beginPath();
+            ctx.moveTo(cx + sgn * 28 + i * 5, cy + 48);
+            ctx.lineTo(cx + sgn * 28 + i * 5 - 2, cy + 60);
+            ctx.lineTo(cx + sgn * 28 + i * 5 + 2, cy + 60);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+    }
+
+    // Legs (digitigrade)
+    for (const sgn of [-1, 1]) {
+        ctx.fillStyle = dark;
+        ctx.fillRect(cx + sgn * 12 - 7, cy + 30, 14, 24);
+        // Reverse-knee shin (bent forward)
+        ctx.beginPath();
+        ctx.moveTo(cx + sgn * 12 - 5, cy + 54);
+        ctx.lineTo(cx + sgn * 12 + 7, cy + 80);
+        ctx.lineTo(cx + sgn * 12 - 7, cy + 80);
+        ctx.closePath();
+        ctx.fill();
+        // Hoof/claw foot
+        ctx.fillStyle = accent;
+        ctx.fillRect(cx + sgn * 12 - 8, cy + 78, 16, 4);
+    }
+
+    // === Demonic head ===
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.arc(cx, cy - 26, 18, 0, Math.PI * 2);
+    ctx.fill();
+    // Twin demon horns
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, cy - 38);
+    ctx.lineTo(cx - 16, cy - 56);
+    ctx.lineTo(cx - 6, cy - 40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx + 10, cy - 38);
+    ctx.lineTo(cx + 16, cy - 56);
+    ctx.lineTo(cx + 6, cy - 40);
+    ctx.closePath();
+    ctx.fill();
+    // Burning visor (twin glowing eye-slits)
+    ctx.fillStyle = glow;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 16;
+    ctx.fillRect(cx - 12, cy - 28, 8, 4);
+    ctx.fillRect(cx + 4, cy - 28, 8, 4);
+    ctx.shadowBlur = 0;
+    // Fanged jaw
+    ctx.fillStyle = '#000';
+    ctx.fillRect(cx - 8, cy - 18, 16, 5);
+    ctx.fillStyle = accent;
+    for (let i = 0; i < 4; i++) {
+        ctx.fillRect(cx - 7 + i * 4, cy - 14, 2, 3);
+    }
+
+    // Aura ring
+    if (phase3 || e.moveTimer % 4 === 0) {
+        ctx.save();
+        ctx.globalAlpha = 0.35 + Math.sin(e.moveTimer * 0.1) * 0.15;
+        ctx.strokeStyle = glow;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = glow;
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 80 + Math.sin(e.moveTimer * 0.05) * 6, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        ctx.shadowBlur = 0;
+    }
+
+    drawBossTransformFold(ex, ey, e, '#ff44ff');
+    drawBossHpCore(ex, ey, e, accent, 12);
+}
+
 // Sky enforcer — winged jet body with thrusters & shoulder missile pods --
 function drawBossSkyhammer(ex, ey, e) {
+    if (e.transformed) {
+        drawBossSkyhammerJet(ex, ey, e);
+        return;
+    }
     const swing = bossLimbSwing(e);
     const phase2 = e.phase === 2;
     const main = phase2 ? '#ff4444' : '#0088ff';
@@ -9480,6 +12238,10 @@ function drawBossSkyhammer(ex, ey, e) {
 
 // Burning lava body with rim flame, shoulder vents, magma fists ----------
 function drawBossInferno(ex, ey, e) {
+    if (e.transformed) {
+        drawBossInfernoBeast(ex, ey, e);
+        return;
+    }
     const swing = bossLimbSwing(e);
     const phase2 = e.phase === 2;
     const main = phase2 ? '#ffaa00' : '#ff3300';
@@ -9578,6 +12340,10 @@ function drawBossInferno(ex, ey, e) {
 
 // Lab predator — quadrupedal stance with chainsaw arms -------------------
 function drawBossRavager(ex, ey, e) {
+    if (e.transformed) {
+        drawBossRavagerTank(ex, ey, e);
+        return;
+    }
     const swing = bossLimbSwing(e);
     const phase2 = e.phase === 2;
     const main = phase2 ? '#ff44aa' : '#22ff44';
@@ -9682,6 +12448,10 @@ function drawBossRavager(ex, ey, e) {
 
 // Frost king — flowing ice cape, crowned helmet, ice scepter -------------
 function drawBossCryo(ex, ey, e) {
+    if (e.transformed) {
+        drawBossCryoGolem(ex, ey, e);
+        return;
+    }
     const swing = bossLimbSwing(e);
     const phase2 = e.phase === 2;
     const main = phase2 ? '#ff66ff' : '#88ccff';
@@ -9786,6 +12556,10 @@ function drawBossCryo(ex, ey, e) {
 
 // Phantom — gaunt, hooded body that flickers; long claws -----------------
 function drawBossNullifier(ex, ey, e) {
+    if (e.transformed) {
+        drawBossNullifierRift(ex, ey, e);
+        return;
+    }
     const swing = bossLimbSwing(e);
     const phase2 = e.phase === 2;
     const main = phase2 ? '#ff44ff' : '#aa00ff';
@@ -9895,6 +12669,10 @@ function drawBossOmega(ex, ey, e) {
 }
 
 function drawBossOmegaInner(ex, ey, e) {
+    if (e.transformed) {
+        drawBossOmegaDemon(ex, ey, e);
+        return;
+    }
     const swing = bossLimbSwing(e);
     const phase2 = e.phase === 2;
     const main = phase2 ? '#ff44ff' : '#ffffff';
@@ -10461,6 +13239,209 @@ function drawEnemies() {
                 ctx.globalAlpha = 1;
                 ctx.shadowBlur = 0;
             }
+        } else if (e.type === 'screamer') {
+            // SCREAMER — sleek wedge-body kamikaze with hot red core eye
+            const cx = ex + e.w / 2;
+            const cy = ey + e.h / 2;
+            const stateColor = (e.state === 'lock' || e.state === 'dive') ? '#ff2244' : '#ff8844';
+
+            // Drop shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.4)';
+            ctx.beginPath();
+            ctx.ellipse(cx, ey + e.h + 4, e.w / 2, 4, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Main wedge body (pointing down for diver feel)
+            ctx.fillStyle = '#1a0010';
+            ctx.beginPath();
+            ctx.moveTo(cx - e.w / 2, cy - 2);
+            ctx.lineTo(cx + e.w / 2, cy - 2);
+            ctx.lineTo(cx, cy + e.h / 2);
+            ctx.closePath();
+            ctx.fill();
+            // Top fin
+            ctx.fillStyle = stateColor;
+            ctx.shadowColor = stateColor;
+            ctx.shadowBlur = 6;
+            ctx.beginPath();
+            ctx.moveTo(cx - 6, cy - 8);
+            ctx.lineTo(cx, cy - 16);
+            ctx.lineTo(cx + 6, cy - 8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // Glowing core eye (front)
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(cx, cy + 4, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = stateColor;
+            ctx.shadowColor = stateColor;
+            ctx.shadowBlur = e.state === 'lock' ? 18 : 10;
+            ctx.beginPath();
+            ctx.arc(cx, cy + 4, 4 + (e.state === 'lock' ? Math.sin(e.lockTimer * 0.4) * 1.5 : 0), 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Lock-on telegraph beam — red dashed line from screamer to player
+            if (e.state === 'lock') {
+                const px = (player.x + player.w / 2) - camera.x;
+                const py = (player.y + player.h / 2) - camera.y;
+                ctx.save();
+                ctx.strokeStyle = '#ff2244';
+                ctx.shadowColor = '#ff2244';
+                ctx.shadowBlur = 12;
+                ctx.lineWidth = 2.5;
+                ctx.setLineDash([6, 6]);
+                ctx.lineDashOffset = e.lockTimer * 1.5;
+                ctx.globalAlpha = 0.5 + Math.sin(e.lockTimer * 0.5) * 0.4;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy + 4);
+                ctx.lineTo(px, py);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                // Crosshair on player
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(px, py, 16, 0, Math.PI * 2);
+                ctx.moveTo(px - 22, py); ctx.lineTo(px + 22, py);
+                ctx.moveTo(px, py - 22); ctx.lineTo(px, py + 22);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            // Dive trail — red afterimage
+            if (e.state === 'dive') {
+                ctx.save();
+                ctx.globalAlpha = 0.5;
+                ctx.fillStyle = '#ff2244';
+                ctx.shadowColor = '#ff2244';
+                ctx.shadowBlur = 10;
+                for (let i = 1; i <= 3; i++) {
+                    ctx.globalAlpha = 0.4 - i * 0.1;
+                    ctx.fillRect(cx - e.w / 2 - e.vx * i * 1.2, cy - 2 - e.vy * i * 1.2, e.w, e.h);
+                }
+                ctx.restore();
+            }
+        } else if (e.type === 'sentinel') {
+            // SENTINEL — stationary tripod with rotating laser turret
+            const cx = ex + e.w / 2;
+            const cy = ey + e.h / 2;
+            const turretColor = e.state === 'charge' ? '#ff2244' : (e.state === 'sweep' ? '#ff0000' : '#ffaa44');
+            const accent = '#ffdd66';
+
+            // Drop shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.4)';
+            ctx.beginPath();
+            ctx.ellipse(cx, ey + e.h + 6, e.w / 2 + 8, 5, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // === Three legs (tripod, splayed) ===
+            const legAngles = [Math.PI * 0.5, Math.PI * 1.17, Math.PI * 1.83];
+            for (const la of legAngles) {
+                const baseX = cx + Math.cos(la) * 8;
+                const baseY = cy + 6;
+                const footX = baseX + Math.cos(la) * 14;
+                const footY = ey + e.h + 2;
+                // Leg shaft
+                ctx.strokeStyle = '#332211';
+                ctx.lineWidth = 6;
+                ctx.beginPath();
+                ctx.moveTo(baseX, baseY);
+                ctx.lineTo(footX, footY);
+                ctx.stroke();
+                // Leg highlight
+                ctx.strokeStyle = '#664422';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(baseX, baseY);
+                ctx.lineTo(footX, footY);
+                ctx.stroke();
+                // Foot pad
+                ctx.fillStyle = '#553311';
+                ctx.beginPath();
+                ctx.arc(footX, footY, 4, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // === Hub (central armored sphere) ===
+            ctx.fillStyle = '#332211';
+            ctx.beginPath();
+            ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+            ctx.fill();
+            // Inner armor ring
+            ctx.fillStyle = '#665533';
+            ctx.beginPath();
+            ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+            ctx.fill();
+            // Hub LEDs
+            for (let i = 0; i < 3; i++) {
+                const ang = (i / 3) * Math.PI * 2 + (e.moveTimer || 0) * 0.05;
+                ctx.fillStyle = accent;
+                ctx.shadowColor = accent;
+                ctx.shadowBlur = 4;
+                ctx.beginPath();
+                ctx.arc(cx + Math.cos(ang) * 8, cy + Math.sin(ang) * 8, 1.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.shadowBlur = 0;
+
+            // === Turret barrel (rotating) ===
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(e.turretAngle || 0);
+            ctx.fillStyle = '#1a1108';
+            ctx.fillRect(0, -5, 22, 10);
+            ctx.fillStyle = '#553311';
+            ctx.fillRect(0, -3, 22, 6);
+            // Muzzle ring
+            ctx.fillStyle = turretColor;
+            ctx.shadowColor = turretColor;
+            ctx.shadowBlur = e.state === 'charge' ? 14 : 8;
+            ctx.fillRect(20, -4, 4, 8);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+
+            // === Charge telegraph — beam preview line ===
+            if (e.state === 'charge') {
+                ctx.save();
+                const intensity = 1 - (e.chargeTimer / 75);
+                ctx.strokeStyle = '#ff2244';
+                ctx.shadowColor = '#ff2244';
+                ctx.shadowBlur = 14;
+                ctx.lineWidth = 1 + intensity * 2;
+                ctx.globalAlpha = 0.3 + intensity * 0.5;
+                ctx.setLineDash([8, 6]);
+                ctx.lineDashOffset = e.chargeTimer * 2;
+                ctx.beginPath();
+                ctx.moveTo(cx + Math.cos(e.turretAngle) * 22, cy + Math.sin(e.turretAngle) * 22);
+                ctx.lineTo(cx + Math.cos(e.turretAngle) * 800, cy + Math.sin(e.turretAngle) * 800);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.restore();
+            }
+
+            // === Active sweep beam — solid red beam ===
+            if (e.state === 'sweep') {
+                ctx.save();
+                const grad = ctx.createLinearGradient(
+                    cx + Math.cos(e.turretAngle) * 22, cy + Math.sin(e.turretAngle) * 22,
+                    cx + Math.cos(e.turretAngle) * 800, cy + Math.sin(e.turretAngle) * 800
+                );
+                grad.addColorStop(0, '#ffffff');
+                grad.addColorStop(0.1, '#ff2244');
+                grad.addColorStop(1, 'rgba(255,34,68,0)');
+                ctx.strokeStyle = grad;
+                ctx.shadowColor = '#ff0000';
+                ctx.shadowBlur = 22;
+                ctx.lineWidth = 8 + Math.sin(e.sweepTimer * 0.5) * 3;
+                ctx.beginPath();
+                ctx.moveTo(cx + Math.cos(e.turretAngle) * 22, cy + Math.sin(e.turretAngle) * 22);
+                ctx.lineTo(cx + Math.cos(e.turretAngle) * 800, cy + Math.sin(e.turretAngle) * 800);
+                ctx.stroke();
+                ctx.restore();
+                ctx.shadowBlur = 0;
+            }
         } else if (e.type === 'patrol') {
             // 3D depth shadow
             ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -10600,6 +13581,10 @@ function drawEnemies() {
             ctx.restore();
 
         } else if (e.type === 'boss' || e.type === 'miniboss') {
+            // WARDEN-K mini-boss has its own drawer
+            if (e.subtype === 'warden') {
+                drawMinibossWarden(ex, ey, e);
+            } else
             // HYDRA gets its own custom drawing
             if (e.subtype === 'hydra') {
                 const main = e.color;
@@ -11775,6 +14760,40 @@ function drawCoins() {
             ctx.textAlign = 'center';
             ctx.fillText('RC', cx, cy + 3);
             ctx.textAlign = 'left';
+        } else if (c.scrap) {
+            // SCRAP — angular bronze-orange chunk with metallic sheen.
+            // Tilted square with a brighter highlight wedge on top.
+            const rot = c.life * 0.04;
+            ctx.translate(cx, cy);
+            ctx.rotate(rot);
+            ctx.shadowColor = '#ff8844';
+            ctx.shadowBlur = 8 * pulse;
+            // Outer dark plate
+            ctx.fillStyle = '#7a3a18';
+            ctx.beginPath();
+            ctx.moveTo(-6, -4);
+            ctx.lineTo(5, -5);
+            ctx.lineTo(6, 4);
+            ctx.lineTo(-5, 5);
+            ctx.closePath();
+            ctx.fill();
+            // Bronze face
+            ctx.fillStyle = '#c66828';
+            ctx.beginPath();
+            ctx.moveTo(-4, -3);
+            ctx.lineTo(4, -3.5);
+            ctx.lineTo(4, 3);
+            ctx.lineTo(-3.5, 3);
+            ctx.closePath();
+            ctx.fill();
+            // Highlight wedge
+            ctx.fillStyle = '#ffaa66';
+            ctx.beginPath();
+            ctx.moveTo(-3, -2.5);
+            ctx.lineTo(2, -3);
+            ctx.lineTo(-1, 0);
+            ctx.closePath();
+            ctx.fill();
         } else {
             // Regular coin
             ctx.fillStyle = '#ffcc00';
@@ -11950,7 +14969,7 @@ function drawEvoUnlockPopup() {
 
 function drawShopUI() {
     if (!shopOpen) return;
-    const w = 540, h = 660;
+    const w = 760, h = 580;
     const x = canvas.width / 2 - w / 2;
     const y = canvas.height / 2 - h / 2;
 
@@ -11974,7 +14993,7 @@ function drawShopUI() {
     ctx.shadowBlur = 0;
     ctx.fillStyle = '#ffdd44';
     ctx.font = '16px Courier New';
-    ctx.fillText(`Coins: ${player.coins}`, x + w / 2, y + 58);
+    ctx.fillText(`Coins: ${player.coins}    🔩 Scrap: ${player.scrap}    ◆ RC: ${player.robotCoins}`, x + w / 2, y + 58);
 
     // Current weapon info
     const cur = WEAPONS[player.weaponTier];
@@ -11985,17 +15004,55 @@ function drawShopUI() {
     ctx.fillText(`Equipped: ${cur.name}  /  Unlocked: ${player.weaponsUnlocked.filter(Boolean).length}/${WEAPONS.length}`, x + w / 2, y + 80);
     ctx.shadowBlur = 0;
 
-    // Items
+    // Items — split into two columns:
+    //   LEFT column: shop purchases, evolution, weapons, trades
+    //   RIGHT column: crafting recipes
     ctx.textAlign = 'left';
     ctx.font = '13px Courier New';
-    let iy = y + 105;
+    const colLeftX = x + 16;
+    const colRightX = x + w / 2 + 8;
+    const colW = w / 2 - 24;
+    const headerY = y + 102;
+
+    // Section headers
+    ctx.fillStyle = '#ffaa44';
+    ctx.shadowColor = '#ff8800';
+    ctx.shadowBlur = 6;
+    ctx.font = 'bold 13px Courier New';
+    ctx.fillText('— SHOP —', colLeftX, headerY);
+    ctx.fillStyle = '#ff8844';
+    ctx.shadowColor = '#ff6622';
+    ctx.fillText('— ⚒ CRAFTING (SCRAP) —', colRightX, headerY);
+    ctx.shadowBlur = 0;
+    ctx.font = '13px Courier New';
+
+    let lyL = headerY + 22;
+    let lyR = headerY + 22;
     for (const item of SHOP_ITEMS) {
-        let canAfford = player.coins >= item.cost;
+        const scrapCost = item.costScrap || 0;
+        const rcCost = item.costRC || 0;
+        const coinCost = item.cost || 0;
+        let canAfford = player.coins >= coinCost
+                     && player.scrap >= scrapCost
+                     && player.robotCoins >= rcCost;
         let label = item.name;
-        let costLabel = item.cost === 0 ? 'FREE' : `${item.cost}`;
+        let costLabel = (coinCost === 0 && scrapCost === 0 && rcCost === 0) ? 'FREE' : `${coinCost}`;
+        if (scrapCost > 0 && coinCost > 0) costLabel = `${scrapCost}🔩 + ${coinCost}¢`;
+        else if (scrapCost > 0) costLabel = `${scrapCost} 🔩`;
+        else if (rcCost > 0) costLabel = `${rcCost} RC`;
         let color1 = canAfford ? '#00ffaa' : '#666';
         let color2 = canAfford ? '#fff' : '#888';
         let color3 = canAfford ? '#ffdd44' : '#664';
+        // Scrap-trade items get a bronze tint to distinguish them
+        if (item.scrapTrade) {
+            color2 = canAfford ? '#ffaa66' : '#886644';
+            color3 = canAfford ? '#ff8844' : '#774422';
+        }
+        // Craft items get a copper-orange tint
+        if (item.craft) {
+            color2 = canAfford ? '#ffcc88' : '#886644';
+            color3 = canAfford ? '#ff8844' : '#774422';
+        }
 
         if (item.switcher) {
             let next = cur.name;
@@ -12036,15 +15093,29 @@ function drawShopUI() {
             }
         }
 
+        // Choose which column this item goes in
+        const isRight = !!item.craft;
+        const colX = isRight ? colRightX : colLeftX;
+        const ly = isRight ? lyR : lyL;
+
         ctx.fillStyle = color1;
-        ctx.fillText(`[${item.key}]`, x + 20, iy);
+        ctx.fillText(`[${item.key}]`, colX, ly);
         ctx.fillStyle = color2;
-        ctx.fillText(label, x + 60, iy);
+        // Truncate long labels to fit column
+        let drawLabel = label;
+        if (ctx.measureText(label).width > colW - 110) {
+            // Strip the leading symbol if present and truncate
+            while (drawLabel.length > 4 && ctx.measureText(drawLabel + '…').width > colW - 110) {
+                drawLabel = drawLabel.slice(0, -1);
+            }
+            drawLabel += '…';
+        }
+        ctx.fillText(drawLabel, colX + 38, ly);
         ctx.fillStyle = color3;
         ctx.textAlign = 'right';
-        ctx.fillText(costLabel, x + w - 20, iy);
+        ctx.fillText(costLabel, colX + colW - 6, ly);
         ctx.textAlign = 'left';
-        iy += 24;
+        if (isRight) lyR += 22; else lyL += 22;
     }
     // Hint
     ctx.fillStyle = '#aaa';
@@ -12198,6 +15269,24 @@ function drawHUD() {
     ctx.fillText(`RC: ${player.robotCoins}`, canvas.width - 20, 80);
     ctx.shadowBlur = 0;
 
+    // Scrap metal
+    ctx.fillStyle = '#ff9966';
+    ctx.shadowColor = '#ff7733';
+    ctx.shadowBlur = 8;
+    ctx.fillText(`SCRAP: ${player.scrap}`, canvas.width - 20, 100);
+    ctx.shadowBlur = 0;
+
+    // SAVE indicator — flashes briefly when state is persisted
+    if (typeof save !== 'undefined' && save.isFlashing()) {
+        ctx.fillStyle = '#66ff88';
+        ctx.shadowColor = '#66ff88';
+        ctx.shadowBlur = 8;
+        ctx.font = 'bold 11px Courier New';
+        ctx.fillText('💾 SAVED', canvas.width - 20, 140);
+        ctx.shadowBlur = 0;
+        ctx.font = '16px Courier New';
+    }
+
     // Evolution tier (if not base)
     if (player.evoLevel > 0) {
         const evo = EVOLUTIONS[player.evoLevel];
@@ -12206,7 +15295,7 @@ function drawHUD() {
         ctx.shadowColor = ec ? ec.glow : '#ff00ff';
         ctx.shadowBlur = 6;
         ctx.font = 'bold 10px Courier New';
-        ctx.fillText(`◆ ${evo.name} ◆`, canvas.width - 20, 100);
+        ctx.fillText(`◆ ${evo.name} ◆`, canvas.width - 20, 120);
         ctx.shadowBlur = 0;
 
         // [R] Evolution ability cooldown
@@ -12575,7 +15664,16 @@ function drawGameOver() {
     ctx.fillStyle = '#aaa';
     ctx.font = '18px Courier New';
     ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 + 20);
-    ctx.fillText('Press R to restart', canvas.width / 2, canvas.height / 2 + 50);
+    // All-time meta stats (persisted across runs)
+    if (typeof save !== 'undefined') {
+        const meta = save.getMeta();
+        ctx.fillStyle = '#88ddff';
+        ctx.font = '13px Courier New';
+        ctx.fillText(`All-time: ${meta.totalDeaths} deaths • ${meta.bossesDefeated} bosses defeated • farthest stage: ${meta.farthestStage}/8`, canvas.width / 2, canvas.height / 2 + 48);
+    }
+    ctx.fillStyle = '#aaa';
+    ctx.font = '18px Courier New';
+    ctx.fillText('Press R to restart', canvas.width / 2, canvas.height / 2 + 80);
     ctx.textAlign = 'left';
 }
 
@@ -13539,10 +16637,17 @@ function drawWin() {
     ctx.fillText('OMEGA-PRIME has been destroyed.', canvas.width / 2, canvas.height / 2 - 10);
     ctx.fillStyle = '#ffdd44';
     ctx.font = '18px Courier New';
-    ctx.fillText(`Final Score: ${score}    🪙 Coins: ${player.coins}`, canvas.width / 2, canvas.height / 2 + 30);
+    ctx.fillText(`Final Score: ${score}    🪙 Coins: ${player.coins}    🔩 Scrap: ${player.scrap}`, canvas.width / 2, canvas.height / 2 + 30);
+    // All-time meta stats
+    if (typeof save !== 'undefined') {
+        const meta = save.getMeta();
+        ctx.fillStyle = '#88ddff';
+        ctx.font = '13px Courier New';
+        ctx.fillText(`All-time: ${meta.totalWins} wins • ${meta.totalDeaths} deaths • ${meta.bossesDefeated} bosses • max evo ${meta.maxEvoLevel}`, canvas.width / 2, canvas.height / 2 + 56);
+    }
     ctx.fillStyle = '#aaa';
     ctx.font = '16px Courier New';
-    ctx.fillText('Press R to play again from Stage 1', canvas.width / 2, canvas.height / 2 + 70);
+    ctx.fillText('Press R to play again from Stage 1', canvas.width / 2, canvas.height / 2 + 90);
     ctx.textAlign = 'left';
 }
 
@@ -13655,6 +16760,8 @@ function startSpaceTransition() {
     healthDrops = [];
     enemies = [];
     cages = [];
+    healingStations = [];
+    activeHealingStation = null;
 
     gameState = 'spaceTransition';
 }
@@ -14455,6 +17562,7 @@ function restart() {
     player.pounding = false; player.poundTrail = 0;
     player.spaceHeld = false;
     player.coins = 0;
+    player.scrap = 0;
     player.bulletDamage = 0;
     player.weaponTier = 0;
     player.weaponsUnlocked = [true, false, false, false, false, false];
@@ -14481,6 +17589,53 @@ function restart() {
 function gameLoop(timestamp) {
     const dt = timestamp - lastTime;
     lastTime = timestamp;
+
+    // Update music to match current game state (cheap if track is unchanged)
+    audio.setMusic(pickMusicTrack());
+
+    // === Audio event detection from state diffs ===
+    // (avoids needing to add audio.play() to every damage site)
+    if (typeof gameLoop._prevHp !== 'number') gameLoop._prevHp = player.hp;
+    if (typeof gameLoop._prevGameState !== 'string') gameLoop._prevGameState = gameState;
+    if (typeof gameLoop._prevEvoLevel !== 'number') gameLoop._prevEvoLevel = player.evoLevel;
+    // HP dropped → hurt sound (throttled, won't repeat constantly)
+    if (player.hp < gameLoop._prevHp - 1 && player.hp > 0 && gameState === 'playing') {
+        audio.play('hurt', { throttle: 200 });
+    }
+    // gameState transition events
+    if (gameState !== gameLoop._prevGameState) {
+        if (gameState === 'dead') {
+            audio.play('death');
+            // SAVE: death++ and persist
+            if (typeof save !== 'undefined') {
+                save.bumpStat('totalDeaths');
+                save.write();
+            }
+        }
+        else if (gameState === 'won') {
+            audio.play('win');
+            // SAVE: win++ + farthestStage
+            if (typeof save !== 'undefined') {
+                save.bumpStat('totalWins');
+                save.setStat('farthestStage', STAGES.length);
+                save.write();
+            }
+        }
+        else if (gameState === 'bossIntro') audio.play('bossIntro');
+        else if (gameState === 'throneCutscene') audio.play('bossIntro');
+        else if (gameState === 'spaceTransition') audio.play('warpIn');
+    }
+    // Evo level grew → save the new max
+    if (player.evoLevel > gameLoop._prevEvoLevel && typeof save !== 'undefined') {
+        const meta = save.getMeta();
+        if (player.evoLevel > meta.maxEvoLevel) save.setStat('maxEvoLevel', player.evoLevel);
+    }
+    gameLoop._prevHp = player.hp;
+    gameLoop._prevGameState = gameState;
+    gameLoop._prevEvoLevel = player.evoLevel;
+
+    // Tick save flash indicator
+    if (typeof save !== 'undefined') save.tickFlash();
 
     // Start game from intro -> char select
     if (gameState === 'intro' && (keys['Enter'] || keys['NumpadEnter']) && !player.enterHeld) {
@@ -14662,6 +17817,7 @@ function gameLoop(timestamp) {
         switches = []; doors = []; arenaGates = []; bossGates = []; exitPortals = []; floatTexts = [];
         cages = []; allies = [];
         laserGrids = []; terminals = []; keyPickups = []; player.keysHeld = [];
+        healingStations = []; activeHealingStation = null;
         spaceState.active = false; spaceState.flyingEnemies = []; spaceState.completing = null;
         for (const s of STAGES) { s.cutsceneShown = false; s.spaceCutsceneShown = false; s.victoryCutsceneShown = false; }
         timeSlowFactor = 1;
@@ -14677,6 +17833,7 @@ function gameLoop(timestamp) {
         comboCount = 0;
         // Reset persistent stuff
         player.coins = 0;
+        player.scrap = 0;
         player.bulletDamage = 0;
         player.weaponTier = 0;
         player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
@@ -14706,6 +17863,7 @@ function gameLoop(timestamp) {
             updateCoins();
             updateHealthDrops();
         }
+        updateHealingStations();
         updateShop();
         updateParticles();
         updateCamera();
@@ -14765,6 +17923,7 @@ function gameLoop(timestamp) {
     drawLaserGrids();
     drawKeyPickups();
     drawShops();
+    drawHealingStations();
     drawCoins();
     drawHealthDrops();
     drawDashTrails();
@@ -14829,6 +17988,407 @@ function gameLoop(timestamp) {
 // updateBossIntro function below (avoids a temporal dead zone error).
 let ctxBossIntroBg = false;
 
+// ============================================================================
+// WARDEN-K — sentinel-class mini-boss
+// ============================================================================
+// A tall hovering tripod sentinel with a single central optic eye and three
+// segmented claw-arms. Replaces some patrol enemies in stages 3-7.
+//
+// Behavior:
+//   - Hovers in place, slowly drifts vertically (sin wave)
+//   - Optic eye smoothly rotates to track the player
+//   - 3 attack patterns rotate (triple beam → claw spike → sentry orbs)
+//   - Phase 2 at 50% HP: red eye glow intensifies, faster fire, +2 orbs
+//   - Spawns 4 orbital sentry orbs (in phase 2: 6) that fire periodically
+//
+// Lifecycle properties (set on spawn or first tick):
+//   e.eyeAngle     — current optic eye facing (radians)
+//   e.targetAngle  — desired optic eye facing (smoothly interpolated)
+//   e.attackPattern — 0..2 cycles
+//   e.orbs         — array of { angle, dist, shootTimer, alive: true }
+//   e.spikes       — array of { x, y, timer } pending ground spikes
+function updateMinibossWarden(e, playerAngle, slowMul) {
+    // Initialize lazy state
+    if (typeof e.eyeAngle !== 'number') {
+        e.eyeAngle = 0;
+        e.targetAngle = 0;
+        e.attackPattern = 0;
+        e.orbs = [];
+        e.spikes = [];
+        // Spawn initial 4 sentry orbs
+        for (let i = 0; i < 4; i++) {
+            e.orbs.push({
+                angle: (i / 4) * Math.PI * 2,
+                dist: 80,
+                shootTimer: 60 + i * 20,
+                alive: true
+            });
+        }
+    }
+
+    // === Float / drift movement ===
+    e.y = e.baseY + Math.sin(e.moveTimer * 0.024) * 22;
+    e.x = e.baseX + Math.sin(e.moveTimer * 0.014) * 35;
+
+    // === Eye tracking ===
+    const cx = e.x + e.w / 2;
+    const cy = e.y + e.h / 2;
+    e.targetAngle = Math.atan2(player.y + player.h / 2 - cy, player.x + player.w / 2 - cx);
+    // Smooth interpolation toward target
+    let da = e.targetAngle - e.eyeAngle;
+    while (da > Math.PI) da -= Math.PI * 2;
+    while (da < -Math.PI) da += Math.PI * 2;
+    e.eyeAngle += da * 0.08;
+
+    // === Phase 2 spawn extra orbs once ===
+    if (e.phase === 2 && e.orbs.length < 6 && !e._phase2OrbsAdded) {
+        e._phase2OrbsAdded = true;
+        for (let i = 0; i < 2; i++) {
+            e.orbs.push({
+                angle: Math.random() * Math.PI * 2,
+                dist: 100,
+                shootTimer: 80,
+                alive: true
+            });
+        }
+        spawnShockwave(cx, cy, 100, '#ff4488');
+    }
+
+    // === Update orbs (orbit + fire) ===
+    const orbSpeed = e.phase === 2 ? 0.038 : 0.026;
+    for (const orb of e.orbs) {
+        if (!orb.alive) continue;
+        orb.angle += orbSpeed * slowMul;
+        orb.shootTimer -= slowMul;
+        if (orb.shootTimer <= 0) {
+            const ox = cx + Math.cos(orb.angle) * orb.dist;
+            const oy = cy + Math.sin(orb.angle) * orb.dist;
+            const aimAng = Math.atan2(player.y + player.h / 2 - oy, player.x + player.w / 2 - ox);
+            enemyBullets.push({
+                x: ox, y: oy,
+                vx: Math.cos(aimAng) * 4.5,
+                vy: Math.sin(aimAng) * 4.5,
+                life: 110, damage: 8,
+                color: '#ff4466', glow: '#ff2244', size: 5
+            });
+            spawnParticles(ox, oy, '#ff4466', 4, 3);
+            orb.shootTimer = e.phase === 2 ? 90 : 130;
+        }
+    }
+
+    // === Update pending ground spikes ===
+    for (let i = e.spikes.length - 1; i >= 0; i--) {
+        const sp = e.spikes[i];
+        sp.timer -= slowMul;
+        if (sp.timer <= 0) {
+            // Erupt: deal damage if player is on top, spawn shockwave + bullets
+            spawnShockwave(sp.x, sp.y, 110, '#ff2244');
+            spawnParticles(sp.x, sp.y, '#ff4466', 24, 7);
+            spawnParticles(sp.x, sp.y, '#ffffff', 12, 5);
+            screenShake = Math.max(screenShake, 12);
+            // 4 bullet shrapnel upward from spike
+            for (let k = -2; k <= 2; k++) {
+                const ang = -Math.PI / 2 + k * 0.32;
+                enemyBullets.push({
+                    x: sp.x, y: sp.y - 10,
+                    vx: Math.cos(ang) * 5,
+                    vy: Math.sin(ang) * 5,
+                    life: 90, damage: 12,
+                    color: '#ff2244', glow: '#ff4466', size: 6, big: true
+                });
+            }
+            // Direct AOE damage to player if standing close to spike center
+            const dx = (player.x + player.w / 2) - sp.x;
+            const dy = (player.y + player.h / 2) - sp.y;
+            if (dx * dx + dy * dy < 60 * 60 && player.invincible <= 0) {
+                player.hp -= 18;
+                hitFlash = Math.min(1, hitFlash + 0.6);
+                applyHitStop(3);
+                player.invincible = 35;
+                player.vy = -8;  // launch upward
+                if (player.hp <= 0) {
+                    gameState = 'dead';
+                    spawnExplosion(player.x + player.w / 2, player.y + player.h / 2);
+                }
+            }
+            e.spikes.splice(i, 1);
+        }
+    }
+
+    // === Main attack timer ===
+    e.shootTimer -= slowMul;
+    if (e.shootTimer <= 0) {
+        e.attackPattern = bossPickRandomAttack(e, 3);
+        if (e.attackPattern === 0) {
+            // TRIPLE BEAM VOLLEY — 3 fanned piercing shots from the eye
+            const eyeX = cx + Math.cos(e.eyeAngle) * 24;
+            const eyeY = cy + Math.sin(e.eyeAngle) * 24;
+            spawnParticles(eyeX, eyeY, '#ff2244', 14, 5);
+            spawnParticles(eyeX, eyeY, '#ffffff', 8, 4);
+            for (let s = -1; s <= 1; s++) {
+                const ang = e.eyeAngle + s * 0.18;
+                enemyBullets.push({
+                    x: eyeX, y: eyeY,
+                    vx: Math.cos(ang) * 9,
+                    vy: Math.sin(ang) * 9,
+                    life: 100, damage: 14,
+                    color: '#ff4466', glow: '#ff2244', size: 7, big: true
+                });
+            }
+            screenShake = Math.max(screenShake, 5);
+            audio.play('shootBeam');
+            e.shootTimer = e.phase === 2 ? 65 : 95;
+        } else if (e.attackPattern === 1) {
+            // CLAW SPIKE — drop a delayed-eruption spike below the player
+            const spikeX = player.x + player.w / 2;
+            const spikeY = player.y + player.h + 20;
+            // Visual telegraph: claw stretches out toward the spike location.
+            // We just record it and the renderer draws the warning circle.
+            e.spikes.push({ x: spikeX, y: spikeY, timer: 70, totalTimer: 70 });
+            spawnParticles(spikeX, spikeY, '#ff2244', 8, 4);
+            e.shootTimer = e.phase === 2 ? 75 : 110;
+        } else {
+            // SENTRY OVERCHARGE — every alive orb pulses and fires a burst
+            for (const orb of e.orbs) {
+                if (!orb.alive) continue;
+                orb.shootTimer = 8;  // fire almost immediately on next ticks
+                const ox = cx + Math.cos(orb.angle) * orb.dist;
+                const oy = cy + Math.sin(orb.angle) * orb.dist;
+                spawnParticles(ox, oy, '#ff4466', 8, 4);
+            }
+            spawnShockwave(cx, cy, 90, '#ff4466');
+            e.shootTimer = e.phase === 2 ? 80 : 130;
+        }
+    }
+}
+
+// Render the WARDEN-K mini-boss. Drawn from drawEnemies (boss/miniboss branch)
+// when e.subtype === 'warden'.
+function drawMinibossWarden(ex, ey, e) {
+    const cx = ex + e.w / 2;
+    const cy = ey + e.h / 2;
+    const eyeAng = e.eyeAngle || 0;
+    const phase = e.phase || 1;
+    const glow = phase === 2 ? '#ff2244' : '#ff4466';
+    const accent = phase === 2 ? '#ff6688' : '#ff8899';
+
+    // Drop shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath();
+    ctx.ellipse(cx, ey + e.h + 10, e.w / 2 + 8, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === Three segmented claw-legs ===
+    // Three legs splayed at 90°, 210°, 330° (front-left, back, front-right)
+    const legAngles = [Math.PI * 0.5, Math.PI * 1.17, Math.PI * 1.83];
+    for (const la of legAngles) {
+        // Bob the legs a tiny bit
+        const swing = Math.sin((e.moveTimer || 0) * 0.06 + la) * 6;
+        const baseX = cx + Math.cos(la) * 18;
+        const baseY = cy + 8;
+        const knee1X = baseX + Math.cos(la) * 22;
+        const knee1Y = baseY + 18 + swing;
+        const footX = baseX + Math.cos(la) * 18;
+        const footY = ey + e.h + 4;
+        // Outline
+        ctx.strokeStyle = '#220000';
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        ctx.lineTo(knee1X, knee1Y);
+        ctx.lineTo(footX, footY);
+        ctx.stroke();
+        // Inner highlight
+        ctx.strokeStyle = '#552222';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        ctx.lineTo(knee1X, knee1Y);
+        ctx.lineTo(footX, footY);
+        ctx.stroke();
+        // Knee joint orb
+        ctx.fillStyle = '#883333';
+        ctx.beginPath();
+        ctx.arc(knee1X, knee1Y, 4, 0, Math.PI * 2);
+        ctx.fill();
+        // Foot claw
+        ctx.fillStyle = accent;
+        ctx.beginPath();
+        ctx.moveTo(footX - 5, footY);
+        ctx.lineTo(footX, footY + 6);
+        ctx.lineTo(footX + 5, footY);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    // === Torso — layered armor bands ===
+    const torsoY = cy - 8;
+    const torsoH = 36;
+    // Outer plate
+    ctx.fillStyle = '#330011';
+    ctx.beginPath();
+    ctx.ellipse(cx, torsoY + torsoH / 2, 22, torsoH / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Inner armor wedge
+    const torsoGrad = ctx.createLinearGradient(cx - 22, torsoY, cx + 22, torsoY + torsoH);
+    torsoGrad.addColorStop(0, '#550022');
+    torsoGrad.addColorStop(0.5, '#882244');
+    torsoGrad.addColorStop(1, '#330011');
+    ctx.fillStyle = torsoGrad;
+    ctx.beginPath();
+    ctx.ellipse(cx, torsoY + torsoH / 2, 18, torsoH / 2 - 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Horizontal armor bands
+    ctx.strokeStyle = '#220000';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 4; i++) {
+        const by = torsoY + 6 + i * 7;
+        ctx.beginPath();
+        ctx.moveTo(cx - 16, by);
+        ctx.lineTo(cx + 16, by);
+        ctx.stroke();
+    }
+    // Center seam glow
+    ctx.fillStyle = glow;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = 8;
+    ctx.fillRect(cx - 1, torsoY + 4, 2, torsoH - 8);
+    ctx.shadowBlur = 0;
+
+    // === Antenna spires (top of torso) ===
+    ctx.strokeStyle = '#552222';
+    ctx.lineWidth = 2;
+    for (let i = -1; i <= 1; i++) {
+        if (i === 0) continue;
+        ctx.beginPath();
+        ctx.moveTo(cx + i * 8, torsoY);
+        ctx.lineTo(cx + i * 12, torsoY - 18);
+        ctx.stroke();
+        // Antenna tip light
+        ctx.fillStyle = glow;
+        ctx.shadowColor = glow;
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.arc(cx + i * 12, torsoY - 18, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+
+    // === Head + optic eye ===
+    const headY = torsoY - 6;
+    // Head dome
+    ctx.fillStyle = '#440011';
+    ctx.beginPath();
+    ctx.arc(cx, headY, 16, 0, Math.PI * 2);
+    ctx.fill();
+    // Lower jaw band
+    ctx.fillStyle = '#220000';
+    ctx.fillRect(cx - 14, headY + 8, 28, 4);
+    // Eye socket
+    ctx.fillStyle = '#110000';
+    ctx.beginPath();
+    ctx.arc(cx, headY, 11, 0, Math.PI * 2);
+    ctx.fill();
+    // Glowing optic — pupil shifts toward the tracked angle
+    const pupilOffsetX = Math.cos(eyeAng) * 4;
+    const pupilOffsetY = Math.sin(eyeAng) * 4;
+    ctx.fillStyle = glow;
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = phase === 2 ? 22 : 14;
+    ctx.beginPath();
+    ctx.arc(cx + pupilOffsetX, headY + pupilOffsetY, 6, 0, Math.PI * 2);
+    ctx.fill();
+    // Inner pupil dot
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(cx + pupilOffsetX, headY + pupilOffsetY, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Eye-direction laser sight line (charges as attack timer counts down)
+    if (e.shootTimer < 30 && e.attackPattern === 0) {
+        const intensity = 1 - (e.shootTimer / 30);
+        ctx.strokeStyle = `rgba(255, 68, 102, ${intensity * 0.6})`;
+        ctx.lineWidth = 1 + intensity;
+        ctx.beginPath();
+        ctx.moveTo(cx, headY);
+        ctx.lineTo(cx + Math.cos(eyeAng) * 200, headY + Math.sin(eyeAng) * 200);
+        ctx.stroke();
+    }
+
+    // === Orbital sentry orbs ===
+    if (e.orbs) {
+        for (const orb of e.orbs) {
+            if (!orb.alive) continue;
+            const ox = cx + Math.cos(orb.angle) * orb.dist;
+            const oy = cy + Math.sin(orb.angle) * orb.dist;
+            // Trail
+            ctx.fillStyle = 'rgba(255, 68, 102, 0.2)';
+            ctx.beginPath();
+            ctx.arc(ox - Math.cos(orb.angle) * 6, oy - Math.sin(orb.angle) * 6, 5, 0, Math.PI * 2);
+            ctx.fill();
+            // Outer halo
+            ctx.shadowColor = glow;
+            ctx.shadowBlur = 8;
+            ctx.fillStyle = '#330011';
+            ctx.beginPath();
+            ctx.arc(ox, oy, 7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // Core
+            ctx.fillStyle = glow;
+            ctx.beginPath();
+            ctx.arc(ox, oy, 4, 0, Math.PI * 2);
+            ctx.fill();
+            // White hot center
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(ox, oy, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    // === Pending ground spike warnings ===
+    if (e.spikes) {
+        for (const sp of e.spikes) {
+            const t = sp.timer / sp.totalTimer;  // 1..0
+            const sx = sp.x - camera.x;
+            const sy = sp.y - camera.y;
+            const radius = 40 + (1 - t) * 25;
+            // Pulsing red warning circle on the ground
+            ctx.save();
+            ctx.globalAlpha = 0.4 + (1 - t) * 0.5;
+            ctx.strokeStyle = '#ff2244';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([6, 4]);
+            ctx.lineDashOffset = sp.timer * 0.5;
+            ctx.beginPath();
+            ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            // Inner pulse
+            ctx.globalAlpha = 0.2 + (1 - t) * 0.4;
+            ctx.fillStyle = '#ff2244';
+            ctx.beginPath();
+            ctx.arc(sx, sy, radius * (1 - t) * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    // === Phase 2 aura ring ===
+    if (phase === 2) {
+        const auraR = 50 + Math.sin((e.moveTimer || 0) * 0.1) * 6;
+        ctx.save();
+        ctx.globalAlpha = 0.3 + Math.sin((e.moveTimer || 0) * 0.08) * 0.15;
+        ctx.strokeStyle = '#ff2244';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, auraR, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
 function updateBossTitan(e, playerAngle, slowMul) {
     // Trigger transformation at 50% HP
     if (!e.transformed && e.hp <= e.maxHp * 0.5) {
@@ -14867,7 +18427,7 @@ function updateBossTitan(e, playerAngle, slowMul) {
         e.x = e.baseX + Math.sin(e.moveTimer * 0.012) * 80;
         e.shootTimer -= slowMul;
         if (e.shootTimer <= 0) {
-            e.attackPattern = (e.attackPattern + 1) % 4;
+            e.attackPattern = bossPickRandomAttack(e, 4);
             if (e.attackPattern === 0) {
                 // Twin shoulder cannons - aimed bursts
                 const oL = bossOrigin(e, 'leftCannon');
@@ -14934,7 +18494,7 @@ function updateBossTitan(e, playerAngle, slowMul) {
     }
 
     if (e.shootTimer <= 0) {
-        e.attackPattern = (e.attackPattern + 1) % 4;
+        e.attackPattern = bossPickRandomAttack(e, 4);
         if (e.attackPattern === 0) {
             // FOUR-WING SALVO — each wing cannon fires a heavy aimed shell
             const slots = ['wingTopL','wingTopR','wingBotL','wingBotR'];
@@ -16156,6 +19716,15 @@ function shootVehicleProjectile() {
 }
 
 // Start
+save.load();                    // restore persisted unlocks before character/level setup
 applyCharacter(0);
+// Apply persisted weapon unlocks (load() couldn't, since player.weaponsUnlocked
+// gets reset by applyCharacter — well actually it doesn't. Apply it here so
+// saved weapons survive.)
+if (saveData_weapons && Array.isArray(player.weaponsUnlocked)) {
+    for (let i = 0; i < player.weaponsUnlocked.length && i < saveData_weapons.length; i++) {
+        if (saveData_weapons[i]) player.weaponsUnlocked[i] = true;
+    }
+}
 buildLevel();
 requestAnimationFrame(gameLoop);

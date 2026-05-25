@@ -142,13 +142,95 @@
             transform: scale(1.05);
         }
         .hidden { display: none !important; }
+
+        /* Audio control panel — bottom-left, always visible */
+        #audio-panel {
+            position: absolute;
+            bottom: 56px;
+            left: 20px;
+            background: rgba(10, 10, 20, 0.85);
+            border: 2px solid #00ddff;
+            border-radius: 6px;
+            padding: 8px 10px;
+            color: #66ddff;
+            font-family: 'Courier New', monospace;
+            font-size: 10px;
+            box-shadow: 0 0 14px rgba(0, 221, 255, 0.35);
+            z-index: 12;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        #audio-mute-btn {
+            background: #1a1a28;
+            border: 1px solid #00ddff;
+            color: #66ddff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.15s;
+        }
+        #audio-mute-btn:hover {
+            background: #00ddff;
+            color: #0a0a0f;
+        }
+        #audio-mute-btn.muted {
+            border-color: #ff3366;
+            color: #ff3366;
+        }
+        .audio-sliders {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .audio-slider-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .audio-label {
+            color: #88ddff;
+            width: 38px;
+            font-size: 9px;
+            letter-spacing: 1px;
+        }
+        .audio-slider-row input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 90px;
+            height: 4px;
+            background: #1a1a28;
+            border: 1px solid #00ddff;
+            border-radius: 2px;
+            outline: none;
+        }
+        .audio-slider-row input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            background: #00ddff;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 6px #00ddff;
+        }
+        .audio-slider-row input[type=range]::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            background: #00ddff;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 6px #00ddff;
+        }
     </style>
 </head>
 <body>
     <div id="ui-overlay"></div>
     <canvas id="game"></canvas>
     <div id="controls-info">
-        ENTER: Start | A/D: Move | ↑: Jump | SHIFT: Dash | F: Shoot | G: Melee | Q: Ability | TAB: Swap | E: Shop | <span style="color:#66ffff">X: Transform</span><br>
+        ENTER: Start | A/D: Move | ↑: Jump | SHIFT: Dash | F: Shoot | G: Melee | Q: Ability | TAB: Swap | E: Shop / <span style="color:#ff9966">⚒ Craft</span> | <span style="color:#66ffff">X: Transform</span> | <span style="color:#66ddff">M: Mute</span><br>
         <span style="color:#ff8844">[DEV] 1-8: Skip to Boss | 0: Space Battle | 9: God Mode</span>
     </div>
 
@@ -175,15 +257,45 @@
             <button class="util-btn" data-util="coins">+1000¢</button>
         </div>
         <div class="row">
-            <button class="util-btn" data-util="evolve">EVOLVE</button>
+            <button class="util-btn" data-util="scrap">+100 🔩 SCRAP</button>
+        </div>
+        <div class="row">
+            <button class="util-btn" data-util="evolve">EVOLVE +1</button>
             <button class="util-btn" data-util="invuln">GOD MODE</button>
+        </div>
+        <div class="row" style="flex-wrap:wrap; gap:2px">
+            <button class="util-btn evo-btn" data-evo="0" style="flex:none; min-width:42px; padding:3px 4px; font-size:9px">BASE</button>
+            <button class="util-btn evo-btn" data-evo="1" style="flex:none; min-width:42px; padding:3px 4px; font-size:9px">MK-II</button>
+            <button class="util-btn evo-btn" data-evo="2" style="flex:none; min-width:42px; padding:3px 4px; font-size:9px">MK-III</button>
+            <button class="util-btn evo-btn" data-evo="3" style="flex:none; min-width:42px; padding:3px 4px; font-size:9px">OMEGA</button>
+            <button class="util-btn evo-btn" data-evo="4" style="flex:none; min-width:42px; padding:3px 4px; font-size:9px">APEX</button>
+            <button class="util-btn evo-btn" data-evo="5" style="flex:none; min-width:42px; padding:3px 4px; font-size:9px">PRIME</button>
+            <button class="util-btn evo-btn" data-evo="6" style="flex:none; min-width:60px; padding:3px 4px; font-size:9px">CONVOY</button>
         </div>
         <div class="row">
             <button class="util-btn" data-util="killboss">KILL BOSS</button>
             <button class="util-btn" data-util="unlockall">UNLOCK ALL</button>
         </div>
+        <div class="row">
+            <button class="util-btn" data-util="resetsave" style="border-color:#ff3366;color:#ff6688">⚠ RESET SAVE</button>
+        </div>
         <div class="toggle">
             <input type="checkbox" id="dev-godmode-indicator"> <span id="dev-godmode-label">GOD MODE: OFF</span>
+        </div>
+    </div>
+
+    <!-- Audio control panel (always visible) -->
+    <div id="audio-panel">
+        <button id="audio-mute-btn" type="button" title="Mute / unmute (M)">🔊</button>
+        <div class="audio-sliders">
+            <div class="audio-slider-row">
+                <span class="audio-label">MUSIC</span>
+                <input id="audio-music-vol" type="range" min="0" max="100" value="45">
+            </div>
+            <div class="audio-slider-row">
+                <span class="audio-label">SFX</span>
+                <input id="audio-sfx-vol" type="range" min="0" max="100" value="60">
+            </div>
         </div>
     </div>
 
@@ -242,10 +354,21 @@
             damageNumbers = [];
             shockwaves = [];
             buildLevel();
-            // Move player just inside the boss trigger so the cutscene fires
+            // Move player just before the boss approach. If this stage has a
+            // mini-boss antechamber (stages 3+), drop the player just BEFORE
+            // the entry gate so they fight WARDEN-K first, then proceed to
+            // the boss arena. Otherwise drop them at the boss trigger.
             const stg = STAGES[stageIdx];
             const triggerX = (stg && stg.bossTriggerX) || 4000;
-            player.x = triggerX - 30;
+            // Antechamber entry gate sits at (triggerX - 940). Land the
+            // player ~50px to the left of the entry gate so they trigger it
+            // by walking right.
+            const hasAntechamber = stageIdx >= 2;  // stages 3-8
+            if (hasAntechamber) {
+                player.x = triggerX - 1000;
+            } else {
+                player.x = triggerX - 30;
+            }
             player.y = 400;
             player.vx = 0; player.vy = 0;
             player.hp = player.maxHp;
@@ -277,10 +400,14 @@
                     case 'coins':
                         player.coins += 1000;
                         break;
+                    case 'scrap':
+                        player.scrap += 100;
+                        break;
                     case 'evolve':
-                        // Jump straight to CONVOY (max tier) so testing the
-                        // final-form silhouette doesn't require six clicks.
-                        while (player.evoLevel < EVOLUTIONS.length - 1) {
+                        // Step up exactly ONE tier. (Use the per-tier buttons
+                        // below to jump to a specific tier.) Skips RC check
+                        // for fast testing.
+                        if (player.evoLevel < EVOLUTIONS.length - 1) {
                             const next = player.evoLevel + 1;
                             player.robotCoins = Math.max(player.robotCoins, EVOLUTIONS[next].rcCost);
                             evolvePlayer(player);
@@ -318,7 +445,98 @@
                         player.coins += 5000;
                         player.robotCoins += 100;
                         break;
+                    case 'resetsave':
+                        // Wipe persisted save (unlocks, audio settings, meta stats)
+                        if (confirm('⚠ Reset all saved progress?\n\nThis will lock all characters except the starter, clear weapon unlocks, reset all stats, and reload the game.')) {
+                            if (typeof save !== 'undefined') save.reset();
+                            // Also clear the player's current weapon unlocks
+                            if (typeof player !== 'undefined') {
+                                for (let i = 1; i < player.weaponsUnlocked.length; i++) {
+                                    player.weaponsUnlocked[i] = false;
+                                }
+                                player.weaponTier = 0;
+                            }
+                            // Reload the page to reset to a fully clean state
+                            location.reload();
+                        }
+                        break;
                 }
+            });
+        }
+
+        // Bind per-tier EVO buttons — instantly set player to specific evo tier
+        // for visual testing. Bypasses cost checks.
+        for (const btn of document.querySelectorAll('#dev-panel button[data-evo]')) {
+            btn.addEventListener('click', () => {
+                if (typeof player === 'undefined' || typeof EVOLUTIONS === 'undefined') return;
+                const target = parseInt(btn.dataset.evo, 10);
+                if (isNaN(target) || target < 0 || target >= EVOLUTIONS.length) return;
+
+                if (target === 0) {
+                    // Reset to BASE — manually undo all evolution bonuses
+                    let cur = player.evoLevel;
+                    while (cur > 0) {
+                        const evo = EVOLUTIONS[cur];
+                        player.maxHp -= evo.hpBonus || 0;
+                        player.dmgMul /= evo.dmgBonus || 1;
+                        player.speed -= evo.speedBonus || 0;
+                        const wB = evo.widthBonus || 0;
+                        const hB = evo.heightBonus || 0;
+                        if (wB || hB) {
+                            player.x += wB / 2;
+                            player.y += hB;
+                            player.w -= wB;
+                            player.h -= hB;
+                        } else if (evo.sizeBonus) {
+                            player.w -= evo.sizeBonus;
+                            player.h -= Math.round(evo.sizeBonus * 1.4);
+                        }
+                        if (evo.name === 'MK-III') player.maxJumpsBonus = Math.max(0, player.maxJumpsBonus - 1);
+                        cur--;
+                    }
+                    player.evoLevel = 0;
+                    player.hp = player.maxHp;
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: '★ DEVOLVED TO BASE ★', timer: 90, color: '#888888' };
+                    }
+                } else if (target > player.evoLevel) {
+                    // Evolve up to target tier (one step at a time, animations included)
+                    while (player.evoLevel < target) {
+                        const next = player.evoLevel + 1;
+                        player.robotCoins = Math.max(player.robotCoins, EVOLUTIONS[next].rcCost);
+                        evolvePlayer(player);
+                    }
+                } else if (target < player.evoLevel) {
+                    // Devolve, then evolve up to target
+                    let cur = player.evoLevel;
+                    while (cur > 0) {
+                        const evo = EVOLUTIONS[cur];
+                        player.maxHp -= evo.hpBonus || 0;
+                        player.dmgMul /= evo.dmgBonus || 1;
+                        player.speed -= evo.speedBonus || 0;
+                        const wB = evo.widthBonus || 0;
+                        const hB = evo.heightBonus || 0;
+                        if (wB || hB) {
+                            player.x += wB / 2;
+                            player.y += hB;
+                            player.w -= wB;
+                            player.h -= hB;
+                        } else if (evo.sizeBonus) {
+                            player.w -= evo.sizeBonus;
+                            player.h -= Math.round(evo.sizeBonus * 1.4);
+                        }
+                        if (evo.name === 'MK-III') player.maxJumpsBonus = Math.max(0, player.maxJumpsBonus - 1);
+                        cur--;
+                    }
+                    player.evoLevel = 0;
+                    player.hp = player.maxHp;
+                    while (player.evoLevel < target) {
+                        const next = player.evoLevel + 1;
+                        player.robotCoins = Math.max(player.robotCoins, EVOLUTIONS[next].rcCost);
+                        evolvePlayer(player);
+                    }
+                }
+                // If target === current, do nothing
             });
         }
 
@@ -392,6 +610,65 @@
             }
             ev.preventDefault();
         });
+
+        // ===== AUDIO PANEL WIRING =====
+        // The `audio` global is defined inside game.js. We bind UI controls here
+        // and unlock the AudioContext on the first user interaction (browsers
+        // require a gesture before audio can play).
+        const audioMuteBtn = document.getElementById('audio-mute-btn');
+        const audioMusicVol = document.getElementById('audio-music-vol');
+        const audioSfxVol = document.getElementById('audio-sfx-vol');
+
+        let audioMuted = false;
+        function updateMuteUI() {
+            if (audioMuted) {
+                audioMuteBtn.textContent = '🔇';
+                audioMuteBtn.classList.add('muted');
+            } else {
+                audioMuteBtn.textContent = '🔊';
+                audioMuteBtn.classList.remove('muted');
+            }
+        }
+        audioMuteBtn.addEventListener('click', () => {
+            audioMuted = !audioMuted;
+            if (typeof audio !== 'undefined') {
+                audio.unlock();
+                audio.setMuted(audioMuted);
+            }
+            updateMuteUI();
+        });
+        audioMusicVol.addEventListener('input', () => {
+            if (typeof audio !== 'undefined') audio.setMusicVol(audioMusicVol.value / 100);
+        });
+        audioSfxVol.addEventListener('input', () => {
+            if (typeof audio !== 'undefined') audio.setSfxVol(audioSfxVol.value / 100);
+        });
+
+        // Unlock AudioContext on first interaction (browser autoplay policy).
+        // Some browsers require this; otherwise music never starts.
+        function unlockAudioOnce() {
+            if (typeof audio !== 'undefined') audio.unlock();
+        }
+        document.addEventListener('keydown', unlockAudioOnce, { once: false });
+        document.addEventListener('click', unlockAudioOnce, { once: false });
+
+        // M key toggles mute (in addition to the button)
+        document.addEventListener('keydown', (ev) => {
+            if (ev.code === 'KeyM' && !ev.repeat) {
+                audioMuteBtn.click();
+            }
+        });
+
+        // Sync audio panel UI to whatever save.load applied to the audio module.
+        // Runs after a short delay to ensure game.js has executed save.load().
+        function syncAudioUI() {
+            if (typeof audio === 'undefined') return;
+            audioMusicVol.value = Math.round(audio.getMusicVol() * 100);
+            audioSfxVol.value = Math.round(audio.getSfxVol() * 100);
+            audioMuted = audio.isMuted();
+            updateMuteUI();
+        }
+        setTimeout(syncAudioUI, 50);
     </script>
 </body>
 </html>
