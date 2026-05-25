@@ -72,6 +72,33 @@ function normalizeEnemy(e) {
     if (!isFinite(e.y)) e.y = e.baseY || 0;
 }
 
+// Wipe the save and reload the page from a clean slate. Asks the user to
+// confirm via a native dialog so a stray Y press doesn't nuke progress.
+// Used by the death-screen "FULL RESET" prompt and the intro-screen
+// "WIPE SAVE" prompt. Returns true if the wipe + reload was triggered.
+function performFullSaveReset() {
+    const ok = confirm(
+        '⚠ Wipe all saved progress?\n\n' +
+        '• Locks every character except the starter\n' +
+        '• Clears every weapon unlock\n' +
+        '• Resets all-time stats (deaths, bosses, farthest stage, RC)\n' +
+        '• Reloads the page\n\n' +
+        'This cannot be undone. Continue?'
+    );
+    if (!ok) return false;
+    if (typeof save !== 'undefined') save.reset();
+    // Also clear in-memory weapon unlocks so the reload starts clean even
+    // if some other code touches save state before reload finishes.
+    if (typeof player !== 'undefined' && Array.isArray(player.weaponsUnlocked)) {
+        for (let i = 1; i < player.weaponsUnlocked.length; i++) {
+            player.weaponsUnlocked[i] = false;
+        }
+        player.weaponTier = 0;
+    }
+    location.reload();
+    return true;
+}
+
 // ============================================================================
 // AUDIO SYSTEM (Step 1 of polish pass — synthwave/industrial soundtrack + SFX)
 // ============================================================================
@@ -14464,6 +14491,11 @@ function drawIntro() {
     ctx.fillText('TIP: After each boss, find a CAGE and shoot it to free a captive who fights with you.', canvas.width / 2, y + 15);
     ctx.fillText('TIP: Walls block bullets - use cover. Headshots = CRIT. Dash through bullets for slow-mo.', canvas.width / 2, y + 35);
 
+    // ===== SAVE STATUS PANEL =====
+    // Shows what's loaded from localStorage so the player can tell at a
+    // glance whether they have prior progress. Press Y to wipe + start fresh.
+    drawIntroSavePanel();
+
     // Start prompt
     const blink = Math.floor(performance.now() / 400) % 2 === 0;
     if (blink) {
@@ -14475,6 +14507,67 @@ function drawIntro() {
         ctx.shadowBlur = 0;
     }
     ctx.textAlign = 'left';
+}
+
+// Lower-left save status panel for the intro screen. Shows whether a save
+// exists, what's unlocked, and how to wipe it.
+function drawIntroSavePanel() {
+    if (typeof save === 'undefined') return;
+    const meta = save.getMeta();
+    const unlockedChars = (typeof CHARACTERS !== 'undefined')
+        ? CHARACTERS.filter(c => c.unlocked).length
+        : 1;
+    const unlockedWeapons = (typeof saveData_weapons !== 'undefined' && Array.isArray(saveData_weapons))
+        ? saveData_weapons.filter(w => w).length
+        : 1;
+    // Heuristic: we treat "has save" as any meta stat > 0 OR more than the
+    // starter character/weapon being unlocked.
+    const hasSave = (meta.totalDeaths + meta.totalWins + meta.bossesDefeated +
+        meta.farthestStage + meta.totalRC + meta.totalCoins) > 0
+        || unlockedChars > 1 || unlockedWeapons > 1;
+
+    const panelX = 30;
+    const panelY = canvas.height - 200;
+    const panelW = 280;
+    const panelH = 138;
+
+    // Backplate
+    ctx.fillStyle = 'rgba(0, 20, 30, 0.85)';
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.strokeStyle = hasSave ? '#00ffaa' : '#666';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(panelX, panelY, panelW, panelH);
+
+    // Header
+    ctx.fillStyle = hasSave ? '#00ffaa' : '#888';
+    ctx.shadowColor = hasSave ? '#00ffaa' : '#666';
+    ctx.shadowBlur = hasSave ? 8 : 0;
+    ctx.font = 'bold 14px Courier New';
+    ctx.textAlign = 'left';
+    ctx.fillText(hasSave ? '◆ SAVED PROGRESS' : '◇ NO SAVED PROGRESS', panelX + 12, panelY + 22);
+    ctx.shadowBlur = 0;
+
+    // Status lines
+    ctx.font = '12px Courier New';
+    if (hasSave) {
+        ctx.fillStyle = '#aaddff';
+        ctx.fillText(`Characters unlocked:  ${unlockedChars} / ${CHARACTERS.length}`, panelX + 12, panelY + 44);
+        ctx.fillText(`Weapons unlocked:     ${unlockedWeapons} / ${saveData_weapons ? saveData_weapons.length : 19}`, panelX + 12, panelY + 62);
+        ctx.fillText(`Farthest stage:       ${meta.farthestStage} / 8`, panelX + 12, panelY + 80);
+        ctx.fillText(`Lifetime: ${meta.totalDeaths}d ${meta.totalWins}w ${meta.bossesDefeated}🤖`, panelX + 12, panelY + 98);
+        // Wipe hint
+        ctx.fillStyle = '#ff8888';
+        ctx.font = '11px Courier New';
+        ctx.fillText('Press Y to WIPE SAVE & start fresh', panelX + 12, panelY + 122);
+    } else {
+        ctx.fillStyle = '#888';
+        ctx.fillText('Auto-saves as you play.', panelX + 12, panelY + 50);
+        ctx.fillText('Unlock characters by clearing stages.', panelX + 12, panelY + 68);
+        ctx.fillText('Buy weapons at shops to unlock them.', panelX + 12, panelY + 86);
+        ctx.fillStyle = '#666';
+        ctx.font = '11px Courier New';
+        ctx.fillText('(no progress to wipe yet)', panelX + 12, panelY + 122);
+    }
 }
 
 function drawSwitches() {
@@ -15838,21 +15931,26 @@ function drawGameOver() {
     ctx.shadowBlur = 20;
     ctx.font = '48px Courier New';
     ctx.textAlign = 'center';
-    ctx.fillText('DESTROYED', canvas.width / 2, canvas.height / 2 - 20);
+    ctx.fillText('DESTROYED', canvas.width / 2, canvas.height / 2 - 40);
     ctx.shadowBlur = 0;
     ctx.fillStyle = '#aaa';
     ctx.font = '18px Courier New';
-    ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 + 20);
+    ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2);
     // All-time meta stats (persisted across runs)
     if (typeof save !== 'undefined') {
         const meta = save.getMeta();
         ctx.fillStyle = '#88ddff';
         ctx.font = '13px Courier New';
-        ctx.fillText(`All-time: ${meta.totalDeaths} deaths • ${meta.bossesDefeated} bosses defeated • farthest stage: ${meta.farthestStage}/8`, canvas.width / 2, canvas.height / 2 + 48);
+        ctx.fillText(`All-time: ${meta.totalDeaths} deaths • ${meta.bossesDefeated} bosses defeated • farthest stage: ${meta.farthestStage}/8`, canvas.width / 2, canvas.height / 2 + 28);
     }
-    ctx.fillStyle = '#aaa';
+    // Restart options — two paths so the player can choose between
+    // "try again with everything I unlocked" and "wipe everything fresh".
+    ctx.fillStyle = '#aaffaa';
     ctx.font = '18px Courier New';
-    ctx.fillText('Press R to restart', canvas.width / 2, canvas.height / 2 + 80);
+    ctx.fillText('Press R — RESTART (keeps your unlocks)', canvas.width / 2, canvas.height / 2 + 70);
+    ctx.fillStyle = '#ff8888';
+    ctx.font = '16px Courier New';
+    ctx.fillText('Press Y — FULL RESET (wipe save & start fresh)', canvas.width / 2, canvas.height / 2 + 100);
     ctx.textAlign = 'left';
 }
 
@@ -17611,6 +17709,16 @@ function gameLoop(timestamp) {
         }
         if (!keys['Enter'] && !keys['NumpadEnter']) player.midEnterHeld = false;
     }
+
+    // Full save reset (death screen + intro screen). Edge-triggered with
+    // a held flag so the same press isn't read twice. Native confirm()
+    // dialog handles the second-step "are you sure" so the user can't lose
+    // their save with a stray keypress.
+    if ((gameState === 'dead' || gameState === 'intro') && keys['KeyY'] && !player.fullResetHeld) {
+        player.fullResetHeld = true;
+        performFullSaveReset();
+    }
+    if (!keys['KeyY']) player.fullResetHeld = false;
 
     // Restart - back to character select
     if ((gameState === 'dead' || gameState === 'won') && keys['KeyR']) {
