@@ -17683,7 +17683,7 @@ function startFinale() {
         player: {
             x: 200, y: 380,
             vx: 0, vy: 0,
-            w: 60, h: 145,
+            w: 70, h: 140,
             hp: 1500, maxHp: 1500,
             facing: 1,
             shootTimer: 0,
@@ -17703,51 +17703,13 @@ function startFinale() {
             dashHeld: false,
             specialTimer: 0,        // ticks down during special; >0 = beam blast active
             specialCooldown: 0,
-            specialHeld: false,
-            // Melee combat — Transformers-style punch/kick/uppercut combo
-            meleeTimer: 0,          // active swing window (collision live)
-            meleeCooldown: 0,
-            meleeHeld: false,
-            meleeStage: 0,          // 0=ready, 1=punch, 2=kick, 3=uppercut finisher
-            meleeChain: 0,          // frames since last hit, resets stage if expires
-            comboCount: 0,          // displayed combo number, decays after 60f
-            comboTimer: 0,
-            // Jet booster — hold SPACE in air to fly. Fuel regens on ground / passively in space.
-            jetFuel: 100, jetMax: 100,
-            jetActive: false,
-            jetExhaustPhase: 0,
-            // Aim direction (-1 = up, 0 = forward, +1 = down). Set by arrow up/down.
-            aim: 0,
-            // Charge shot — hold F to charge, release for a heavy beam
-            chargeShotTimer: 0,    // ticks up while held
-            chargeShotMax: 60,
-            chargeShotReady: false,
-            // Cannon "drawn out" visibility — only renders while shooting / aiming
-            gunOutTimer: 0,
-            // Shield (C) — temporary energy barrier blocks bullets
-            shieldTimer: 0,
-            shieldCooldown: 0,
-            shieldHeld: false,
-            // Rocket (R) — homing AOE missile
-            rocketCooldown: 0,
-            rocketHeld: false,
-            // Energy sword (V) — front slash beam
-            swordTimer: 0,
-            swordCooldown: 0,
-            swordHeld: false,
-            // EVOLUTION — player gets a new form before life 2 (sky battle)
-            evolved: false,           // becomes true during cityToSpace cinematic
-            evolveAnim: 0,            // 0..1 transform animation progress
-            // Hyper mode (B key) — temporary damage+speed boost in evolved form only
-            hyperTimer: 0,
-            hyperCooldown: 0,
-            hyperHeld: false
+            specialHeld: false
         },
         // Boss — EARTHBREAKER. 2 lives: city → space.
         boss: {
             x: 760, y: 320,
             w: 130, h: 220,
-            hp: 4000, maxHp: 4000,
+            hp: 4500, maxHp: 4500,
             life: 1,                // 1 = city form, 2 = space form
             phase: 1,
             attackTimer: 200,      // first attack delay
@@ -17756,10 +17718,6 @@ function startFinale() {
             spawnY: -300,          // starts off-screen above
             landed: false,
             phase2Triggered: false,
-            phase3Triggered: false,
-            phase4Triggered: false,
-            // Sky form (life 2) — boss adopts a new stronger color palette
-            evolved: false,
             walkPhase: 0,
             facing: -1,
             armSwing: 0,
@@ -17768,45 +17726,8 @@ function startFinale() {
             patrolDir: 1,
             // Space form additions (set when life 2 begins)
             orbitAng: 0,
-            specialActive: false,
-            // Melee reactions
-            stagger: 0,             // ticks down; >0 disables attacks + visual lean
-            knockback: 0,           // frames of knockback drift
-            knockbackVx: 0,
-            knockbackVy: 0,
-            hitFlash: 0,            // white tint when struck by melee
-            shakeOffset: 0,         // micro-shake on stagger
-            launchVy: 0,            // uppercut launch velocity in space
-            damageTakenSinceFlash: 0,
-            // New attack state — boss melee + charge + grab
-            armAttackTimer: 0,      // >0 = arm extended for hammerfist swipe
-            armAttackSide: 0,       // -1 left arm / +1 right arm
-            chargeTimer: 0,         // dash-charge in progress
-            chargeVx: 0,
-            grabTimer: 0,           // boss "grab and slam" animation
-            grabbedPlayer: false,   // true while player is held mid-grab
-            slamWindup: 0,          // ground slam wind-up (chest above head)
-            // Hazard zones — telegraphed laser zones / lava patches that linger
-            hazards: [],            // {x, y, w, h, life, color, dmg, kind}
-            // Minion swarm spawned in phase 2 (city) and life 2 (space)
-            minionsToSpawn: 0,      // counter; spawns one minion per N frames
-            minionSpawnCooldown: 0
+            specialActive: false
         },
-        // Boss minions — tiny drones (~30x30) that home toward player and explode
-        minions: [],
-        // Floating "PUNCH!" "KICK!" "UPPERCUT!" "CLASH!" hit-text popups
-        hitTexts: [],
-        // Slow-mo factor (1.0 normal, lower = slower) used for clash + uppercut moments
-        slowMo: 1.0,
-        slowMoTimer: 0,
-        // Cinematic camera zoom — triggered on big hits / phase transitions
-        cameraZoom: 1.0,
-        cameraZoomTarget: 1.0,
-        cameraZoomFocusX: 0,
-        cameraZoomFocusY: 300,
-        // Anime-style speed-line overlay timer (>0 = lines visible)
-        speedLinesTimer: 0,
-        speedLinesIntensity: 0,
         bullets: [],               // hero shots (giant-scale)
         enemyBullets: [],          // boss shots
         particles: [],             // local FX
@@ -17857,11 +17778,7 @@ function updateFinale() {
     if (finale.bannerTimer > 0) finale.bannerTimer--;
     if (finale.phase === 'intro')   updateFinaleIntro();
     else if (finale.phase === 'dialogue1') updateFinaleDialogue();
-    else if (finale.phase === 'transformAnime') updateFinaleTransformAnime();
     else if (finale.phase === 'dialogue2') updateFinaleDialogue();
-    else if (finale.phase === 'knockdown')      updateFinaleKnockdown();
-    else if (finale.phase === 'knockdownDialogue') updateFinaleDialogue();
-    else if (finale.phase === 'knockdownRevive') updateFinaleKnockdownRevive();
     else if (finale.phase === 'battle')  updateFinaleBattle();
     else if (finale.phase === 'cityToSpace') updateFinaleCityToSpace();
     else if (finale.phase === 'battle2') updateFinaleBattle();   // same battle loop, life 2
@@ -17925,8 +17842,7 @@ function updateFinaleIntro() {
             ],
             idx: 0,
             charTimer: 0,
-            advanceHeld: false,
-            next: 'transformAnime'   // route through the anime transform scene before battle
+            advanceHeld: false
         };
         f.bannerTimer = 0;
     }
@@ -17944,252 +17860,18 @@ function updateFinaleDialogue() {
         d.idx++;
         d.charTimer = 0;
         if (d.idx >= d.lines.length) {
-            // Done — for dialogue1 route through the anime transformation
-            // scene before battle starts. dialogue2 routes straight into
-            // life-2 battle so the boss arrives in space form. Other
-            // dialogue uses (knockdown rescue) handle their own routing
-            // via `f.dialogue.next`.
-            const next = f.dialogue && f.dialogue.next;
+            // Done — start (or resume) battle. dialogue2 routes to life-2
+            // battle so the boss arrives in space form.
+            f.phase = 'battle';
+            f.timer = 0;
+            f.bannerTimer = 200;
             f.dialogue = null;
-            if (next === 'transformAnime') {
-                f.phase = 'transformAnime';
-                f.timer = 0;
-                f.bannerTimer = 0;
-                audio.play('transform');
-            } else if (next === 'knockdownRevive') {
-                // Allies have finished talking — run the transformation revive
-                f.phase = 'knockdownRevive';
-                f.timer = 0;
-                f.bannerTimer = 0;
-                audio.play('transform');
-            } else {
-                f.phase = 'battle';
-                f.timer = 0;
-                f.bannerTimer = 200;
-                audio.play('bossIntro');
-            }
+            audio.play('bossIntro');
             return;
         }
         audio.play('ui');
     }
     if (!advance) d.advanceHeld = false;
-}
-
-// Anime-style transformation cinematic. Both fighters get full-body
-// silhouette flashes, counter-rotating energy rings, speed lines, and
-// a name banner. ~210 frames total. Then routes into battle.
-function updateFinaleTransformAnime() {
-    const f = finale;
-    const t = f.timer;
-    // Periodic energy rings around each fighter
-    if (t % 10 === 0 && t < 180) {
-        const heroX = f.player.x;
-        const heroY = f.player.y + f.player.h / 2;
-        spawnFinaleShockwave(heroX, heroY, 80 + Math.random() * 40,
-            f.player.charAccent || '#88ffff', 1.0);
-        spawnFinaleShockwave(f.boss.x, f.boss.y + f.boss.h / 2,
-            100 + Math.random() * 60, '#ff44ff', 1.0);
-    }
-    // Bursts at peaks
-    if (t === 60) {
-        for (let k = 0; k < 30; k++) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(f.player.x, f.player.y + f.player.h / 2,
-                f.player.charAccent || '#88ffff',
-                Math.cos(ang) * 7, Math.sin(ang) * 7, 50);
-        }
-        screenShake = 12;
-    }
-    if (t === 120) {
-        for (let k = 0; k < 40; k++) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(f.boss.x, f.boss.y + f.boss.h / 2,
-                '#ff44ff', Math.cos(ang) * 8, Math.sin(ang) * 8, 60);
-        }
-        screenShake = 18;
-    }
-    if (t === 180) {
-        // Final flash — both fighters lock in
-        spawnFinaleShockwave(canvas.width / 2, canvas.height / 2, 600, '#ffffff', 1.0);
-        for (let k = 0; k < 60; k++) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(canvas.width / 2, canvas.height / 2,
-                '#ffffff', Math.cos(ang) * 10, Math.sin(ang) * 10, 60);
-        }
-        screenShake = 24;
-        audio.play('evolve');
-    }
-    if (t >= 220) {
-        f.phase = 'battle';
-        f.timer = 0;
-        f.bannerTimer = 200;
-        audio.play('bossIntro');
-    }
-}
-
-// Called from every "player dies during finale" site. The first time the
-// player would die in the city fight (life 1), we hijack the death and
-// run the rescue sequence: knockdown → allies arrive → dialogue → revive
-// transformation → launch back into battle. Returns true if the death was
-// hijacked (caller should NOT set gameState='dead').
-function finaleOnPlayerDeath() {
-    const f = finale;
-    if (!f) return false;
-    // Only revive once, and only during life 1. Death in life 2 (space)
-    // routes through the normal death screen.
-    if (f.boss.life !== 1 || f.usedRevive) return false;
-    f.usedRevive = true;
-    f.phase = 'knockdown';
-    f.timer = 0;
-    f.bannerTimer = 0;
-    f.player.knockedDown = true;
-    f.player.vx = 0;
-    f.player.vy = -3;     // gentle launch
-    f.player.invincible = 9999;   // immune during the whole sequence
-    spawnFinaleShockwave(f.player.x, f.player.y + f.player.h, 200, '#ff3333', 1.0);
-    screenShake = 24;
-    hitStop = 8;
-    audio.play('death');
-    return true;
-}
-
-// Knockdown phase — player falls to the ground, allies arrive from the
-// left, then we hand off to a dialogue beat.
-function updateFinaleKnockdown() {
-    const f = finale;
-    const p = f.player;
-    const t = f.timer;
-    // Player drops to ground over ~80 frames
-    if (t < 80) {
-        p.vy += 0.6;
-        p.y += p.vy;
-        if (p.y >= 380) { p.y = 380; p.vy = 0; }
-        if (t % 6 === 0) {
-            spawnFinaleParticle(p.x + (Math.random() - 0.5) * 30,
-                p.y + p.h, '#ff3333',
-                (Math.random() - 0.5) * 3, -1, 30);
-        }
-    }
-    // At t=90, allies materialize on the left
-    if (t === 90) {
-        f.allies = [
-            { x: -40, y: 380, targetX: 80,  color: '#88ff88', name: 'JADE' },
-            { x: -40, y: 380, targetX: 130, color: '#44aaff', name: 'STORM' },
-            { x: -40, y: 380, targetX: 180, color: '#ff8844', name: 'EMBER' }
-        ];
-    }
-    // Allies walk in
-    if (f.allies) {
-        for (const a of f.allies) {
-            a.x += (a.targetX - a.x) * 0.08;
-        }
-    }
-    // After allies arrive, queue the dialogue
-    if (t === 160) {
-        f.dialogue = {
-            lines: [
-                { speaker: 'JADE',  text: 'Get up. The world still needs you.', color: '#88ff88' },
-                { speaker: 'STORM', text: 'We channel everything we are into this last shot.', color: '#44aaff' },
-                { speaker: 'EMBER', text: 'TILL ALL ARE ONE. Take it to the stars.', color: '#ff8844' }
-            ],
-            idx: 0,
-            charTimer: 0,
-            advanceHeld: false,
-            next: 'knockdownRevive'
-        };
-        f.phase = 'knockdownDialogue';
-        f.timer = 0;
-    }
-}
-
-// Revive transformation — player glows up, gets pushed into hyper mode,
-// then launches off-screen. Boss is reset for the space fight.
-function updateFinaleKnockdownRevive() {
-    const f = finale;
-    const p = f.player;
-    const t = f.timer;
-    p.knockedDown = false;
-    // Allies wave during the rise (just used to trigger drawFinaleAllies wave anim)
-    if (f.allies) {
-        for (const a of f.allies) {
-            a.waveT = (a.waveT || 0) + 0.18;
-        }
-    }
-    // Phases of the revive
-    if (t < 60) {
-        // Player kneels / starts glowing
-        p.y = 380;
-        if (t % 4 === 0) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(p.x, p.y + p.h * 0.5,
-                p.charAccent || '#88ffff',
-                Math.cos(ang) * 5, Math.sin(ang) * 5, 40);
-        }
-    } else if (t < 120) {
-        // Stand up + power burst
-        p.y = 380;
-        if (t === 60) {
-            spawnFinaleShockwave(p.x, p.y + p.h / 2, 240,
-                p.charAccent || '#88ffff', 1.0);
-            screenShake = 14;
-            audio.play('evolve');
-        }
-        if (t % 4 === 0) {
-            spawnFinaleShockwave(p.x, p.y + p.h / 2, 60 + Math.random() * 80,
-                p.charAccent || '#88ffff', 0.7);
-        }
-    } else if (t < 200) {
-        // Launch upward
-        p.y -= 3 + (t - 120) * 0.08;
-        if (t % 2 === 0) {
-            spawnFinaleParticle(p.x + (Math.random() - 0.5) * 20,
-                p.y + p.h, p.charAccent || '#88ffff',
-                (Math.random() - 0.5) * 1, 6, 40);
-        }
-        if (t === 130) audio.play('warpIn');
-    } else if (t === 200) {
-        // Switch to space — same setup as cityToSpace would do
-        f.allies = null;
-        f.stars = [];
-        for (let s = 0; s < 200; s++) {
-            f.stars.push({
-                x: Math.random() * canvas.width,
-                y: Math.random() * canvas.height,
-                size: Math.random() * 2 + 0.5,
-                twinkle: Math.random() * Math.PI * 2
-            });
-        }
-        // Sky battle: player at full HP + hyper mode buff
-        p.x = 200; p.y = 300; p.vy = 0;
-        p.hp = p.maxHp; p.invincible = 90;
-        p.jumpsUsed = 0;
-        if (typeof p.jetMax === 'number') p.jetFuel = p.jetMax;
-        p.hyperTimer = (p.hyperTimer || 0) + 600;
-        f.boss.life = 2;
-        f.boss.hp = f.boss.maxHp;
-        f.boss.phase = 2;
-        f.boss.phase2Triggered = true;
-        f.boss.x = 700; f.boss.y = 240;
-        f.boss.attackTimer = 90;
-        f.boss.telegraphTimer = 0;
-        f.boss.orbitAng = 0;
-        f.boss.specialActive = false;
-        f.bullets.length = 0;
-        f.enemyBullets.length = 0;
-        f.cameraX = 0;
-        f.dialogue = {
-            lines: [
-                { speaker: 'EARTHBREAKER', text: 'Impossible — you should be ASH.', color: '#ff44ff' },
-                { speaker: 'YOU',          text: 'I came back. Now finish this — in orbit.', color: '#88ffff' }
-            ],
-            idx: 0,
-            charTimer: 0,
-            advanceHeld: false,
-            next: 'battle'
-        };
-        f.phase = 'dialogue2';
-        f.timer = 0;
-    }
 }
 
 // Special move — wide piercing energy beam from the chest core. Long
@@ -18204,7 +17886,7 @@ function finaleSpecial() {
         f.bullets.push({
             x: muzzleX, y: muzzleY + i * 10,
             vx: p.facing * 22, vy: 0,
-            life: 90, damage: 50,
+            life: 90, damage: 80,
             color: p.charAccent || '#88ffff',
             pierce: true
         });
@@ -18224,18 +17906,6 @@ function updateFinaleBattle() {
     const p = f.player;
     const b = f.boss;
     const inSpace = b.life === 2;
-    // While boss is UNLEASHED but we haven't fired the kill cinematic yet,
-    // floor the player's HP at 1 so they survive the overwhelming barrage
-    // until HP drops to ≤100, which triggers the cinematic. After the
-    // cinematic queues, force long invincibility so the player survives
-    // the deferred transition and arrives in the cinematic at low HP.
-    if (b.unleashed && !b.killCinematicQueued && p.hp <= 1) {
-        p.hp = 1;
-    }
-    if (b.killCinematicQueued) {
-        p.invincible = Math.max(p.invincible, 30);
-        if (p.hp <= 1) p.hp = 1;
-    }
     if (p.invincible > 0) p.invincible--;
     if (p.shootTimer > 0) p.shootTimer--;
     if (p.recoil > 0) p.recoil--;
@@ -18243,54 +17913,11 @@ function updateFinaleBattle() {
     if (p.dashCooldown > 0) p.dashCooldown--;
     if (p.specialTimer > 0) p.specialTimer--;
     if (p.specialCooldown > 0) p.specialCooldown--;
-    if (p.meleeTimer > 0) p.meleeTimer--;
-    if (p.meleeCooldown > 0) p.meleeCooldown--;
-    if (p.meleeChain > 0) {
-        p.meleeChain--;
-        if (p.meleeChain === 0) p.meleeStage = 0;   // chain window expired
-    }
-    if (p.comboTimer > 0) {
-        p.comboTimer--;
-        if (p.comboTimer === 0) p.comboCount = 0;
-    }
-    if (b.stagger > 0) b.stagger--;
-    if (b.hitFlash > 0) b.hitFlash--;
-    if (b.knockback > 0) {
-        b.knockback--;
-        b.x += b.knockbackVx;
-        if (inSpace) b.y += b.knockbackVy;
-        b.knockbackVx *= 0.88;
-        b.knockbackVy *= 0.92;
-    }
-    // Slow-mo decays back to normal
-    if (f.slowMoTimer > 0) {
-        f.slowMoTimer--;
-        if (f.slowMoTimer === 0) f.slowMo = 1.0;
-    }
-    // Cinematic camera zoom — eases toward target each frame, decays target
-    // back to 1.0 over 60f after a hit.
-    f.cameraZoom += (f.cameraZoomTarget - f.cameraZoom) * 0.18;
-    if (f.cameraZoomTarget > 1.0) {
-        f.cameraZoomTarget = Math.max(1.0, f.cameraZoomTarget - 0.005);
-    }
-    // Anime speed-lines overlay decays over its window
-    if (f.speedLinesTimer > 0) f.speedLinesTimer--;
-    // Hit text popups float up + fade
-    for (let i = f.hitTexts.length - 1; i >= 0; i--) {
-        const ht = f.hitTexts[i];
-        ht.y += ht.vy;
-        ht.vy *= 0.92;
-        ht.life--;
-        if (ht.life <= 0) f.hitTexts.splice(i, 1);
-    }
 
     // === Movement ===
     let dx = 0;
-    const prevFacing = p.facing;
     if (keys['KeyA'] || keys['ArrowLeft'])  { dx = -1; p.facing = -1; }
     if (keys['KeyD'] || keys['ArrowRight']) { dx =  1; p.facing =  1; }
-    // Snap walk phase to 0 on direction change so legs don't catch mid-stride
-    if (p.facing !== prevFacing) p.walkPhase = 0;
     const baseSpeed = inSpace ? 5 : 4;
     p.vx = dx * baseSpeed + (p.dashTimer > 0 ? p.facing * 8 : 0);
     p.x += p.vx;
@@ -18300,10 +17927,10 @@ function updateFinaleBattle() {
     if (inSpace) {
         // Floor-less arena; player can hover in space (gravity halved)
         if (p.x < 60) p.x = 60;
-        if (p.x > 1340) p.x = 1340;
+        if (p.x > 940) p.x = 940;
     } else {
         if (p.x < 60) p.x = 60;
-        if (p.x > 1100) p.x = 1100;     // bigger arena, more room to roam
+        if (p.x > 700) p.x = 700;       // wider than before so the player can roam
         // Camera follows the boss for the "city traversal" feel
         f.cameraX = (b.x - canvas.width / 2) * 0.4;
     }
@@ -18332,44 +17959,6 @@ function updateFinaleBattle() {
         }
     }
     if (!jumpKey) p.jumpHeld = false;
-
-    // === JET BOOSTER ===
-    // Hold SPACE while airborne to thrust upward. Engages only after the
-    // player has used their double-jump (or after a brief hang post-jump),
-    // so a fresh tap fires jump only and a sustained hold fires jet.
-    // Consumes jetFuel; refuels on ground (+1.5/f) and passively in space (+0.5/f).
-    p.jetActive = false;
-    // Jet ready when: jump key held, off ground, has fuel, AND either we're
-    // already falling (past peak) OR the player has consumed their second jump.
-    const pastPeak = p.vy >= -2;
-    const jetEligible = jumpKey && !onGround && p.jetFuel > 0 &&
-        (inSpace || p.jumpsUsed >= 2 || pastPeak);
-    if (jetEligible) {
-        p.jetActive = true;
-        const thrust = inSpace ? -0.55 : -0.42;
-        p.vy += thrust;
-        if (p.vy < -10) p.vy = -10;     // cap upward speed
-        // Slight horizontal lift for steering feel
-        if (dx !== 0) p.vx += dx * 0.2;
-        p.jetFuel = Math.max(0, p.jetFuel - (inSpace ? 0.6 : 0.9));
-        p.jetExhaustPhase += 0.4;
-        // Exhaust particles from the boots
-        if (f.timer % 2 === 0) {
-            for (let k = 0; k < 2; k++) {
-                spawnFinaleParticle(
-                    p.x - p.w * 0.18 + (k * p.w * 0.36) + (Math.random() - 0.5) * 6,
-                    p.y + p.h - 4,
-                    ['#ffaa44', '#ff8844', '#ffffff'][k % 3],
-                    (Math.random() - 0.5) * 1.5,
-                    3 + Math.random() * 2, 18);
-            }
-        }
-        audio.play('rocket', { throttle: 90 });
-    } else if (onGround) {
-        p.jetFuel = Math.min(p.jetMax, p.jetFuel + 1.5);
-    } else if (inSpace) {
-        p.jetFuel = Math.min(p.jetMax, p.jetFuel + 0.5);
-    }
 
     // Gravity (halved in space — feels like a floaty arena fight)
     p.vy += inSpace ? 0.18 : 0.5;
@@ -18410,927 +17999,32 @@ function updateFinaleBattle() {
     }
     if (!specialKey) p.specialHeld = false;
 
-    // === MELEE — three independent moves on three keys ===
-    //   G        → PUNCH (mid-range, fast)
-    //   ↓        → KICK  (low arc, knockback)
-    //   H        → UPPERCUT (heavy launch, slow-mo, cinematic)
-    // No "combo cycle" — each key always plays its own move so input is
-    // predictable. Internal `meleeStage` is still used by the renderer to
-    // pick the pose.
-    let meleeKeyPressed = null;
-    let meleeStageRequested = 0;
-    if (keys['KeyG']     && !p.meleeKeyG_held) { meleeKeyPressed = 'G';   meleeStageRequested = 1; p.meleeKeyG_held   = true; }
-    if (keys['ArrowDown']&& !p.meleeKeyDn_held){ meleeKeyPressed = 'Dn';  meleeStageRequested = 2; p.meleeKeyDn_held  = true; }
-    if (keys['KeyH']     && !p.meleeKeyH_held) { meleeKeyPressed = 'H';   meleeStageRequested = 3; p.meleeKeyH_held   = true; }
-    if (!keys['KeyG'])      p.meleeKeyG_held   = false;
-    if (!keys['ArrowDown']) p.meleeKeyDn_held  = false;
-    if (!keys['KeyH'])      p.meleeKeyH_held   = false;
-
-    if (meleeKeyPressed && p.meleeCooldown <= 0) {
-        p.meleeStage = meleeStageRequested;
-        p.meleeChain = 30;
-        p.meleeTimer = 14;       // active hitbox window
-        p.meleeCooldown = p.meleeStage === 3 ? 32 : 16;
-        const reach = 90;
-        const dxBoss = b.x - p.x;
-        const dyBoss = (b.y + b.h * 0.5) - (p.y + p.h * 0.5);
-        const dist = Math.hypot(dxBoss, dyBoss);
-        const inRange = dist < reach + b.w * 0.5 && Math.sign(dxBoss) === p.facing;
-        // Clash detection — boss is mid-telegraph and player swings at it
-        const isClash = inRange && b.telegraphTimer > 6 && p.meleeStage <= 2;
-        let dmg, label, sfx;
-        if (p.meleeStage === 1)      { dmg = 60;  label = 'PUNCH!';    sfx = 'melee'; }
-        else if (p.meleeStage === 2) { dmg = 75;  label = 'KICK!';     sfx = 'meleeHit'; }
-        else                         { dmg = 140; label = 'UPPERCUT!'; sfx = 'axeHit'; }
-        audio.play(sfx);
-        if (isClash) {
-            // CLASH! both rebound, sparks ring, slow-mo
-            label = 'CLASH!';
-            dmg = 60;             // less damage but cancels boss attack
-            b.telegraphTimer = 0;
-            b.attackTimer = Math.max(b.attackTimer, 60);
-            p.vx = -p.facing * 6;
-            if (!inSpace) p.vy = -5;
-            f.slowMo = 0.35;
-            f.slowMoTimer = 24;
-            f.speedLinesTimer = 30;
-            f.speedLinesIntensity = 1.0;
-            screenShake = Math.max(screenShake, 18);
-            hitStop = Math.max(hitStop, 6);
-            const mx = (p.x + b.x) / 2;
-            const my = (p.y + b.y + b.h * 0.4) / 2;
-            spawnFinaleShockwave(mx, my, 120, '#ffffff', 1.0);
-            spawnFinaleShockwave(mx, my, 180, '#ffdd44', 1.0);
-            for (let k = 0; k < 30; k++) {
-                const ang = Math.random() * Math.PI * 2;
-                spawnFinaleParticle(mx, my,
-                    ['#ffffff', '#ffdd44', '#88ffff'][k % 3],
-                    Math.cos(ang) * (4 + Math.random() * 6),
-                    Math.sin(ang) * (4 + Math.random() * 6), 40);
-            }
-            audio.play('crit');
-        }
-        if (inRange) {
-            // Boss invincible during UNLEASH cinematic — sparks only
-            if (b.invincible) {
-                spawnFinaleParticle(b.x - p.facing * b.w * 0.4, b.y + b.h * 0.45,
-                    '#ff0000', 0, 0, 18);
-                f.hitTexts.push({
-                    text: 'NO EFFECT', x: b.x, y: b.y + b.h * 0.3,
-                    vy: -2, life: 30, color: '#ff0000'
-                });
-                audio.play('hit');
-                return;
-            }
-            b.hp -= dmg;
-            b.hitFlash = 10;
-            b.stagger = p.meleeStage === 3 ? 80 : 30;
-            b.shakeOffset = 6;
-            const kbX = p.facing * (p.meleeStage === 3 ? 5 : 3);
-            const kbY = p.meleeStage === 3 ? -8 : 0;
-            b.knockback = p.meleeStage === 3 ? 30 : 14;
-            b.knockbackVx = kbX;
-            b.knockbackVy = kbY;
-            if (inSpace && p.meleeStage === 3) {
-                b.launchVy = -10;
-                b.y += -10;
-            }
-            p.comboCount++;
-            p.comboTimer = 90;
-            f.hitTexts.push({
-                text: label,
-                x: b.x, y: b.y + b.h * 0.3,
-                vy: -2, life: 50, color: isClash ? '#ffdd44' :
-                    (p.meleeStage === 3 ? '#ff44ff' : '#88ffff')
-            });
-            const fx = b.x - p.facing * b.w * 0.4;
-            const fy = b.y + b.h * 0.45;
-            if (p.meleeStage === 3) {
-                spawnFinaleShockwave(fx, fy, 100, '#ff44ff', 1.0);
-                spawnFinaleShockwave(fx, fy, 160, '#ffaa00', 1.0);
-                for (let k = 0; k < 40; k++) {
-                    const ang = Math.random() * Math.PI * 2;
-                    spawnFinaleParticle(fx, fy,
-                        ['#ff44ff', '#ffaa00', '#ffffff'][k % 3],
-                        Math.cos(ang) * (5 + Math.random() * 6),
-                        Math.sin(ang) * (5 + Math.random() * 6), 50);
-                }
-                screenShake = Math.max(screenShake, 24);
-                hitStop = Math.max(hitStop, 8);
-                f.slowMo = 0.4;
-                f.slowMoTimer = 30;
-                f.speedLinesTimer = 36;
-                f.speedLinesIntensity = 1.0;
-                f.cameraZoom = 0.8;
-                f.cameraZoomTarget = 1.4;
-                f.cameraZoomFocusX = (p.x + b.x) / 2;
-                f.cameraZoomFocusY = (p.y + b.y + b.h * 0.4) / 2;
-                audio.play('crit');
-                audio.play('explosion', { throttle: 60 });
-            } else {
-                spawnFinaleShockwave(fx, fy, 50, p.charAccent || '#88ffff', 0.8);
-                for (let k = 0; k < 14; k++) {
-                    const ang = Math.random() * Math.PI * 2;
-                    spawnFinaleParticle(fx, fy,
-                        ['#ffffff', '#ffdd44', p.charAccent || '#88ffff'][k % 3],
-                        Math.cos(ang) * (3 + Math.random() * 3),
-                        Math.sin(ang) * (3 + Math.random() * 3), 30);
-                }
-                screenShake = Math.max(screenShake, 12);
-                hitStop = Math.max(hitStop, 3);
-            }
-            // Lethal melee
-            if (b.hp <= 0) {
-                b.hp = 0;
-                if (b.life === 1) {
-                    f.phase = 'cityToSpace';
-                    f.timer = 0;
-                    f.bannerTimer = 0;
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 320, '#ffffff', 1.0);
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 480, '#ff8844', 1.0);
-                    for (let k = 0; k < 80; k++) {
-                        const ang = Math.random() * Math.PI * 2;
-                        spawnFinaleParticle(b.x, b.y + b.h / 2,
-                            ['#ffffff', '#ffaa00', '#ff4422'][k % 3],
-                            Math.cos(ang) * (4 + Math.random() * 6),
-                            Math.sin(ang) * (4 + Math.random() * 6), 80);
-                    }
-                    screenShake = 36; hitStop = 12;
-                    audio.play('bossKill');
-                } else {
-                    f.phase = 'victory';
-                    f.timer = 0; f.bannerTimer = 240;
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 400, '#ffffff', 1.0);
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 600, '#ffaa00', 1.0);
-                    for (let k = 0; k < 100; k++) {
-                        const ang = Math.random() * Math.PI * 2;
-                        spawnFinaleParticle(b.x, b.y + b.h / 2,
-                            ['#ffffff', '#ffaa00', '#ff4422'][k % 3],
-                            Math.cos(ang) * (4 + Math.random() * 6),
-                            Math.sin(ang) * (4 + Math.random() * 6), 80);
-                    }
-                    screenShake = 40; hitStop = 14;
-                    audio.play('bossKill');
-                }
-                return;
-            }
-        } else {
-            // Whiff — small whoosh particles, no combo advance penalty
-            for (let k = 0; k < 4; k++) {
-                spawnFinaleParticle(p.x + p.facing * 60, p.y + p.h * 0.4,
-                    p.charAccent || '#88ffff',
-                    p.facing * (1 + Math.random() * 2),
-                    (Math.random() - 0.5) * 2, 16);
-            }
-        }
+    // Shoot
+    if ((keys['KeyF'] || keys['KeyJ']) && p.shootTimer <= 0) {
+        finaleShoot();
+        p.shootTimer = 8;
+        p.recoil = 5;
+        audio.play('shoot', { throttle: 60 });
     }
-    // === Aim ===
-    // ↑ = aim up. ↓ is now KICK (handled in the melee block above), so down-aim
-    // is no longer bound. Aim goes back to forward when ↑ released.
-    p.aim = keys['ArrowUp'] ? -1 : 0;
-
-    // Shoot — tap fires immediately, hold builds a charge shot.
-    // Cannon stays "out" for 30 frames after each shot so it doesn't
-    // pop in/out instantly.
-    if (p.gunOutTimer > 0) p.gunOutTimer--;
-    const shootKey = keys['KeyF'] || keys['KeyJ'];
-    if (shootKey) {
-        p.gunOutTimer = 30;     // gun visible while held
-        if (!p.shootHeld) {
-            // Press edge — fire if cooldown is ready
-            p.shootHeld = true;
-            if (p.shootTimer <= 0) {
-                finaleShoot(false);
-                p.shootTimer = 8;
-                p.recoil = 5;
-                audio.play('shoot', { throttle: 60 });
-            }
-        } else {
-            // Held — ramp the charge meter
-            p.chargeShotTimer = Math.min(p.chargeShotMax, p.chargeShotTimer + 1);
-            if (p.chargeShotTimer >= p.chargeShotMax && !p.chargeShotReady) {
-                p.chargeShotReady = true;
-                audio.play('warpIn', { throttle: 100 });
-            }
-            // Charging muzzle particles
-            if (p.chargeShotTimer > 12 && f.timer % 3 === 0 && p.muzzleX) {
-                spawnFinaleParticle(
-                    p.muzzleX + (Math.random() - 0.5) * 16,
-                    p.muzzleY + (Math.random() - 0.5) * 16,
-                    p.charAccent || '#88ffff',
-                    -p.facing * (0.5 + Math.random() * 1.5),
-                    (Math.random() - 0.5) * 1.5, 18);
-            }
-        }
-    } else {
-        if (p.shootHeld && p.chargeShotTimer >= 24) {
-            // Release — charge shot
-            finaleShoot(true);
-            p.shootTimer = 24;
-            p.recoil = 10;
-            p.gunOutTimer = 30;
-            screenShake = Math.max(screenShake, 12);
-            audio.play('shootBeam');
-        }
-        p.shootHeld = false;
-        p.chargeShotTimer = 0;
-        p.chargeShotReady = false;
-    }
-    // Aim arrow up also keeps gun out (for visual readiness)
-    if (keys['ArrowUp']) p.gunOutTimer = Math.max(p.gunOutTimer, 8);
-
-    // === SHIELD (C) — energy barrier blocks bullets for 90f, 240f cooldown ===
-    if (p.shieldTimer > 0) p.shieldTimer--;
-    if (p.shieldCooldown > 0) p.shieldCooldown--;
-    if (keys['KeyC'] && !p.shieldHeld && p.shieldCooldown <= 0) {
-        p.shieldHeld = true;
-        p.shieldTimer = 90;
-        p.shieldCooldown = 300;
-        spawnFinaleShockwave(p.x, p.y + p.h * 0.5, 100, p.charAccent || '#88ffff', 1.0);
-        for (let k = 0; k < 20; k++) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(p.x, p.y + p.h * 0.5,
-                p.charAccent || '#88ffff',
-                Math.cos(ang) * 4, Math.sin(ang) * 4, 30);
-        }
-        audio.play('warpIn');
-    }
-    if (!keys['KeyC']) p.shieldHeld = false;
-
-    // === ROCKET (R) — TRIPLE missile salvo with homing + AOE, 200f cooldown ===
-    if (p.rocketCooldown > 0) p.rocketCooldown--;
-    if (keys['KeyR'] && !p.rocketHeld && p.rocketCooldown <= 0) {
-        p.rocketHeld = true;
-        p.rocketCooldown = 200;
-        // Fire 3 missiles in a fan from shoulder/chest/hip launchers
-        const launchPoints = [
-            { x: p.x + p.facing * 22, y: p.y + p.h * 0.25, vyOff: -3 },     // shoulder, arcs UP first
-            { x: p.x + p.facing * 28, y: p.y + p.h * 0.45, vyOff:  0 },     // chest, straight
-            { x: p.x + p.facing * 22, y: p.y + p.h * 0.65, vyOff:  3 },     // hip, arcs DOWN first
-        ];
-        for (const lp of launchPoints) {
-            f.bullets.push({
-                x: lp.x, y: lp.y,
-                vx: p.facing * 5, vy: lp.vyOff,
-                life: 140, damage: 75,
-                color: '#ffaa44', glow: '#ff4422',
-                big: true, rocket: true, homing: true,
-                aoeRadius: 100, aoeDmg: 50,
-                trailColor: ['#ffaa44', '#ff8844', '#ffffff'][Math.floor(Math.random() * 3)],
-                spawnTime: f.timer
-            });
-            // Launch puff particles
-            for (let k = 0; k < 6; k++) {
-                spawnFinaleParticle(lp.x, lp.y,
-                    ['#ffaa44', '#ff8844', '#222'][k % 3],
-                    -p.facing * (1 + Math.random() * 3) + (Math.random() - 0.5) * 2,
-                    (Math.random() - 0.5) * 3, 28);
-            }
-        }
-        // Big launch shockwave at chest center
-        spawnFinaleShockwave(p.x + p.facing * 24, p.y + p.h * 0.45, 60, '#ffaa44', 0.8);
-        spawnFinaleShockwave(p.x + p.facing * 24, p.y + p.h * 0.45, 100, '#ff4422', 0.8);
-        screenShake = Math.max(screenShake, 12);
-        audio.play('rocket');
-    }
-    if (!keys['KeyR']) p.rocketHeld = false;
-
-    // === ENERGY SWORD (V) — front slash beam, short range, 60f cooldown ===
-    if (p.swordTimer > 0) p.swordTimer--;
-    if (p.swordCooldown > 0) p.swordCooldown--;
-    if (keys['KeyV'] && !p.swordHeld && p.swordCooldown <= 0) {
-        p.swordHeld = true;
-        p.swordTimer = 18;       // animation duration
-        p.swordCooldown = 60;
-        // Apply damage immediately to boss if in range
-        const dxBoss = b.x - p.x;
-        const reach = 160;
-        if (Math.abs(dxBoss) < reach && Math.sign(dxBoss) === p.facing && !b.invincible) {
-            b.hp -= 130;
-            b.hitFlash = 12;
-            b.stagger = 30;
-            b.shakeOffset = 6;
-            b.knockback = 18;
-            b.knockbackVx = p.facing * 4;
-            b.knockbackVy = 0;
-            f.hitTexts.push({
-                text: 'SLASH!', x: b.x, y: b.y + b.h * 0.3,
-                vy: -2, life: 50, color: '#ffffff'
-            });
-            // Sword slash energy burst at boss
-            spawnFinaleShockwave(b.x - p.facing * b.w * 0.3, b.y + b.h * 0.4, 80,
-                '#ffffff', 1.0);
-            spawnFinaleShockwave(b.x - p.facing * b.w * 0.3, b.y + b.h * 0.4, 130,
-                p.charAccent || '#88ffff', 1.0);
-            for (let k = 0; k < 24; k++) {
-                const ang = Math.random() * Math.PI * 2;
-                spawnFinaleParticle(b.x - p.facing * b.w * 0.3, b.y + b.h * 0.4,
-                    ['#ffffff', '#88ffff', p.charAccent || '#88ffff'][k % 3],
-                    Math.cos(ang) * (3 + Math.random() * 5),
-                    Math.sin(ang) * (3 + Math.random() * 5), 30);
-            }
-            screenShake = Math.max(screenShake, 14);
-            hitStop = Math.max(hitStop, 4);
-            if (b.hp <= 0) {
-                b.hp = 0;
-                if (b.life === 1) {
-                    f.phase = 'cityToSpace';
-                    f.timer = 0; f.bannerTimer = 0;
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 320, '#ffffff', 1.0);
-                    screenShake = 36; hitStop = 12;
-                    audio.play('bossKill');
-                } else {
-                    f.phase = 'victory';
-                    f.timer = 0; f.bannerTimer = 240;
-                    screenShake = 40; hitStop = 14;
-                    audio.play('bossKill');
-                }
-                return;
-            }
-        }
-        audio.play('axeSwing');
-    }
-    if (!keys['KeyV']) p.swordHeld = false;
-
-    // === HYPER MODE (B) — only available when evolved (sky form) ===
-    // Triple damage on all attacks + speed boost for 240f, 600f cooldown.
-    if (p.hyperTimer > 0) p.hyperTimer--;
-    if (p.hyperCooldown > 0) p.hyperCooldown--;
-    if (p.evolved && keys['KeyB'] && !p.hyperHeld && p.hyperCooldown <= 0) {
-        p.hyperHeld = true;
-        p.hyperTimer = 240;
-        p.hyperCooldown = 600;
-        spawnFinaleShockwave(p.x, p.y + p.h * 0.5, 200, '#ffaa00', 1.0);
-        spawnFinaleShockwave(p.x, p.y + p.h * 0.5, 320, '#ffffff', 1.0);
-        for (let k = 0; k < 30; k++) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(p.x, p.y + p.h * 0.5,
-                ['#ffaa00', '#ffdd44', '#ffffff'][k % 3],
-                Math.cos(ang) * 6, Math.sin(ang) * 6, 50);
-        }
-        screenShake = Math.max(screenShake, 16);
-        f.hitTexts.push({
-            text: '★ HYPER MODE ★', x: canvas.width / 2, y: 200,
-            vy: -1, life: 90, color: '#ffaa00'
-        });
-        audio.play('warpIn');
-        audio.play('crit');
-    }
-    if (!keys['KeyB']) p.hyperHeld = false;
 
     // === Boss AI ===
-    // Walk phase ticks faster during charge for a sprinting stride
-    b.walkPhase += b.chargeTimer > 0 ? 0.15 : 0.04;
+    b.walkPhase += 0.04;
     b.corePulse += 0.08;
     b.attackTimer--;
-    if (f.bossIntentFlash > 0) f.bossIntentFlash--;
     if (b.armSwing > 0) b.armSwing -= 0.05;
 
-    // === Boss attack-tick (hammerfist, charge, slam, hazards, minions) ===
-    // Hammerfist swipe — arm extends toward player. Live collision frames 8..28.
-    if (b.armAttackTimer > 0) {
-        b.armAttackTimer--;
-        const swingT = 1 - b.armAttackTimer / 36;     // 0..1
-        const armReach = 220 * Math.sin(swingT * Math.PI);  // arc forward and back
-        const fistX = b.x + b.armAttackSide * armReach;
-        const fistY = b.y + b.h * 0.45;
-        // Live damage window
-        if (b.armAttackTimer < 28 && b.armAttackTimer > 8) {
-            const dxF = p.x - fistX;
-            const dyF = (p.y + p.h * 0.5) - fistY;
-            if (Math.hypot(dxF, dyF) < 70 && p.invincible <= 0) {
-                p.hp -= 30 * (b.damageMul || 1);
-                p.invincible = 40;
-                p.vx = b.armAttackSide * 12;
-                p.vy = -7;
-                hitFlash = Math.min(1, hitFlash + 0.6);
-                screenShake = Math.max(screenShake, 16);
-                audio.play('hurt');
-                f.hitTexts.push({ text: 'SMACK!', x: p.x, y: p.y, vy: -2, life: 40, color: '#ff4422' });
-                if (p.hp <= 0) {
-                    p.hp = 0;
-                    if (!finaleOnPlayerDeath()) { gameState = 'dead'; }
-                    spawnExplosion(p.x, p.y + p.h / 2);
-                    return;
-                }
-            }
-        }
-        // Trail particles on the arm path
-        if (b.armAttackTimer % 2 === 0) {
-            spawnFinaleParticle(fistX, fistY, '#ff44ff',
-                (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, 18);
-        }
-        if (b.armAttackTimer === 0) {
-            // Sparks at end-of-swing
-            spawnFinaleShockwave(fistX, fistY, 70, '#ff8844', 0.8);
-        }
-    }
-
-    // Ground slam wind-up → slam executes when reaches 0
-    if (b.slamWindup > 0) {
-        b.slamWindup--;
-        // Visual indicator: chest pulses red, ground danger zone telegraphs
-        if (b.slamWindup % 4 === 0 && !inSpace) {
-            spawnFinaleParticle(b.x + (Math.random() - 0.5) * b.w,
-                b.y + b.h - 8, '#ff8844',
-                (Math.random() - 0.5) * 2, -2 - Math.random() * 2, 28);
-        }
-        if (b.slamWindup === 0) {
-            // SLAM!
-            spawnFinaleShockwave(b.x, b.y + b.h, 280, '#ffaa00', 1.0);
-            spawnFinaleShockwave(b.x, b.y + b.h, 420, '#ff4422', 1.0);
-            screenShake = Math.max(screenShake, 28);
-            hitStop = Math.max(hitStop, 6);
-            audio.play('explosion');
-            // 8 lava globs erupt outward
-            for (let i = 0; i < 8; i++) {
-                const ang = Math.PI + (i / 8) * Math.PI;
-                f.enemyBullets.push({
-                    x: b.x, y: b.y + b.h - 10,
-                    vx: Math.cos(ang) * 6,
-                    vy: Math.sin(ang) * 6 - 3,
-                    life: 100, damage: 20, gravity: true,
-                    color: '#ff4422', big: true
-                });
-            }
-            // Direct AOE if player on ground close
-            if (!inSpace && p.y >= 360 && Math.abs(p.x - b.x) < 220 && p.invincible <= 0) {
-                p.hp -= 28 * (b.damageMul || 1);
-                p.invincible = 40;
-                p.vy = -10;
-                hitFlash = Math.min(1, hitFlash + 0.5);
-                audio.play('hurt');
-                if (p.hp <= 0) {
-                    p.hp = 0; if (!finaleOnPlayerDeath()) { gameState = 'dead'; }
-                    spawnExplosion(p.x, p.y + p.h / 2);
-                    return;
-                }
-            }
-        }
-    }
-
-    // Titan charge — telegraphed, then dashes across arena
-    if (b.chargeTimer > 0) {
-        b.chargeTimer--;
-        if (b.telegraphTimer <= 0) {
-            // Active charge motion
-            b.x += b.chargeVx;
-            // Trail
-            if (b.chargeTimer % 2 === 0) {
-                for (let k = 0; k < 2; k++) {
-                    spawnFinaleParticle(b.x - b.chargeVx * 4 + (Math.random() - 0.5) * b.w * 0.3,
-                        b.y + Math.random() * b.h,
-                        ['#ff44ff', '#ff8844', '#ffffff'][k % 3],
-                        -b.chargeVx * 0.5, (Math.random() - 0.5) * 3, 28);
-                }
-            }
-            // Body collision
-            if (Math.abs(p.x - b.x) < (b.w * 0.5 + p.w * 0.5) &&
-                Math.abs(p.y - b.y - b.h * 0.4) < b.h * 0.7 &&
-                p.invincible <= 0) {
-                p.hp -= 36 * (b.damageMul || 1);
-                p.invincible = 50;
-                p.vx = b.chargeVx * 1.5;
-                p.vy = -6;
-                hitFlash = Math.min(1, hitFlash + 0.7);
-                screenShake = Math.max(screenShake, 22);
-                hitStop = Math.max(hitStop, 6);
-                audio.play('hurt');
-                f.hitTexts.push({ text: 'BLOCKED!', x: p.x, y: p.y, vy: -2, life: 40, color: '#ff4422' });
-                f.speedLinesTimer = 30;
-                f.speedLinesIntensity = 0.8;
-                if (p.hp <= 0) {
-                    p.hp = 0; if (!finaleOnPlayerDeath()) { gameState = 'dead'; }
-                    spawnExplosion(p.x, p.y + p.h / 2);
-                    return;
-                }
-            }
-            // Clamp
-            if (!inSpace) {
-                if (b.x < 100) { b.x = 100; b.chargeTimer = 0; }
-                if (b.x > 1100) { b.x = 1100; b.chargeTimer = 0; }
-            }
-        }
-    }
-
-    // Hazard tick — beams + lava patches drawn in drawFinale
-    if (b.hazards && b.hazards.length) {
-        for (let i = b.hazards.length - 1; i >= 0; i--) {
-            const hz = b.hazards[i];
-            if (hz.telegraph > 0) hz.telegraph--;
-            if (hz.kind === 'rain') {
-                // Falls toward the ground, leaves a lava patch on impact
-                hz.y += hz.vy;
-                if (hz.y >= 380 - hz.h) {
-                    spawnFinaleShockwave(hz.x + hz.w / 2, 380, 50, hz.color, 0.8);
-                    b.hazards.splice(i, 1);
-                    continue;
-                }
-            } else if (hz.kind === 'meteor') {
-                // Falls with acceleration; on impact creates AOE blast
-                hz.vy += hz.vyAccel;
-                hz.y += hz.vy;
-                // Smoke trail
-                if (f.timer % 2 === 0) {
-                    spawnFinaleParticle(hz.x + (Math.random() - 0.5) * hz.w * 0.6,
-                        hz.y + hz.h * 0.5,
-                        ['#ff4422', '#ffaa00', '#222'][Math.floor(Math.random() * 3)],
-                        (Math.random() - 0.5) * 2, -1 - Math.random() * 2, 36);
-                }
-                if (hz.y >= 380 - hz.h && !hz.impacted) {
-                    hz.impacted = true;
-                    // Big AOE blast
-                    spawnFinaleShockwave(hz.x, 380, 200, '#ff4422', 1.0);
-                    spawnFinaleShockwave(hz.x, 380, 320, '#ffaa00', 1.0);
-                    spawnFinaleShockwave(hz.x, 380, 460, '#ffffff', 1.0);
-                    for (let k = 0; k < 50; k++) {
-                        const ang = Math.random() * Math.PI * 2;
-                        spawnFinaleParticle(hz.x, 380,
-                            ['#ff4422', '#ffaa00', '#ffffff'][k % 3],
-                            Math.cos(ang) * (4 + Math.random() * 8),
-                            Math.sin(ang) * (4 + Math.random() * 8) - 2, 60);
-                    }
-                    screenShake = Math.max(screenShake, 28);
-                    hitStop = Math.max(hitStop, 8);
-                    audio.play('explosion');
-                    // Damage if player in blast radius
-                    if (Math.abs(p.x - hz.x) < hz.impactR && p.invincible <= 0) {
-                        const closeness = 1 - Math.abs(p.x - hz.x) / hz.impactR;
-                        p.hp -= hz.dmg * (0.5 + closeness * 0.5) * (b.damageMul || 1);
-                        p.invincible = 60;
-                        p.vy = -10;
-                        p.vx = Math.sign(p.x - hz.x) * 8;
-                        hitFlash = Math.min(1, hitFlash + 0.7);
-                        audio.play('hurt');
-                        f.hitTexts.push({
-                            text: 'METEOR!', x: p.x, y: p.y, vy: -2, life: 50, color: '#ff4422'
-                        });
-                        if (p.hp <= 0) {
-                            p.hp = 0; if (!finaleOnPlayerDeath()) { gameState = 'dead'; }
-                            spawnExplosion(p.x, p.y + p.h / 2);
-                            return;
-                        }
-                    }
-                    // Leave lingering lava patch
-                    f.boss.hazards.push({
-                        kind: 'lava', x: hz.x - hz.impactR / 2, y: 380 - 12,
-                        w: hz.impactR, h: 12,
-                        life: 200, color: '#ff4422', dmg: 8, telegraph: 0
-                    });
-                    b.hazards.splice(i, 1);
-                    continue;
-                }
-            } else if (hz.kind === 'meteorTele') {
-                // Just ticks down — telegraph ground ring drawn in drawFinale
-            }
-            hz.life--;
-            if (hz.life <= 0) { b.hazards.splice(i, 1); continue; }
-            // Damage check (skip telegraph window)
-            if (hz.telegraph <= 0 && p.invincible <= 0) {
-                const dmgMul = b.damageMul || 1;
-                if (hz.kind === 'beam') {
-                    if (p.x + p.w * 0.5 > hz.x && p.x - p.w * 0.5 < hz.x + hz.w &&
-                        p.y + p.h > hz.y && p.y < hz.y + hz.h) {
-                        p.hp -= hz.dmg * dmgMul;
-                        p.invincible = 14;
-                        hitFlash = Math.min(1, hitFlash + 0.3);
-                        audio.play('hurt', { throttle: 80 });
-                    }
-                } else if (hz.kind === 'lava') {
-                    if (p.x + p.w * 0.5 > hz.x && p.x - p.w * 0.5 < hz.x + hz.w &&
-                        p.y + p.h > hz.y && p.y + p.h < hz.y + hz.h + 10) {
-                        p.hp -= hz.dmg * dmgMul;
-                        p.invincible = 14;
-                        audio.play('hurt', { throttle: 80 });
-                    }
-                } else if (hz.kind === 'rain') {
-                    if (Math.abs(p.x - hz.x) < 14 && Math.abs((p.y + p.h * 0.5) - hz.y) < hz.h) {
-                        p.hp -= hz.dmg * dmgMul;
-                        p.invincible = 18;
-                        audio.play('hurt', { throttle: 80 });
-                    }
-                }
-                if (p.hp <= 0) {
-                    p.hp = 0; if (!finaleOnPlayerDeath()) { gameState = 'dead'; }
-                    spawnExplosion(p.x, p.y + p.h / 2);
-                    return;
-                }
-            }
-        }
-    }
-
-    // Minion swarm — spawns drone-style minions over a few frames after a
-    // DRONE SWARM attack, then they orbit the boss briefly and home toward
-    // the player. Damage on contact, minion HP small so player can swat them.
-    if (b.minionsToSpawn > 0) {
-        b.minionSpawnCooldown--;
-        if (b.minionSpawnCooldown <= 0) {
-            f.minions.push({
-                x: b.x + (Math.random() - 0.5) * b.w * 0.5,
-                y: b.y + b.h * 0.3,
-                vx: 0, vy: 0,
-                hp: 60,
-                orbitAng: Math.random() * Math.PI * 2,
-                orbitTimer: 50 + Math.random() * 30,
-                spawnFlash: 12
-            });
-            b.minionsToSpawn--;
-            b.minionSpawnCooldown = 8;
-            audio.play('warpIn', { throttle: 80 });
-        }
-    }
-    if (f.minions && f.minions.length) {
-        for (let i = f.minions.length - 1; i >= 0; i--) {
-            const m = f.minions[i];
-            if (m.spawnFlash > 0) m.spawnFlash--;
-            if (m.orbitTimer > 0) {
-                // Orbit the boss
-                m.orbitTimer--;
-                m.orbitAng += 0.18;
-                m.x = b.x + Math.cos(m.orbitAng) * 60;
-                m.y = b.y + b.h * 0.3 + Math.sin(m.orbitAng) * 40;
-            } else {
-                // Home toward player
-                const dxM = p.x - m.x;
-                const dyM = (p.y + p.h * 0.5) - m.y;
-                const dM = Math.hypot(dxM, dyM) || 1;
-                m.vx += (dxM / dM) * 0.35;
-                m.vy += (dyM / dM) * 0.35;
-                m.vx *= 0.94; m.vy *= 0.94;
-                m.x += m.vx; m.y += m.vy;
-                // Trail
-                if (f.timer % 3 === 0) {
-                    spawnFinaleParticle(m.x, m.y, '#88ffff',
-                        -m.vx * 0.4, -m.vy * 0.4, 16);
-                }
-                // Player collision — explode on contact
-                if (Math.abs(m.x - p.x) < p.w * 0.5 + 14 &&
-                    Math.abs(m.y - (p.y + p.h * 0.5)) < p.h * 0.5 + 14 &&
-                    p.invincible <= 0) {
-                    p.hp -= 14 * (b.damageMul || 1);
-                    p.invincible = 18;
-                    spawnFinaleShockwave(m.x, m.y, 50, '#88ffff', 0.6);
-                    for (let k = 0; k < 10; k++) {
-                        const ang = Math.random() * Math.PI * 2;
-                        spawnFinaleParticle(m.x, m.y, '#88ffff',
-                            Math.cos(ang) * 4, Math.sin(ang) * 4, 24);
-                    }
-                    f.minions.splice(i, 1);
-                    audio.play('explosion', { throttle: 60 });
-                    if (p.hp <= 0) {
-                        p.hp = 0; if (!finaleOnPlayerDeath()) { gameState = 'dead'; }
-                        spawnExplosion(p.x, p.y + p.h / 2);
-                        return;
-                    }
-                    continue;
-                }
-            }
-            // Player bullet hits minion
-            for (let bi = f.bullets.length - 1; bi >= 0; bi--) {
-                const bu = f.bullets[bi];
-                if (Math.abs(bu.x - m.x) < 18 && Math.abs(bu.y - m.y) < 18) {
-                    m.hp -= bu.damage;
-                    spawnFinaleParticle(bu.x, bu.y, '#ffffff', 0, 0, 20);
-                    if (!bu.pierce) f.bullets.splice(bi, 1);
-                    if (m.hp <= 0) {
-                        spawnFinaleShockwave(m.x, m.y, 40, '#88ffff', 0.6);
-                        for (let k = 0; k < 8; k++) {
-                            const ang = Math.random() * Math.PI * 2;
-                            spawnFinaleParticle(m.x, m.y, '#88ffff',
-                                Math.cos(ang) * 3, Math.sin(ang) * 3, 22);
-                        }
-                        f.minions.splice(i, 1);
-                        audio.play('hit');
-                        break;
-                    }
-                }
-            }
-            // Player melee hits minion (uppercut nukes them)
-            if (p.meleeTimer > 0 && Math.abs(m.x - p.x) < 110 &&
-                Math.abs(m.y - (p.y + p.h * 0.5)) < 90 &&
-                Math.sign(m.x - p.x) === p.facing) {
-                spawnFinaleShockwave(m.x, m.y, 50, '#ffdd44', 0.7);
-                f.minions.splice(i, 1);
-                audio.play('meleeHit');
-                f.hitTexts.push({ text: 'SMASH!', x: m.x, y: m.y, vy: -2, life: 30, color: '#88ffff' });
-                continue;
-            }
-        }
-    }
-
-    // === METEOR FIST — boss raises one fist offscreen, then drops it as a meteor ===
-    if (b.meteorFistTimer > 0) {
-        b.meteorFistTimer--;
-        if (b.meteorFistTargetUpdate > 0) {
-            b.meteorFistTargetUpdate--;
-            // Track the player up to a point, then lock target
-            b.meteorFistTargetX = p.x;
-        }
-        // Drop window — once timer reaches 50, spawn meteor falling toward target
-        if (b.meteorFistTimer === 50 && b.meteorFistsDropped < b.meteorFistCount) {
-            const tx = b.meteorFistTargetX;
-            const isPhase4 = b.phase === 4;
-            f.boss.hazards.push({
-                kind: 'meteor', x: tx, y: -60, w: 60, h: 60,
-                vy: 0, vyAccel: 0.55,
-                life: 200, color: isPhase4 ? '#ff0000' : '#ffaa00',
-                dmg: 60, telegraph: 0,
-                impactR: 140, impacted: false
-            });
-            // Ground danger ring telegraph
-            f.boss.hazards.push({
-                kind: 'meteorTele', x: tx - 70, y: 380 - 14, w: 140, h: 14,
-                life: 60, color: '#ff0000', dmg: 0, telegraph: 0
-            });
-            screenShake = Math.max(screenShake, 8);
-            audio.play('rocket');
-            b.meteorFistsDropped++;
-            // For phase 4, drop a second meteor 40f later
-            if (b.meteorFistsDropped < b.meteorFistCount) {
-                b.meteorFistTimer = 50 + 40;
-                b.meteorFistTargetX = p.x + (Math.random() - 0.5) * 240;
-            }
-        }
-        if (b.meteorFistTimer <= 0) {
-            b.meteorFistActive = false;
-        }
-    }
-
-    // === ENERGY BARRIER — reflects player bullets back ===
-    if (b.barrierTimer > 0) {
-        b.barrierTimer--;
-        // Reflect player bullets that hit the barrier ring
-        const bx = b.x, by = b.y + b.h * 0.45;
-        const bRad = b.w * 0.9;
-        for (let i = f.bullets.length - 1; i >= 0; i--) {
-            const bu = f.bullets[i];
-            const dxB = bu.x - bx, dyB = bu.y - by;
-            if (Math.hypot(dxB, dyB) < bRad) {
-                // Reflect — flip velocity and convert to enemy bullet
-                f.enemyBullets.push({
-                    x: bu.x, y: bu.y,
-                    vx: -bu.vx * 0.9, vy: -bu.vy * 0.9,
-                    life: 80, damage: Math.max(12, bu.damage * 0.6),
-                    color: '#ff44ff', big: true, reflected: true
-                });
-                f.bullets.splice(i, 1);
-                spawnFinaleParticle(bu.x, bu.y, '#ff44ff', 0, 0, 18);
-                audio.play('hit', { throttle: 60 });
-            }
-        }
-        // Barrier crackle
-        if (f.timer % 6 === 0) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(bx + Math.cos(ang) * bRad, by + Math.sin(ang) * bRad,
-                '#ff44ff', 0, 0, 16);
-        }
-    }
-
-    // === HEAT BEAM SWEEP — wide beam sweeping floor-to-overhead ===
-    if (b.heatBeamTimer > 0) {
-        b.heatBeamTimer--;
-        if (b.telegraphTimer <= 0) {
-            // Sweep angle progresses
-            b.heatBeamAng += b.heatBeamSweepDir * 0.012;
-            // Beam emanates from boss core; check player intersection
-            const bx = b.x, by = b.y + b.h * 0.4;
-            const beamLen = 900;
-            const ex = bx + Math.cos(b.heatBeamAng) * beamLen;
-            const ey = by + Math.sin(b.heatBeamAng) * beamLen;
-            // Distance from player to beam line segment
-            const dxL = ex - bx, dyL = ey - by;
-            const tL = Math.max(0, Math.min(1,
-                ((p.x - bx) * dxL + (p.y + p.h * 0.5 - by) * dyL) / (dxL * dxL + dyL * dyL || 1)));
-            const closestX = bx + dxL * tL;
-            const closestY = by + dyL * tL;
-            const distLine = Math.hypot(p.x - closestX, p.y + p.h * 0.5 - closestY);
-            if (distLine < 28 && p.invincible <= 0) {
-                p.hp -= 1.5 * (b.damageMul || 1);     // continuous DPS while in beam
-                hitFlash = Math.min(1, hitFlash + 0.1);
-                audio.play('hurt', { throttle: 200 });
-                if (p.hp <= 0) {
-                    p.hp = 0; if (!finaleOnPlayerDeath()) { gameState = 'dead'; }
-                    spawnExplosion(p.x, p.y + p.h / 2);
-                    return;
-                }
-            }
-            // Crackle particles along the beam
-            if (f.timer % 3 === 0) {
-                const t = Math.random();
-                spawnFinaleParticle(bx + dxL * t, by + dyL * t,
-                    ['#ff8844', '#ffaa00', '#ffffff'][Math.floor(Math.random() * 3)],
-                    (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, 18);
-            }
-        }
-    }
-
-    // === Boss MOVEMENT — much more dynamic ===
-    if (!inSpace && b.landed && b.chargeTimer <= 0 && b.knockback <= 0 && b.stagger <= 0 && b.armAttackTimer <= 0 && b.slamWindup <= 0) {
-        // Initialize movement state on first tick
-        if (b.leapTimer === undefined) b.leapTimer = 240;
-        if (b.leapVy === undefined) b.leapVy = 0;
-        if (b.bobTimer === undefined) b.bobTimer = 0;
-        b.bobTimer += 0.08;
-        // Boss faces player
+    // City traversal: boss patrols laterally so the fight scrolls
+    if (!inSpace && b.landed) {
+        b.x += b.patrolDir * 0.6;
+        if (b.x > 1100) b.patrolDir = -1;
+        if (b.x < 500) b.patrolDir = 1;
+        // Boss faces the player
         b.facing = (p.x + f.cameraX) > b.x ? 1 : -1;
-        // Periodically leap toward the player — every ~4s
-        b.leapTimer--;
-        if (b.leapTimer <= 0 && b.leapVy === 0) {
-            b.leapVy = -14;       // jump up
-            b.leapTimer = 180 + Math.random() * 120;
-            spawnFinaleShockwave(b.x, b.y + b.h, 120, '#ff8844', 0.8);
-            screenShake = Math.max(screenShake, 10);
-            audio.play('explosion', { throttle: 200 });
-        }
-        // Apply leap physics
-        if (b.leapVy !== 0) {
-            b.y += b.leapVy;
-            b.leapVy += 0.7;     // gravity
-            // Move toward player while airborne — but keep landing distance
-            // (don't body-slam directly on top of player)
-            const dxL = (p.x + f.cameraX) - b.x;
-            const targetGap = b.facing > 0 ? -350 : 350;     // land 350px from player
-            const moveTo = dxL + targetGap;
-            b.x += Math.sign(moveTo) * Math.min(Math.abs(moveTo), 5);
-            // Land
-            if (b.y >= 320) {
-                b.y = 320;
-                b.leapVy = 0;
-                spawnFinaleShockwave(b.x, b.y + b.h, 200, '#ff8844', 1.0);
-                spawnFinaleShockwave(b.x, b.y + b.h, 280, '#ffaa00', 1.0);
-                for (let k = 0; k < 24; k++) {
-                    const ang = Math.PI + Math.random() * Math.PI;
-                    spawnFinaleParticle(b.x + (Math.random() - 0.5) * b.w * 0.8, b.y + b.h,
-                        ['#ff8844', '#ffaa00', '#222'][k % 3],
-                        Math.cos(ang) * 5, Math.sin(ang) * 5, 50);
-                }
-                screenShake = Math.max(screenShake, 20);
-                hitStop = Math.max(hitStop, 4);
-                // Damage player if landed close
-                if (Math.abs(p.x - b.x) < 220 && p.y >= 360 && p.invincible <= 0 && p.shieldTimer <= 0) {
-                    p.hp -= 18 * (b.damageMul || 1);
-                    p.invincible = 40;
-                    p.vy = -10;
-                    p.vx = Math.sign(p.x - b.x) * 8;
-                    hitFlash = Math.min(1, hitFlash + 0.4);
-                    audio.play('hurt');
-                }
-                audio.play('explosion');
-            }
-        } else {
-            // Ground walking — track player but keep RESPECTABLE distance
-            // (boss is huge, you don't want it crowding you for melee combat)
-            const targetX = (p.x + f.cameraX) + b.facing * 450;     // hover ~450px from player
-            const dxT = targetX - b.x;
-            const walkSpeed = 1.4;     // slightly slower so it feels like a heavyweight
-            b.x += Math.sign(dxT) * Math.min(Math.abs(dxT), walkSpeed);
-            // Side-to-side bob for menace
-            b.y = 320 + Math.sin(b.bobTimer) * 4;
-            // Clamp to wider arena
-            if (b.x < 200) b.x = 200;
-            if (b.x > 1500) b.x = 1500;
-        }
-    } else if (inSpace && b.chargeTimer <= 0 && b.knockback <= 0 && b.stagger <= 0) {
-        // Space: more dynamic orbit with occasional dash toward player
-        if (b.spaceDashCooldown === undefined) b.spaceDashCooldown = 240;
-        if (b.spaceDashTimer === undefined) b.spaceDashTimer = 0;
-        b.spaceDashCooldown--;
-        if (b.spaceDashCooldown <= 0 && b.spaceDashTimer <= 0) {
-            // Initiate a quick dash toward the player's horizontal
-            b.spaceDashTimer = 40;
-            b.spaceDashTargetX = p.x;
-            b.spaceDashTargetY = p.y - 40;
-            b.spaceDashCooldown = 280 + Math.random() * 120;
-            screenShake = Math.max(screenShake, 8);
-            audio.play('warpIn', { throttle: 200 });
-        }
-        if (b.spaceDashTimer > 0) {
-            b.spaceDashTimer--;
-            // Smooth approach toward target — but stop at distance
-            const dxS = (b.spaceDashTargetX || p.x) - b.x;
-            const dyS = (b.spaceDashTargetY || p.y) - b.y;
-            const distS = Math.hypot(dxS, dyS);
-            if (distS > 350) {
-                b.x += dxS * 0.08;
-                b.y += dyS * 0.08;
-            } else {
-                // Maintain 350px distance while dashing
-                b.x += (Math.sign(dxS) * 0.5);
-                b.y += (Math.sign(dyS) * 0.5);
-            }
-            // Trail particles
-            if (f.timer % 2 === 0) {
-                spawnFinaleParticle(b.x + (Math.random() - 0.5) * b.w * 0.5,
-                    b.y + Math.random() * b.h * 0.5,
-                    ['#ff44ff', '#ffaa00', '#ffffff'][Math.floor(Math.random() * 3)],
-                    (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, 28);
-            }
-        } else {
-            // Default orbit — bigger orbit + vertical bob
-            b.orbitAng += 0.022;
-            b.x = 700 + Math.cos(b.orbitAng) * 360;
-            b.y = 220 + Math.sin(b.orbitAng * 0.9) * 130;
-        }
+    } else if (inSpace) {
+        // Space: boss orbits a center point in a wider arc
+        b.orbitAng += 0.012;
+        b.x = 700 + Math.cos(b.orbitAng) * 180;
+        b.y = 240 + Math.sin(b.orbitAng * 0.7) * 60;
         b.facing = p.x > b.x ? 1 : -1;
     }
 
@@ -19349,231 +18043,22 @@ function updateFinaleBattle() {
         // Brief player i-frames so the immediate phase-2 attack can't blindside
         p.invincible = Math.max(p.invincible, 60);
         f.bannerTimer = 200;
-        // Camera punch-in on phase shift
-        f.cameraZoom = 0.85;
-        f.cameraZoomTarget = 1.3;
-        f.cameraZoomFocusX = b.x;
-        f.cameraZoomFocusY = b.y + b.h / 2;
         audio.play('explosion');
     }
-
-    // === UNLEASH: at 2000 HP boss enters RAGE — 10× damage, faster attacks.
-    // Boss stays vulnerable — player must keep fighting and survive the
-    // overwhelming barrage. The kill-cinematic only fires when PLAYER drops
-    // to ≤100 HP.
-    if (!inSpace && !b.unleashed && b.hp <= 2000) {
-        b.unleashed = true;
-        b.damageMul = 10;     // 10× damage on all attacks until cinematic
-        // Big "☠ UNLEASHED ☠" entrance flash
-        spawnFinaleShockwave(b.x, b.y + b.h * 0.5, 280, '#ff0000', 1.0);
-        spawnFinaleShockwave(b.x, b.y + b.h * 0.5, 420, '#ffaa00', 1.0);
-        spawnFinaleShockwave(b.x, b.y + b.h * 0.5, 600, '#ffffff', 1.0);
-        for (let k = 0; k < 80; k++) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(b.x, b.y + b.h * 0.5,
-                ['#ff0000', '#ffaa00', '#ffffff'][k % 3],
-                Math.cos(ang) * (6 + Math.random() * 6),
-                Math.sin(ang) * (6 + Math.random() * 6), 70);
-        }
-        screenShake = 36;
-        hitStop = 12;
-        f.bannerTimer = 220;
-        f.hitTexts.push({
-            text: '☠ UNLEASHED — 10× DAMAGE ☠', x: canvas.width / 2, y: 200,
-            vy: -1, life: 120, color: '#ff0000'
-        });
-        // Brief player i-frames so the entrance doesn't blindside
-        p.invincible = Math.max(p.invincible, 60);
-        audio.play('explosion');
-        audio.play('bossIntro');
-    }
-
-    // Trigger kill-cinematic when player HP drops to ≤100 (after UNLEASH)
-    if (!inSpace && b.unleashed && !b.killCinematicQueued && p.hp <= 100) {
-        b.killCinematicQueued = true;
-        // Brief invincibility so player survives the trigger frame
-        p.invincible = 60;
-        // Defer to give a beat
-        deferFrames(30, () => {
-            f.phase = 'cityToSpace';
-            f.timer = 0;
-            f.bannerTimer = 0;
-            // Boss becomes invincible during the cinematic
-            b.invincible = true;
-            // Wipe all hazards/bullets/minions
-            b.hazards = [];
-            b.minionsToSpawn = 0;
-            b.minionSpawnCooldown = 0;
-            if (f.minions) f.minions.length = 0;
-            f.enemyBullets.length = 0;
-            b.armAttackTimer = 0;
-            b.chargeTimer = 0;
-            b.slamWindup = 0;
-            b.barrierTimer = 0;
-            b.heatBeamTimer = 0;
-            b.meteorFistTimer = 0;
-            b.meteorFistActive = false;
-        });
-    }
-
-    // Phase 3 at 25% HP — final RAGE state, faster + plasma rain unlocked
-    if (!b.phase3Triggered && b.hp <= b.maxHp * 0.25) {
-        b.phase3Triggered = true;
-        b.phase = 3;
-        spawnFinaleShockwave(b.x, b.y + b.h / 2, 320, '#ff0000', 1.0);
-        spawnFinaleShockwave(b.x, b.y + b.h / 2, 480, '#ff8844', 1.0);
-        spawnFinaleShockwave(b.x, b.y + b.h / 2, 600, '#ffffff', 1.0);
-        for (let k = 0; k < 60; k++) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(b.x, b.y + b.h / 2,
-                ['#ff0000', '#ff8844', '#ffffff'][k % 3],
-                Math.cos(ang) * 8, Math.sin(ang) * 8, 60);
-        }
-        screenShake = 36;
-        hitStop = 10;
-        p.invincible = Math.max(p.invincible, 90);
-        f.bannerTimer = 240;
-        f.hitTexts.push({
-            text: '⚠ FINAL RAGE ⚠', x: canvas.width / 2, y: 200,
-            vy: -1, life: 90, color: '#ff0000'
-        });
-        // Camera punch-in on phase 3
-        f.cameraZoom = 0.8;
-        f.cameraZoomTarget = 1.5;
-        f.cameraZoomFocusX = b.x;
-        f.cameraZoomFocusY = b.y + b.h / 2;
-        audio.play('explosion');
-        audio.play('bossIntro');
-        // Immediate plasma rain on phase-3 entry
-        for (let i = 0; i < 6; i++) {
-            const px = 80 + Math.random() * 820;
-            b.hazards.push({
-                kind: 'rain', x: px, y: -40, w: 10, h: 20,
-                life: 80, color: '#ff44ff', dmg: 18,
-                vy: 12, telegraph: 0
-            });
-        }
-    }
-
-    // Phase 4 DESPERATION at 12% HP — boss raises a permanent barrier briefly,
-    // drops 3 meteors at once, screen-wide warning, all attacks ~25% faster.
-    if (!b.phase4Triggered && b.hp <= b.maxHp * 0.12) {
-        b.phase4Triggered = true;
-        b.phase = 4;
-        // Triple shockwave + tons of particles
-        spawnFinaleShockwave(b.x, b.y + b.h / 2, 360, '#ff0000', 1.0);
-        spawnFinaleShockwave(b.x, b.y + b.h / 2, 540, '#ff44ff', 1.0);
-        spawnFinaleShockwave(b.x, b.y + b.h / 2, 720, '#ffffff', 1.0);
-        for (let k = 0; k < 80; k++) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(b.x, b.y + b.h / 2,
-                ['#ff0000', '#ff44ff', '#ffffff', '#ffaa00'][k % 4],
-                Math.cos(ang) * 10, Math.sin(ang) * 10, 70);
-        }
-        screenShake = 48;
-        hitStop = 14;
-        // Long player invincibility so the desperation entrance is fair
-        p.invincible = Math.max(p.invincible, 120);
-        f.bannerTimer = 280;
-        f.hitTexts.push({
-            text: '☠ DESPERATION ☠', x: canvas.width / 2, y: 220,
-            vy: -1, life: 120, color: '#ff0000'
-        });
-        f.hitTexts.push({
-            text: 'NO MERCY', x: canvas.width / 2, y: 260,
-            vy: -1, life: 120, color: '#ffaa00'
-        });
-        // Camera punch — extreme zoom on phase 4
-        f.cameraZoom = 0.7;
-        f.cameraZoomTarget = 1.6;
-        f.cameraZoomFocusX = b.x;
-        f.cameraZoomFocusY = b.y + b.h / 2;
-        audio.play('explosion');
-        audio.play('bossIntro');
-        // Raise an immediate barrier (gives the boss ~2s of safety)
-        b.barrierTimer = 120;
-        // Drop 3 meteors immediately at staggered targets
-        for (let i = 0; i < 3; i++) {
-            const tx = p.x - 200 + i * 200;
-            b.hazards.push({
-                kind: 'meteorTele', x: tx - 70, y: 380 - 14, w: 140, h: 14,
-                life: 50, color: '#ff0000', dmg: 0, telegraph: 0
-            });
-            b.hazards.push({
-                kind: 'meteor', x: tx, y: -60 - i * 80, w: 60, h: 60,
-                vy: 0, vyAccel: 0.55,
-                life: 200, color: '#ff0000',
-                dmg: 50, telegraph: 0,
-                impactR: 130, impacted: false
-            });
-        }
-    }
-    if (b.attackTimer <= 0 && b.stagger <= 0) finaleBossAttack();
+    if (b.attackTimer <= 0) finaleBossAttack();
     if (b.telegraphTimer > 0) b.telegraphTimer--;
 
     // === Tick projectiles ===
-    const sm = f.slowMo;
     for (let i = f.bullets.length - 1; i >= 0; i--) {
         const bu = f.bullets[i];
-        // Rocket homing — gently steer toward boss
-        if (bu.homing) {
-            const dxR = b.x - bu.x;
-            const dyR = (b.y + b.h * 0.5) - bu.y;
-            const dR = Math.hypot(dxR, dyR) || 1;
-            bu.vx += (dxR / dR) * 0.4;
-            bu.vy += (dyR / dR) * 0.4;
-            // Cap speed
-            const sp = Math.hypot(bu.vx, bu.vy);
-            const maxSp = 9;
-            if (sp > maxSp) { bu.vx *= maxSp / sp; bu.vy *= maxSp / sp; }
-            // Smoke trail
-            if (f.timer % 2 === 0) {
-                spawnFinaleParticle(bu.x, bu.y,
-                    ['#ffaa44', '#ff8844', '#222'][Math.floor(Math.random() * 3)],
-                    -bu.vx * 0.3, -bu.vy * 0.3, 24);
-            }
-        }
-        bu.x += bu.vx * sm; bu.y += bu.vy * sm;
-        bu.life -= sm;
+        bu.x += bu.vx; bu.y += bu.vy;
+        bu.life--;
         if (bu.life <= 0 || bu.x < -50 || bu.x > 1450 || bu.y < -50 || bu.y > 650) {
             f.bullets.splice(i, 1); continue;
         }
         if (bu.x > b.x - b.w / 2 && bu.x < b.x + b.w / 2 &&
             bu.y > b.y && bu.y < b.y + b.h) {
-            // Boss is invincible during UNLEASH cinematic
-            if (b.invincible) {
-                spawnFinaleParticle(bu.x, bu.y, '#ff0000', 0, 0, 18);
-                f.bullets.splice(i, 1);
-                continue;
-            }
-            // Barrier blocks damage — bullet absorbed at body, but reflection
-            // is handled separately above (around the barrier ring) so most
-            // shots actually reflect before reaching here.
-            if (b.barrierTimer > 0) {
-                spawnFinaleParticle(bu.x, bu.y, '#ff44ff', 0, 0, 18);
-                f.bullets.splice(i, 1);
-                audio.play('hit', { throttle: 60 });
-                continue;
-            }
             b.hp -= bu.damage;
-            // Rocket AOE — extra damage in a radius around the impact
-            if (bu.rocket && bu.aoeRadius) {
-                spawnFinaleShockwave(bu.x, bu.y, bu.aoeRadius * 0.6, '#ffaa44', 1.0);
-                spawnFinaleShockwave(bu.x, bu.y, bu.aoeRadius, '#ff4422', 1.0);
-                for (let k = 0; k < 30; k++) {
-                    const ang = Math.random() * Math.PI * 2;
-                    spawnFinaleParticle(bu.x, bu.y,
-                        ['#ffaa00', '#ff4422', '#ffffff'][k % 3],
-                        Math.cos(ang) * (4 + Math.random() * 5),
-                        Math.sin(ang) * (4 + Math.random() * 5), 50);
-                }
-                // Distance-based AOE damage (boss core is one big target,
-                // but the AOE damage stacks on top of direct hit)
-                if (bu.aoeDmg) b.hp -= bu.aoeDmg;
-                screenShake = Math.max(screenShake, 18);
-                hitStop = Math.max(hitStop, 5);
-                audio.play('explosion');
-            }
             spawnFinaleParticle(bu.x, bu.y, '#ffffff', 0, 0, 20);
             for (let k = 0; k < 4; k++) {
                 spawnFinaleParticle(bu.x, bu.y, p.charColor,
@@ -19625,33 +18110,16 @@ function updateFinaleBattle() {
     }
     for (let i = f.enemyBullets.length - 1; i >= 0; i--) {
         const bu = f.enemyBullets[i];
-        bu.x += bu.vx * sm; bu.y += bu.vy * sm;
-        if (bu.gravity) bu.vy += 0.18 * sm;
-        bu.life -= sm;
+        bu.x += bu.vx; bu.y += bu.vy;
+        if (bu.gravity) bu.vy += 0.18;
+        bu.life--;
         if (bu.life <= 0 || bu.x < -50 || bu.x > 1450 || bu.y < -50 || bu.y > 650) {
             f.enemyBullets.splice(i, 1); continue;
         }
         if (p.invincible <= 0 &&
             bu.x > p.x - p.w / 2 && bu.x < p.x + p.w / 2 &&
             bu.y > p.y && bu.y < p.y + p.h) {
-            // Shield blocks the bullet entirely
-            if (p.shieldTimer > 0) {
-                // Cool fracture-style impact at hit point
-                spawnFinaleShockwave(bu.x, bu.y, 50, '#ffffff', 0.8);
-                spawnFinaleShockwave(bu.x, bu.y, 80, p.charAccent || '#88ffff', 0.6);
-                for (let k = 0; k < 8; k++) {
-                    const ang = Math.random() * Math.PI * 2;
-                    spawnFinaleParticle(bu.x, bu.y,
-                        ['#ffffff', p.charAccent || '#88ffff'][k % 2],
-                        Math.cos(ang) * 4, Math.sin(ang) * 4, 22);
-                }
-                // Brief shield flash
-                f.shieldHitFlash = 8;
-                f.enemyBullets.splice(i, 1);
-                audio.play('hit', { throttle: 60 });
-                continue;
-            }
-            p.hp -= bu.damage * (b.damageMul || 1);
+            p.hp -= bu.damage;
             p.invincible = 30;
             hitFlash = Math.min(1, hitFlash + 0.6);
             for (let k = 0; k < 8; k++) {
@@ -19663,7 +18131,7 @@ function updateFinaleBattle() {
             audio.play('hurt');
             if (p.hp <= 0) {
                 p.hp = 0;
-                if (!finaleOnPlayerDeath()) { gameState = 'dead'; }
+                gameState = 'dead';
                 spawnExplosion(p.x, p.y + p.h / 2);
                 return;
             }
@@ -19673,268 +18141,45 @@ function updateFinaleBattle() {
 
 // City → space transition cinematic. Boss core implodes and reforms in
 // orbit; player launches up. Camera tilts to a star field.
-// City → space transition cinematic. Multi-act sequence:
-//   Act 1 (0..120): Boss charges beam + obliterates player
-//   Act 2 (120..280): Player flatlines, boss flies up to space
-//   Act 3 (280..520): Allies appear, channel energy into player; meanwhile
-//                     boss destroys planets in upper half of screen
-//   Act 4 (520..760): Player ascends, transforms in flight
-//   Act 5 (760..900): Boss transforms into final form; standoff
-//   t = 900: Switch to sky-battle phase
 function updateFinaleCityToSpace() {
     const f = finale;
     const t = f.timer;
-    const p = f.player;
-    const b = f.boss;
-
-    // === ACT 1 (t 0..120) — KILL SHOT ===
-    if (t < 120) {
-        // Boss charges + fires a giant beam. Player goes limp on impact.
-        if (t === 0) {
-            audio.play('bossIntro');
-            f.killBeamCharge = 0;
-        }
-        if (t < 60) {
-            // Charging — gold sparks at boss core
-            f.killBeamCharge = t / 60;
-            if (t % 3 === 0) {
-                const ang = Math.random() * Math.PI * 2;
-                spawnFinaleParticle(b.x, b.y + b.h * 0.36,
-                    ['#ffaa00', '#ff4422', '#ffffff'][Math.floor(Math.random() * 3)],
-                    Math.cos(ang) * (1 + Math.random() * 3),
-                    Math.sin(ang) * (1 + Math.random() * 3), 30);
-            }
-            // Pulsing shockwave
-            if (t % 12 === 0) {
-                spawnFinaleShockwave(b.x, b.y + b.h * 0.36, 60 + t * 1.5,
-                    '#ffaa00', 0.7);
-            }
-            screenShake = Math.max(screenShake, 4);
-        }
-        if (t === 60) {
-            // BEAM FIRES
-            screenShake = 40;
-            hitStop = 8;
-            audio.play('explosion');
-            audio.play('bossKill');
-            // Big white shockwave at player
-            spawnFinaleShockwave(p.x, p.y + p.h * 0.5, 400, '#ffffff', 1.0);
-            spawnFinaleShockwave(p.x, p.y + p.h * 0.5, 600, '#ffaa00', 1.0);
-            for (let k = 0; k < 80; k++) {
-                const ang = Math.random() * Math.PI * 2;
-                spawnFinaleParticle(p.x, p.y + p.h * 0.5,
-                    ['#ffffff', '#ff4422', '#ffaa00'][k % 3],
-                    Math.cos(ang) * (4 + Math.random() * 8),
-                    Math.sin(ang) * (4 + Math.random() * 8), 60);
-            }
-            // Player crumples — dropped to 1 HP (survives by a hair)
-            p.hp = 1;
-            p.vy = 4;
-            p.vx = b.facing > 0 ? -8 : 8;
-        }
-        if (t > 60) {
-            // Beam still visible 60..120, fading. Player tumbles down.
-            p.vy = Math.min(p.vy + 0.5, 8);
-            p.vx *= 0.92;
-            p.x += p.vx;
-            p.y += p.vy;
-            if (p.y > 380) { p.y = 380; p.vy = 0; }
+    // Boss debris cascade
+    if (t < 120 && t % 6 === 0) {
+        for (let k = 0; k < 12; k++) {
+            spawnFinaleParticle(
+                f.boss.x + (Math.random() - 0.5) * 100,
+                f.boss.y + Math.random() * 200,
+                ['#ff4422', '#ffaa00', '#ffffff'][k % 3],
+                (Math.random() - 0.5) * 6,
+                -2 - Math.random() * 4, 60);
         }
     }
-
-    // === ACT 2 (t 120..280) — FLATLINE + BOSS LIFTS OFF ===
-    if (t === 120) {
+    if (t === 30) {
+        spawnFinaleShockwave(f.boss.x, f.boss.y + f.boss.h / 2, 200, '#ffffff', 1.0);
         screenShake = 18;
-        f.bannerTimer = 200;
-        audio.play('death');
     }
-    if (t >= 120 && t < 280) {
-        // Player lies still, body sparks from damage
-        p.y = 380;
-        p.vy = 0;
-        if (t % 8 === 0) {
-            spawnFinaleParticle(p.x + (Math.random() - 0.5) * 60,
-                p.y + Math.random() * p.h,
-                ['#222', '#ff4422', '#888'][Math.floor(Math.random() * 3)],
-                (Math.random() - 0.5) * 2, -1 - Math.random() * 2, 50);
-        }
-        // Boss rises up — leaves city behind
-        if (t > 140) {
-            b.y -= 4 + (t - 140) * 0.04;
-            // Boss exhaust trail
-            if (t % 3 === 0) {
-                spawnFinaleParticle(b.x + (Math.random() - 0.5) * b.w * 0.6,
-                    b.y + b.h - Math.random() * 30,
-                    ['#ff4422', '#ffaa00', '#222'][Math.floor(Math.random() * 3)],
-                    (Math.random() - 0.5) * 3, 6 + Math.random() * 4, 50);
-            }
+    // Player launches upward at t=80, scales 1.0 → 0.8 to feel "zoomed out"
+    if (t > 80 && t < 200) {
+        f.player.y -= 1.5;       // gentle ascent
+        if (t % 3 === 0) {
+            spawnFinaleParticle(f.player.x, f.player.y + f.player.h,
+                f.player.charColor, (Math.random() - 0.5) * 2, 6, 30);
         }
     }
-
-    // === ACT 3 (t 280..520) — ALLIES CHANNEL ENERGY ===
-    if (t === 280) {
-        // Spawn ally positions (4 around the player)
-        f.allies = [
-            { x: p.x - 200, y: 380, color: '#ff44aa', alpha: 0 },
-            { x: p.x - 100, y: 380, color: '#88ffff', alpha: 0 },
-            { x: p.x + 100, y: 380, color: '#ffaa44', alpha: 0 },
-            { x: p.x + 200, y: 380, color: '#88ff88', alpha: 0 }
-        ];
-        f.bannerTimer = 240;
-        audio.play('warpIn');
-    }
-    if (t >= 280 && t < 520) {
-        const aT = (t - 280) / 240;
-        // Allies fade in over first 60f
-        if (f.allies) {
-            for (const ally of f.allies) {
-                ally.alpha = Math.min(1, (t - 280) / 60);
-                // Spawn energy particle traveling toward player
-                if (t > 340 && t % 3 === 0) {
-                    f.bullets.push({
-                        x: ally.x, y: ally.y - 30,
-                        vx: (p.x - ally.x) * 0.02,
-                        vy: (p.y + p.h * 0.5 - ally.y + 30) * 0.02,
-                        life: 60, damage: 0,
-                        color: ally.color,
-                        // Mark as energy stream — render but don't damage
-                        energyStream: true
-                    });
-                }
-            }
-        }
-        // Player slowly rises off the ground as energy fills + heals
-        if (t > 360) {
-            p.y -= 0.5 + (t - 360) * 0.01;
-            // Heal player from 1 HP back to max over the channel duration
-            p.hp = Math.min(p.maxHp, p.hp + 1.2);
-            // Golden aura particles around player
-            if (t % 2 === 0) {
-                const ang = Math.random() * Math.PI * 2;
-                spawnFinaleParticle(p.x + Math.cos(ang) * 40,
-                    p.y + p.h * 0.5 + Math.sin(ang) * 60,
-                    ['#ffaa00', '#ffdd44', '#ffffff'][Math.floor(Math.random() * 3)],
-                    -Math.cos(ang) * 0.5, -Math.sin(ang) * 0.5, 40);
-            }
-            // Pulsing shockwaves from player
-            if (t % 30 === 0) {
-                spawnFinaleShockwave(p.x, p.y + p.h * 0.5,
-                    100 + (t - 360) * 0.5, '#ffaa00', 0.7);
-            }
-        }
-        // Meanwhile, boss in upper half DESTROYS PLANETS
-        // Spawn small "planet" orbs in the upper screen that get blown up
-        if (t === 320) {
-            f.bossPlanets = [];
-            for (let i = 0; i < 5; i++) {
-                f.bossPlanets.push({
-                    x: 200 + i * 180,
-                    y: 100 + Math.random() * 60,
-                    r: 30 + Math.random() * 20,
-                    color: ['#3399ff', '#ff8844', '#88ff88', '#ffaa44', '#aa66ff'][i],
-                    alive: true,
-                    deathTimer: 0
-                });
-            }
-        }
-        if (f.bossPlanets) {
-            for (const pl of f.bossPlanets) {
-                if (pl.alive) {
-                    // Boss destroys planets one-by-one every 30f starting t=380
-                    const idx = f.bossPlanets.indexOf(pl);
-                    const destroyAt = 380 + idx * 30;
-                    if (t === destroyAt) {
-                        pl.alive = false;
-                        pl.deathTimer = 30;
-                        spawnFinaleShockwave(pl.x, pl.y, pl.r * 2, '#ffffff', 1.0);
-                        spawnFinaleShockwave(pl.x, pl.y, pl.r * 3, pl.color, 1.0);
-                        for (let k = 0; k < 30; k++) {
-                            const ang = Math.random() * Math.PI * 2;
-                            spawnFinaleParticle(pl.x, pl.y, pl.color,
-                                Math.cos(ang) * (3 + Math.random() * 5),
-                                Math.sin(ang) * (3 + Math.random() * 5), 60);
-                        }
-                        screenShake = Math.max(screenShake, 14);
-                        audio.play('explosion', { throttle: 100 });
-                    }
-                } else if (pl.deathTimer > 0) {
-                    pl.deathTimer--;
-                }
-            }
-        }
-    }
-    if (t === 480) {
-        // Final energy CONVERGENCE — all energy snaps into player
-        spawnFinaleShockwave(p.x, p.y + p.h * 0.5, 400, '#ffffff', 1.0);
-        spawnFinaleShockwave(p.x, p.y + p.h * 0.5, 600, '#ffaa00', 1.0);
-        for (let k = 0; k < 80; k++) {
+    // At t=180, switch to space form: refill HP, set boss life=2,
+    // reset positions, generate stars.
+    if (t === 180) {
+        screenShake = 24;
+        spawnFinaleShockwave(canvas.width / 2, canvas.height / 2, 600, '#ffffff', 1.0);
+        for (let k = 0; k < 60; k++) {
             const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(p.x, p.y + p.h * 0.5,
-                ['#ffaa00', '#ffdd44', '#ffffff'][k % 3],
-                Math.cos(ang) * (4 + Math.random() * 6),
-                Math.sin(ang) * (4 + Math.random() * 6), 60);
+            spawnFinaleParticle(canvas.width / 2, canvas.height / 2,
+                '#ffffff', Math.cos(ang) * 8, Math.sin(ang) * 8, 50);
         }
-        screenShake = 26;
-        hitStop = 6;
-        // Mark player evolved + buff stats
-        p.evolved = true;
-        p.evolveAnim = 1;
-        p.maxHp = 2400;
-        p.hp = p.maxHp;
-        p.invincible = 240;
-        // Allies fade out
-        if (f.allies) {
-            for (const ally of f.allies) ally.alpha = 0;
-        }
-        audio.play('evolve');
-        audio.play('transform');
-    }
-
-    // === ACT 4 (t 520..760) — PLAYER ASCENDS, TRANSFORMS IN FLIGHT ===
-    if (t >= 520 && t < 760) {
-        const ascT = (t - 520) / 240;
-        p.jetActive = true;
-        p.y -= 2 + ascT * 5;
-        // Twin gold jet streams
-        if (t % 2 === 0) {
-            for (let side = -1; side <= 1; side += 2) {
-                spawnFinaleParticle(
-                    p.x + side * p.w * 0.18 + (Math.random() - 0.5) * 4,
-                    p.y + p.h,
-                    ['#ffaa00', '#ffdd44', '#ffffff'][Math.floor(Math.random() * 3)],
-                    (Math.random() - 0.5) * 2,
-                    12 + Math.random() * 6, 50);
-            }
-        }
-        // Cloud streaks 520..620, then stars
-        if (t < 620 && t % 3 === 0) {
-            for (let k = 0; k < 4; k++) {
-                spawnFinaleParticle(
-                    Math.random() * canvas.width,
-                    Math.random() * canvas.height,
-                    '#ddddff', 0, 16 + Math.random() * 6, 30);
-            }
-        }
-        if (t > 620 && t % 4 === 0) {
-            for (let k = 0; k < 3; k++) {
-                spawnFinaleParticle(
-                    Math.random() * canvas.width,
-                    Math.random() * canvas.height,
-                    '#ffffff', 0, 0, 80);
-            }
-        }
-        // Player speed-line shockwaves
-        if (t % 24 === 0) {
-            spawnFinaleShockwave(p.x, p.y + p.h * 0.5,
-                120 + ascT * 220, '#ffdd44', 0.6);
-        }
-    }
-
-    // === ACT 5 (t 760..900) — BOSS TRANSFORMS, STANDOFF ===
-    if (t === 760) {
-        // Build the starfield + reposition combatants for the standoff
+        // Generate starfield
         f.stars = [];
-        for (let s = 0; s < 240; s++) {
+        for (let s = 0; s < 200; s++) {
             f.stars.push({
                 x: Math.random() * canvas.width,
                 y: Math.random() * canvas.height,
@@ -19942,88 +18187,30 @@ function updateFinaleCityToSpace() {
                 twinkle: Math.random() * Math.PI * 2
             });
         }
-        p.x = 250; p.y = 280; p.vy = 0;
-        b.x = 850; b.y = 280;
-        b.evolved = true;
-        b.bossTransformAnim = 0;
-        spawnFinaleShockwave(b.x, b.y + b.h * 0.4, 200, '#ff0000', 1.0);
-        spawnFinaleShockwave(b.x, b.y + b.h * 0.4, 320, '#ffaa00', 1.0);
-        screenShake = 22;
-        audio.play('bossIntro');
-    }
-    if (t >= 760 && t < 900) {
-        // Boss transformation animation
-        const bT = (t - 760) / 140;
-        b.bossTransformAnim = bT;
-        // Particles spinning into boss core
-        if (t % 3 === 0) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(b.x + Math.cos(ang) * 80,
-                b.y + b.h * 0.4 + Math.sin(ang) * 80,
-                ['#ff0000', '#ff44ff', '#ffaa00', '#ffffff'][Math.floor(Math.random() * 4)],
-                -Math.cos(ang) * 4, -Math.sin(ang) * 4, 40);
-        }
-        // Periodic shockwaves
-        if (t === 800 || t === 840 || t === 880) {
-            spawnFinaleShockwave(b.x, b.y + b.h * 0.4,
-                160 + (t - 760) * 1.2, '#ff0000', 1.0);
-            spawnFinaleShockwave(b.x, b.y + b.h * 0.4,
-                240 + (t - 760) * 1.5, '#ffaa00', 1.0);
-            screenShake = Math.max(screenShake, 16);
-            hitStop = Math.max(hitStop, 4);
-        }
-        // Hold standoff pose — both face each other
-        b.facing = -1;
-        p.facing = 1;
-    }
-
-    // === t = 900 — Switch to sky-battle ===
-    if (t === 900) {
-        screenShake = 40;
-        hitStop = 12;
-        spawnFinaleShockwave(canvas.width / 2, canvas.height / 2, 800, '#ffffff', 1.0);
-        for (let k = 0; k < 100; k++) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(canvas.width / 2, canvas.height / 2,
-                ['#ffffff', '#ffaa00', '#ff0000'][k % 3],
-                Math.cos(ang) * 12, Math.sin(ang) * 12, 60);
-        }
-        // Sky battle: player evolved, boss evolved + extra strong
-        p.x = 200; p.y = 300; p.vy = 0;
-        p.hp = p.maxHp; p.invincible = 90;
-        p.jumpsUsed = 0; p.jetFuel = p.jetMax;
-        p.meleeStage = 0; p.comboCount = 0; p.comboTimer = 0;
-        b.life = 2;
-        b.maxHp = 12000;       // boss massively stronger in evolved sky form
-        b.hp = b.maxHp;
-        b.phase = 2;
-        b.phase2Triggered = true;
-        b.phase3Triggered = false;
-        b.phase4Triggered = false;
-        b.x = 1000; b.y = 240;
-        b.attackTimer = 90;
-        b.telegraphTimer = 0;
-        b.orbitAng = 0;
-        b.specialActive = false;
-        b.armAttackTimer = 0;
-        b.chargeTimer = 0;
-        b.grabTimer = 0;
-        b.grabbedPlayer = false;
-        b.slamWindup = 0;
-        b.hazards = [];
-        b.minionsToSpawn = 0;
-        b.minionSpawnCooldown = 0;
-        if (f.minions) f.minions.length = 0;
+        // Reset combatants
+        f.player.x = 200;
+        f.player.y = 300;
+        f.player.vy = 0;
+        f.player.hp = f.player.maxHp;
+        f.player.invincible = 90;
+        f.player.jumpsUsed = 0;
+        f.boss.life = 2;
+        f.boss.hp = f.boss.maxHp;
+        f.boss.phase = 2;        // life 2 starts already in rage form
+        f.boss.phase2Triggered = true;     // skip the mid-life trigger
+        f.boss.x = 700; f.boss.y = 240;
+        f.boss.attackTimer = 90;
+        f.boss.telegraphTimer = 0;
+        f.boss.orbitAng = 0;
+        f.boss.specialActive = false;
         f.bullets.length = 0;
         f.enemyBullets.length = 0;
         f.cameraX = 0;
-        f.bossPlanets = null;
-        f.allies = null;
+        // Brief dialogue beat queued through dialogue2 phase
         f.dialogue = {
             lines: [
-                { speaker: 'EARTHBREAKER', text: 'You... you came BACK?', color: '#ff0000' },
-                { speaker: 'YOU',          text: 'I am EVERYONE\'S strength now. We end this together.', color: '#ffdd44' },
-                { speaker: 'EARTHBREAKER', text: 'Then I shall consume galaxies to match you.', color: '#ff0000' }
+                { speaker: 'EARTHBREAKER', text: 'You think the city was my ARMY? It was my SHELL.', color: '#ff44ff' },
+                { speaker: 'YOU',          text: 'Then I will break your CORE in orbit.', color: '#88ffff' }
             ],
             idx: 0,
             charTimer: 0,
@@ -20034,72 +18221,25 @@ function updateFinaleCityToSpace() {
     }
 }
 
-function finaleShoot(charged) {
+function finaleShoot() {
     const f = finale;
     const p = f.player;
-    // Fire from the cannon barrel tip. drawFinalePlayer stores the latest
-    // muzzle world position on the player each frame; fall back to chest
-    // height if the player hasn't been drawn yet (first frame).
-    const muzzleX = (typeof p.muzzleX === 'number') ? p.muzzleX : p.x + p.facing * 60;
-    const muzzleY = (typeof p.muzzleY === 'number') ? p.muzzleY : p.y + 50;
-    // Aim along the cannon's actual angle (so angled-up arms shoot up etc.).
-    // aimAng is in the "facing-right" frame: 0 = straight forward, +π/2 = up,
-    // -π/2 = down. We invert sin() because canvas world y grows downward.
-    const aimAng = (typeof p.muzzleAng === 'number') ? p.muzzleAng : 0;
-    const cosA = Math.cos(aimAng);
-    const sinA = -Math.sin(aimAng);     // canvas y-flip
-    const perpX = -sinA;
-    const perpY =  cosA;
-
-    // Hyper-mode damage multiplier
-    const hyperMul = p.hyperTimer > 0 ? 3 : 1;
-
-    if (charged) {
-        // CHARGED SHOT — wide piercing 5-ray beam
-        for (let i = -2; i <= 2; i++) {
-            const off = i * 12;
-            f.bullets.push({
-                x: muzzleX + perpX * off, y: muzzleY + perpY * off,
-                vx: p.facing * cosA * 22,
-                vy: sinA * 22,
-                life: 80, damage: 90 * hyperMul,
-                color: '#ffffff',
-                glow: p.charAccent || '#88ffff',
-                pierce: true, big: true, charged: true
-            });
-        }
-        spawnFinaleShockwave(muzzleX, muzzleY, 70, p.charAccent || '#88ffff', 1.0);
-        spawnFinaleShockwave(muzzleX, muzzleY, 110, '#ffffff', 1.0);
-        for (let k = 0; k < 24; k++) {
-            spawnFinaleParticle(muzzleX, muzzleY,
-                ['#ffffff', '#ffaa44', p.charAccent || '#88ffff'][k % 3],
-                p.facing * (3 + Math.random() * 8) * cosA,
-                (Math.random() - 0.5) * 4 + sinA * 4, 30);
-        }
-        return;
-    }
-
-    // Normal twin-shot
-    const speed = 14;
+    const muzzleX = p.x + p.facing * 24;
+    const muzzleY = p.y + 40;
     for (let i = 0; i < 2; i++) {
-        const off = i * 14 - 7;
         f.bullets.push({
-            x: muzzleX + perpX * off, y: muzzleY + perpY * off,
-            vx: p.facing * cosA * speed,
-            vy: sinA * speed,
-            life: 60, damage: 20 * hyperMul,
+            x: muzzleX, y: muzzleY + i * 14 - 7,
+            vx: p.facing * 14, vy: 0,
+            life: 60, damage: 30,
             color: p.charAccent || '#88ffff'
         });
     }
-    // Muzzle flash
-    for (let k = 0; k < 8; k++) {
+    for (let k = 0; k < 6; k++) {
         spawnFinaleParticle(muzzleX, muzzleY,
             p.charAccent || '#88ffff',
-            p.facing * (1 + Math.random() * 4) * cosA,
-            (Math.random() - 0.5) * 4 + sinA * 2, 18);
+            p.facing * (1 + Math.random() * 3),
+            (Math.random() - 0.5) * 3, 18);
     }
-    // Bright muzzle glow shockwave
-    spawnFinaleShockwave(muzzleX, muzzleY, 30, p.charAccent || '#88ffff', 0.6);
 }
 
 function finaleBossAttack() {
@@ -20107,30 +18247,9 @@ function finaleBossAttack() {
     const b = f.boss;
     const p = f.player;
     const phase2 = b.phase === 2;
-    const phase3 = b.phase === 3;
-    const phase4 = b.phase === 4;
     const inSpace = b.life === 2;
-    // Brief cinematic INTENT flash — boss eye pulses red 6 frames before
-    // each attack so the player has a tell. Particles spit from chest core.
-    f.bossIntentFlash = 14;
-    spawnFinaleShockwave(b.x, b.y + b.h * 0.36, 60, '#ff4422', 0.6);
-    for (let k = 0; k < 6; k++) {
-        const ang = Math.random() * Math.PI * 2;
-        spawnFinaleParticle(b.x, b.y + b.h * 0.36, '#ff4422',
-            Math.cos(ang) * 3, Math.sin(ang) * 3, 18);
-    }
-    // Attack pool grows with phase. Each attack is a numbered slot.
-    //   0 AIM CONE          1 ARTILLERY ARC       2 SCATTER GLOBS
-    //   3 RADIAL BURST      4 DUAL RING (P2+)     5 ORBITAL LASER (P2+)
-    //   6 HAMMERFIST SWIPE  7 GROUND SLAM         8 TITAN CHARGE
-    //   9 DRONE SWARM       10 LASER GRID         11 PLASMA RAIN (P3 only)
-    //   12 METEOR FIST (P3+)  13 ENERGY BARRIER (P2+)  14 HEAT BEAM SWEEP (P3+)
-    let pool;
-    if (phase4) pool = 15;
-    else if (phase3) pool = 15;
-    else if (inSpace) pool = 14;
-    else if (phase2) pool = 14;
-    else pool = 6;
+    // Larger pool in space form (6 patterns including ORBITAL LASER)
+    const pool = inSpace ? 6 : (phase2 ? 5 : 4);
     let next;
     do { next = Math.floor(Math.random() * pool); }
     while (next === b.attackPattern && Math.random() > 0.2);
@@ -20138,9 +18257,7 @@ function finaleBossAttack() {
     b.armSwing = 1;
     const muzzleX = b.x;
     const muzzleY = b.y + 80;
-
     if (next === 0) {
-        // AIM CONE — basic spread of cones at player
         for (let i = -2; i <= 3; i++) {
             const aimAng = Math.atan2(p.y - muzzleY, p.x - muzzleX);
             const ang = aimAng + i * 0.06;
@@ -20152,9 +18269,8 @@ function finaleBossAttack() {
             });
         }
         spawnFinaleShockwave(muzzleX, muzzleY, 50, '#ff44ff', 0.8);
-        b.attackTimer = phase3 ? 60 : (phase2 ? 75 : 110);
+        b.attackTimer = phase2 ? 75 : 110;
     } else if (next === 1) {
-        // ARTILLERY ARC — gravity bombs in a fan
         b.telegraphTimer = 40;
         for (let i = 0; i < 12; i++) {
             const ang = Math.PI + (i / 12) * Math.PI;
@@ -20168,9 +18284,8 @@ function finaleBossAttack() {
         }
         spawnFinaleShockwave(b.x, b.y + b.h, 250, '#ff8844', 0.8);
         screenShake = Math.max(screenShake, 12);
-        b.attackTimer = phase3 ? 70 : (phase2 ? 90 : 140);
+        b.attackTimer = phase2 ? 90 : 140;
     } else if (next === 2) {
-        // SCATTER GLOBS — five arcing globs aimed around player
         for (let i = -2; i <= 2; i++) {
             const tx = p.x + i * 60;
             const dx2 = (tx - muzzleX) * 0.018;
@@ -20181,9 +18296,8 @@ function finaleBossAttack() {
                 color: '#ff6644', big: true
             });
         }
-        b.attackTimer = phase3 ? 65 : (phase2 ? 85 : 120);
+        b.attackTimer = phase2 ? 85 : 120;
     } else if (next === 3) {
-        // RADIAL BURST — 14 bullets full circle
         for (let i = 0; i < 14; i++) {
             const ang = (i / 14) * Math.PI * 2;
             f.enemyBullets.push({
@@ -20195,9 +18309,8 @@ function finaleBossAttack() {
             });
         }
         spawnFinaleShockwave(b.x, b.y + b.h / 2, 100, '#ff44ff', 0.8);
-        b.attackTimer = phase3 ? 60 : (phase2 ? 80 : 130);
+        b.attackTimer = phase2 ? 80 : 130;
     } else if (next === 4) {
-        // DUAL RING (phase 2+) — concentric ring
         for (let i = 0; i < 16; i++) {
             const ang = (i / 16) * Math.PI * 2;
             f.enemyBullets.push({
@@ -20218,12 +18331,15 @@ function finaleBossAttack() {
         }
         spawnFinaleShockwave(b.x, b.y + b.h / 2, 160, '#ff44ff', 1.0);
         screenShake = Math.max(screenShake, 14);
-        b.attackTimer = phase3 ? 90 : 110;
-    } else if (next === 5) {
-        // ORBITAL LASER SWEEP (phase 2+) — three telegraphed beams
+        b.attackTimer = 110;
+    } else {
+        // PATTERN 5 (life-2 only) — ORBITAL LASER SWEEP. Three slow sweeping
+        // beams from the boss core that the player can dash through. Telegraph
+        // for 30 frames so it's reactable.
         b.telegraphTimer = 30;
         for (let i = -1; i <= 1; i++) {
             const aimAng = Math.atan2(p.y - muzzleY, p.x - muzzleX) + i * 0.4;
+            // Each beam = 8 stacked bullets in a line
             for (let s = 0; s < 8; s++) {
                 f.enemyBullets.push({
                     x: muzzleX + Math.cos(aimAng) * (s * 18),
@@ -20237,115 +18353,7 @@ function finaleBossAttack() {
         }
         spawnFinaleShockwave(muzzleX, muzzleY, 80, '#ff88ff', 1.0);
         screenShake = Math.max(screenShake, 10);
-        b.attackTimer = phase3 ? 100 : 130;
-    } else if (next === 6) {
-        // HAMMERFIST SWIPE — boss melee. Arm extends toward the player.
-        // If close range, deals direct damage; otherwise spawns shockwave.
-        b.telegraphTimer = 22;
-        b.armAttackTimer = 36;
-        b.armAttackSide = b.facing;
-        // Collision happens during update — see below
-        b.attackTimer = phase3 ? 80 : 110;
-    } else if (next === 7) {
-        // GROUND SLAM — boss raises chest, slams ground, AOE shockwave
-        // + 8 lava globs erupt outward. Strong wind-up so it's readable.
-        b.slamWindup = 50;       // ticks down; on 0, slam executes
-        b.attackTimer = phase3 ? 100 : 140;
-    } else if (next === 8) {
-        // TITAN CHARGE — boss dashes across the arena toward the player.
-        // Locks aim, telegraphs for 36f, then 60f of charge motion.
-        b.telegraphTimer = 36;
-        b.chargeTimer = 60;
-        b.chargeVx = (p.x - b.x) > 0 ? 7 : -7;
-        b.attackTimer = phase3 ? 120 : 170;
-    } else if (next === 9) {
-        // DRONE SWARM — boss spawns 5 (phase 2) / 8 (phase 3) homing drones
-        // that orbit the boss briefly before homing toward the player.
-        const swarmCount = phase3 ? 8 : (inSpace ? 6 : 5);
-        b.minionsToSpawn = swarmCount;
-        b.minionSpawnCooldown = 8;
-        spawnFinaleShockwave(b.x, b.y + b.h * 0.4, 80, '#88ffff', 1.0);
-        screenShake = Math.max(screenShake, 8);
-        b.attackTimer = phase3 ? 140 : 180;
-    } else if (next === 10) {
-        // LASER GRID — boss fires three vertical/horizontal hazard beams
-        // that linger as ground hazards for ~120f. Player must navigate.
-        b.telegraphTimer = 40;
-        const gridX1 = p.x - 120 - Math.random() * 60;
-        const gridX2 = p.x + 60 + Math.random() * 80;
-        f.boss.hazards.push({
-            kind: 'beam', x: gridX1, y: 380 - 20, w: 14, h: 220,
-            life: 130, color: '#ff44ff', dmg: 12, telegraph: 40
-        });
-        f.boss.hazards.push({
-            kind: 'beam', x: gridX2, y: 380 - 20, w: 14, h: 220,
-            life: 130, color: '#ff44ff', dmg: 12, telegraph: 40
-        });
-        // Ground danger zones from the beams
-        f.boss.hazards.push({
-            kind: 'lava', x: gridX1 - 30, y: 380 - 12, w: 60, h: 12,
-            life: 200, color: '#ff8844', dmg: 8, telegraph: 40
-        });
-        f.boss.hazards.push({
-            kind: 'lava', x: gridX2 - 30, y: 380 - 12, w: 60, h: 12,
-            life: 200, color: '#ff8844', dmg: 8, telegraph: 40
-        });
-        b.attackTimer = phase3 ? 110 : 150;
-    } else if (next === 11) {
-        // PLASMA RAIN — 10 vertical pillars of plasma rain down across the
-        // arena over ~90f, leaving lava patches.
-        for (let i = 0; i < 10; i++) {
-            const px = 80 + Math.random() * 820;
-            f.boss.hazards.push({
-                kind: 'rain', x: px, y: -40, w: 10, h: 20,
-                life: 80 + Math.random() * 30, color: '#ff44ff', dmg: 18,
-                vy: 12, telegraph: 0
-            });
-            f.boss.hazards.push({
-                kind: 'lava', x: px - 24, y: 380 - 12, w: 48, h: 12,
-                life: 220, color: '#ff44ff', dmg: 8, telegraph: 50
-            });
-        }
-        screenShake = Math.max(screenShake, 14);
-        b.attackTimer = 200;
-    } else if (next === 12) {
-        // METEOR FIST — boss launches one fist into the sky for ~80f, then
-        // it falls as a giant meteor on the player's location. Big telegraph
-        // (red ground ring tracks the player), heavy damage if you don't
-        // dodge. Phase 4 spawns 2 meteors.
-        b.meteorFistActive = true;
-        b.meteorFistTimer = 100;            // total time aloft
-        b.meteorFistSide = b.facing;
-        b.meteorFistTargetX = p.x;          // captured at launch
-        b.meteorFistTargetUpdate = 60;      // ticks down; tracks player early
-        b.meteorFistCount = phase4 ? 2 : 1;
-        b.meteorFistsDropped = 0;
-        screenShake = Math.max(screenShake, 12);
-        spawnFinaleShockwave(b.x + b.facing * b.w * 0.45, b.y + b.h * 0.3,
-            80, '#ffaa00', 1.0);
-        b.attackTimer = phase4 ? 160 : 200;
-    } else if (next === 13) {
-        // ENERGY BARRIER — boss raises a translucent magenta shield for 240f
-        // (4s) that blocks AND reflects player bullets back at them.
-        b.barrierTimer = phase4 ? 200 : 240;
-        spawnFinaleShockwave(b.x, b.y + b.h * 0.45, 220, '#ff44ff', 1.0);
-        for (let k = 0; k < 24; k++) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(b.x, b.y + b.h * 0.45, '#ff44ff',
-                Math.cos(ang) * 4, Math.sin(ang) * 4, 30);
-        }
-        audio.play('warpIn');
-        b.attackTimer = 100;
-    } else {
-        // HEAT BEAM SWEEP — boss fires a continuous wide beam that sweeps
-        // across the arena floor over 180f. Damages on contact while active.
-        b.heatBeamTimer = phase4 ? 220 : 180;
-        b.heatBeamAng = b.facing > 0 ? -0.5 : Math.PI + 0.5;     // start angle
-        b.heatBeamSweepDir = b.facing;
-        b.telegraphTimer = 30;
-        spawnFinaleShockwave(b.x, b.y + b.h * 0.4, 70, '#ff8844', 1.0);
-        screenShake = Math.max(screenShake, 10);
-        b.attackTimer = b.heatBeamTimer + 60;
+        b.attackTimer = 130;
     }
     audio.play('shootHeavy', { throttle: 60 });
 }
@@ -20390,27 +18398,12 @@ function spawnFinaleShockwave(x, y, maxR, color, life) {
 function drawFinale() {
     if (!finale) return;
     const f = finale;
-    const inSpace = f.boss.life === 2 || (f.phase === 'cityToSpace' && f.timer >= 620);
+    const inSpace = f.boss.life === 2 || f.phase === 'cityToSpace' && f.timer >= 180;
     // === Backdrop ===
-    // City stays during Act 1-3 (kill, flatline, allies, planets in upper sky).
-    // Switch to full space backdrop only during Act 4 (player ascending).
-    if (inSpace || (f.phase === 'cityToSpace' && f.timer >= 620)) {
+    if (inSpace || f.phase === 'cityToSpace' && f.timer > 90) {
         drawFinaleSpaceBackdrop();
     } else {
         drawFinaleCityBackdrop();
-    }
-
-    // === Cinematic camera zoom around focus point ===
-    // The backdrop draws fullscreen so it doesn't get scaled. World content
-    // (ground, combatants, bullets, hazards, particles) gets the zoom.
-    const zoom = f.cameraZoom || 1.0;
-    const focusX = f.cameraZoomFocusX || canvas.width / 2;
-    const focusY = f.cameraZoomFocusY || canvas.height / 2;
-    ctx.save();
-    if (Math.abs(zoom - 1.0) > 0.01) {
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.scale(zoom, zoom);
-        ctx.translate(-focusX, -focusY);
     }
 
     // === Ground (city only) ===
@@ -20431,149 +18424,13 @@ function drawFinale() {
         }
     }
 
-    // During cityToSpace cinematic, always draw both combatants — they're
-    // the focus of the entire sequence.
-    drawFinalePlayer();
-    drawFinaleBoss();
-
-    // === Allies channeling energy (cityToSpace Act 3) ===
-    if (f.phase === 'cityToSpace' && f.allies) {
-        for (const ally of f.allies) {
-            if (ally.alpha <= 0) continue;
-            ctx.save();
-            ctx.globalAlpha = ally.alpha;
-            // Each ally is a small mech silhouette
-            const ax = ally.x;
-            const ay = ally.y;
-            // Glow
-            ctx.fillStyle = ally.color;
-            ctx.shadowColor = ally.color;
-            ctx.shadowBlur = 24;
-            ctx.beginPath();
-            ctx.arc(ax, ay - 30, 24, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.shadowBlur = 0;
-            // Body silhouette
-            ctx.fillStyle = '#1a1a30';
-            ctx.fillRect(ax - 12, ay - 60, 24, 36);
-            ctx.fillStyle = ally.color;
-            ctx.fillRect(ax - 8, ay - 56, 16, 28);
-            // Glowing core
-            ctx.fillStyle = '#ffffff';
-            ctx.shadowColor = ally.color;
-            ctx.shadowBlur = 18;
-            ctx.beginPath();
-            ctx.arc(ax, ay - 40, 5, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.shadowBlur = 0;
-            // Head
-            ctx.fillStyle = '#1a1a30';
-            ctx.fillRect(ax - 8, ay - 76, 16, 14);
-            ctx.fillStyle = ally.color;
-            ctx.fillRect(ax - 5, ay - 70, 10, 4);
-            // Energy beam from ally toward player
-            const px = f.player.x;
-            const py = f.player.y + f.player.h * 0.5;
-            ctx.globalAlpha = ally.alpha * 0.5;
-            ctx.strokeStyle = ally.color;
-            ctx.shadowColor = ally.color;
-            ctx.shadowBlur = 16;
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.moveTo(ax, ay - 40);
-            ctx.lineTo(px, py);
-            ctx.stroke();
-            ctx.shadowBlur = 0;
-            ctx.restore();
-        }
+    // Hide combatants during the cityToSpace flash window so the
+    // explosion reads cleanly.
+    if (f.phase !== 'cityToSpace' || f.timer < 90) {
+        drawFinalePlayer();
     }
-
-    // === Boss-destroyed planets (cityToSpace Act 3, upper half) ===
-    if (f.phase === 'cityToSpace' && f.bossPlanets) {
-        for (const pl of f.bossPlanets) {
-            ctx.save();
-            if (pl.alive) {
-                // Planet body
-                const grad = ctx.createRadialGradient(pl.x - pl.r * 0.3, pl.y - pl.r * 0.3,
-                    pl.r * 0.2, pl.x, pl.y, pl.r);
-                grad.addColorStop(0, '#ffffff');
-                grad.addColorStop(0.4, pl.color);
-                grad.addColorStop(1, '#000');
-                ctx.fillStyle = grad;
-                ctx.shadowColor = pl.color;
-                ctx.shadowBlur = 12;
-                ctx.beginPath();
-                ctx.arc(pl.x, pl.y, pl.r, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.shadowBlur = 0;
-                // Atmosphere ring
-                ctx.strokeStyle = pl.color;
-                ctx.globalAlpha = 0.4;
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.arc(pl.x, pl.y, pl.r + 4, 0, Math.PI * 2);
-                ctx.stroke();
-            } else if (pl.deathTimer > 0) {
-                // Explosion debris
-                ctx.globalAlpha = pl.deathTimer / 30;
-                ctx.fillStyle = pl.color;
-                ctx.shadowColor = pl.color;
-                ctx.shadowBlur = 30;
-                ctx.beginPath();
-                ctx.arc(pl.x, pl.y, pl.r * (1 + (30 - pl.deathTimer) * 0.05), 0, Math.PI * 2);
-                ctx.fill();
-                ctx.shadowBlur = 0;
-            }
-            ctx.restore();
-        }
-    }
-
-    // === Boss kill-beam from city (Act 1 of cityToSpace) ===
-    if (f.phase === 'cityToSpace' && f.timer < 120) {
-        const t = f.timer;
-        if (t < 60) {
-            // Charging — sparks and core glow already done by particles
-            // Draw a charging energy ball at boss core
-            ctx.save();
-            ctx.globalAlpha = (t / 60) * 0.9;
-            const r = 20 + (t / 60) * 30 + Math.sin(t * 0.5) * 3;
-            ctx.fillStyle = '#ffffff';
-            ctx.shadowColor = '#ffaa00';
-            ctx.shadowBlur = 30;
-            ctx.beginPath();
-            ctx.arc(f.boss.x, f.boss.y + f.boss.h * 0.36, r, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-        }
-        if (t >= 60 && t < 120) {
-            // Beam fires from boss core to player
-            const beamT = (t - 60) / 60;
-            const fade = 1 - beamT;
-            ctx.save();
-            ctx.globalAlpha = fade;
-            const bx = f.boss.x;
-            const by = f.boss.y + f.boss.h * 0.36;
-            const px = f.player.x;
-            const py = f.player.y + f.player.h * 0.5;
-            // Outer beam glow
-            ctx.strokeStyle = '#ffaa00';
-            ctx.shadowColor = '#ffaa00';
-            ctx.shadowBlur = 40;
-            ctx.lineCap = 'round';
-            ctx.lineWidth = 60 * fade;
-            ctx.beginPath();
-            ctx.moveTo(bx, by); ctx.lineTo(px, py); ctx.stroke();
-            // Mid beam
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 30 * fade;
-            ctx.beginPath();
-            ctx.moveTo(bx, by); ctx.lineTo(px, py); ctx.stroke();
-            // Bright core
-            ctx.lineWidth = 10 * fade;
-            ctx.beginPath();
-            ctx.moveTo(bx, by); ctx.lineTo(px, py); ctx.stroke();
-            ctx.restore();
-        }
+    if (f.phase !== 'cityToSpace' || f.timer < 60) {
+        drawFinaleBoss();
     }
 
     // === Shockwaves (above sprites) ===
@@ -20590,239 +18447,14 @@ function drawFinale() {
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
 
-    // === Hazard zones (laser beams + lava patches + plasma rain) ===
-    if (f.boss.hazards && f.boss.hazards.length) {
-        for (const hz of f.boss.hazards) {
-            ctx.save();
-            const tele = hz.telegraph > 0;
-            if (hz.kind === 'beam') {
-                if (tele) {
-                    // Telegraph: pulsing red outline only
-                    ctx.globalAlpha = 0.3 + Math.sin(hz.telegraph * 0.5) * 0.3;
-                    ctx.strokeStyle = '#ff0000';
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(hz.x, hz.y, hz.w, hz.h);
-                } else {
-                    // Active: solid beam
-                    ctx.fillStyle = hz.color;
-                    ctx.shadowColor = hz.color;
-                    ctx.shadowBlur = 16;
-                    ctx.fillRect(hz.x, hz.y, hz.w, hz.h);
-                    // Bright core
-                    ctx.fillStyle = '#ffffff';
-                    ctx.fillRect(hz.x + hz.w * 0.3, hz.y, hz.w * 0.4, hz.h);
-                    // Crackle particles at the floor
-                    if (Math.random() < 0.5) {
-                        spawnFinaleParticle(hz.x + hz.w / 2, hz.y + hz.h - 2,
-                            hz.color, (Math.random() - 0.5) * 3,
-                            -1 - Math.random() * 2, 16);
-                    }
-                }
-            } else if (hz.kind === 'lava') {
-                if (tele) {
-                    ctx.globalAlpha = 0.4 + Math.sin(hz.telegraph * 0.4) * 0.3;
-                    ctx.fillStyle = '#660000';
-                    ctx.fillRect(hz.x, hz.y, hz.w, hz.h);
-                } else {
-                    // Pulsing lava patch
-                    ctx.fillStyle = '#220000';
-                    ctx.fillRect(hz.x, hz.y, hz.w, hz.h);
-                    const pulse = 0.7 + Math.sin(hz.life * 0.1) * 0.2;
-                    ctx.globalAlpha = pulse;
-                    ctx.fillStyle = hz.color;
-                    ctx.shadowColor = hz.color;
-                    ctx.shadowBlur = 12;
-                    ctx.fillRect(hz.x + 2, hz.y + 2, hz.w - 4, hz.h - 4);
-                    if (Math.random() < 0.3) {
-                        spawnFinaleParticle(hz.x + Math.random() * hz.w, hz.y,
-                            hz.color, (Math.random() - 0.5) * 1.5,
-                            -1 - Math.random() * 2, 24);
-                    }
-                }
-            } else if (hz.kind === 'rain') {
-                ctx.fillStyle = hz.color;
-                ctx.shadowColor = hz.color;
-                ctx.shadowBlur = 14;
-                ctx.fillRect(hz.x - 2, hz.y, hz.w + 4, hz.h);
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(hz.x, hz.y, hz.w, hz.h * 0.4);
-            } else if (hz.kind === 'meteor') {
-                // Giant meteor falling — fiery rock with smoke trail tail
-                ctx.fillStyle = '#000';
-                ctx.beginPath(); ctx.arc(hz.x, hz.y, hz.w * 0.6, 0, Math.PI * 2); ctx.fill();
-                ctx.fillStyle = hz.color;
-                ctx.shadowColor = hz.color;
-                ctx.shadowBlur = 30;
-                ctx.beginPath(); ctx.arc(hz.x, hz.y, hz.w * 0.5, 0, Math.PI * 2); ctx.fill();
-                ctx.fillStyle = '#ffffff';
-                ctx.beginPath(); ctx.arc(hz.x - 6, hz.y - 6, hz.w * 0.2, 0, Math.PI * 2); ctx.fill();
-                // Long fire tail above
-                ctx.shadowBlur = 0;
-                ctx.globalAlpha = 0.6;
-                const grad = ctx.createLinearGradient(hz.x, hz.y, hz.x, hz.y - 200);
-                grad.addColorStop(0, hz.color);
-                grad.addColorStop(0.5, '#ffaa00');
-                grad.addColorStop(1, 'rgba(255,170,0,0)');
-                ctx.fillStyle = grad;
-                ctx.beginPath();
-                ctx.moveTo(hz.x - hz.w * 0.4, hz.y);
-                ctx.lineTo(hz.x + hz.w * 0.4, hz.y);
-                ctx.lineTo(hz.x + hz.w * 0.15, hz.y - 200);
-                ctx.lineTo(hz.x - hz.w * 0.15, hz.y - 200);
-                ctx.closePath();
-                ctx.fill();
-            } else if (hz.kind === 'meteorTele') {
-                // Pulsing red ground ring telegraph (warning)
-                ctx.globalAlpha = 0.4 + Math.sin(hz.life * 0.4) * 0.3;
-                ctx.fillStyle = '#220000';
-                ctx.fillRect(hz.x, hz.y, hz.w, hz.h);
-                ctx.strokeStyle = '#ff0000';
-                ctx.lineWidth = 3;
-                ctx.shadowColor = '#ff0000';
-                ctx.shadowBlur = 14;
-                ctx.strokeRect(hz.x, hz.y, hz.w, hz.h);
-                ctx.shadowBlur = 0;
-                // Crosshair lines
-                ctx.beginPath();
-                ctx.moveTo(hz.x + hz.w * 0.5, hz.y - 60);
-                ctx.lineTo(hz.x + hz.w * 0.5, hz.y);
-                ctx.stroke();
-            }
-            ctx.restore();
-        }
-    }
-
-    // === Minions (boss drones) ===
-    if (f.minions && f.minions.length) {
-        for (const m of f.minions) {
-            ctx.save();
-            // Spawn-flash white halo
-            if (m.spawnFlash > 0) {
-                ctx.globalAlpha = m.spawnFlash / 12;
-                ctx.fillStyle = '#ffffff';
-                ctx.beginPath();
-                ctx.arc(m.x, m.y, 24, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.globalAlpha = 1;
-            }
-            // Body — small disc with glowing core
-            ctx.fillStyle = '#222';
-            ctx.beginPath(); ctx.arc(m.x, m.y, 14, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = '#88ffff';
-            ctx.shadowColor = '#88ffff';
-            ctx.shadowBlur = 14;
-            ctx.beginPath(); ctx.arc(m.x, m.y, 9, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath(); ctx.arc(m.x, m.y, 4, 0, Math.PI * 2); ctx.fill();
-            // Small fin protrusions
-            ctx.shadowBlur = 0;
-            ctx.fillStyle = '#444';
-            ctx.fillRect(m.x - 16, m.y - 2, 6, 4);
-            ctx.fillRect(m.x + 10, m.y - 2, 6, 4);
-            ctx.restore();
-        }
-    }
-
     // === Bullets ===
     for (const bu of f.bullets) {
-        if (bu.rocket) {
-            // BIG ROCKET — body + fins + nosecone + flame trail
-            const ang = Math.atan2(bu.vy, bu.vx);
-            ctx.save();
-            ctx.translate(bu.x, bu.y);
-            ctx.rotate(ang);
-            // Flame trail FIRST (behind body)
-            const flameLen = 28 + Math.random() * 8;
-            const fGrad = ctx.createLinearGradient(-flameLen, 0, -8, 0);
-            fGrad.addColorStop(0, 'rgba(255,170,68,0)');
-            fGrad.addColorStop(0.4, '#ff4422');
-            fGrad.addColorStop(0.7, '#ffaa00');
-            fGrad.addColorStop(1, '#ffff88');
-            ctx.fillStyle = fGrad;
-            ctx.beginPath();
-            ctx.moveTo(-8, -8);
-            ctx.lineTo(-flameLen, -3);
-            ctx.lineTo(-flameLen - 4, 0);
-            ctx.lineTo(-flameLen, 3);
-            ctx.lineTo(-8, 8);
-            ctx.closePath();
-            ctx.fill();
-            // Outer flame glow
-            ctx.globalAlpha = 0.5;
-            ctx.fillStyle = '#ff8844';
-            ctx.shadowColor = '#ff4422';
-            ctx.shadowBlur = 18;
-            ctx.beginPath();
-            ctx.moveTo(-8, -10);
-            ctx.lineTo(-flameLen - 6, 0);
-            ctx.lineTo(-8, 10);
-            ctx.closePath();
-            ctx.fill();
-            ctx.shadowBlur = 0;
-            ctx.globalAlpha = 1;
-            // Tail fins
-            ctx.fillStyle = '#222';
-            ctx.beginPath();
-            ctx.moveTo(-12, -7); ctx.lineTo(-18, -11); ctx.lineTo(-8, -7); ctx.closePath();
-            ctx.fill();
-            ctx.beginPath();
-            ctx.moveTo(-12, 7); ctx.lineTo(-18, 11); ctx.lineTo(-8, 7); ctx.closePath();
-            ctx.fill();
-            // Body — chrome cylinder
-            const bodyGrad = ctx.createLinearGradient(0, -7, 0, 7);
-            bodyGrad.addColorStop(0, '#aaa');
-            bodyGrad.addColorStop(0.5, '#eee');
-            bodyGrad.addColorStop(1, '#666');
-            ctx.fillStyle = bodyGrad;
-            ctx.fillRect(-14, -7, 28, 14);
-            // Body stripes
-            ctx.fillStyle = '#ff4422';
-            ctx.fillRect(-4, -7, 8, 14);
-            ctx.fillStyle = '#ffaa44';
-            ctx.fillRect(-3, -6, 6, 12);
-            // Warhead glow on the side
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(-12, -5, 4, 4);
-            // Nose cone — pointed
-            ctx.fillStyle = '#444';
-            ctx.beginPath();
-            ctx.moveTo(14, -7); ctx.lineTo(26, 0); ctx.lineTo(14, 7);
-            ctx.closePath(); ctx.fill();
-            ctx.fillStyle = '#888';
-            ctx.beginPath();
-            ctx.moveTo(14, -5); ctx.lineTo(22, 0); ctx.lineTo(14, 5);
-            ctx.closePath(); ctx.fill();
-            // Hot tip glow
-            ctx.fillStyle = '#ff4422';
-            ctx.shadowColor = '#ff4422';
-            ctx.shadowBlur = 10;
-            ctx.beginPath();
-            ctx.arc(24, 0, 2, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.shadowBlur = 0;
-            ctx.restore();
-            // Sparkle particles (world space, behind missile)
-            if (Math.random() < 0.7) {
-                spawnFinaleParticle(bu.x - bu.vx * 0.5, bu.y - bu.vy * 0.5,
-                    bu.trailColor || '#ffaa44',
-                    -bu.vx * 0.2 + (Math.random() - 0.5) * 1.5,
-                    -bu.vy * 0.2 + (Math.random() - 0.5) * 1.5, 24);
-            }
-            continue;
-        }
         ctx.fillStyle = bu.color || '#88ffff';
-        ctx.shadowColor = bu.glow || bu.color || '#88ffff';
-        ctx.shadowBlur = bu.charged ? 22 : (bu.pierce ? 16 : 10);
-        const r = bu.charged ? 12 : (bu.pierce ? 9 : 6);
+        ctx.shadowColor = bu.color || '#88ffff';
+        ctx.shadowBlur = bu.pierce ? 16 : 10;
         ctx.beginPath();
-        ctx.arc(bu.x, bu.y, r, 0, Math.PI * 2);
+        ctx.arc(bu.x, bu.y, bu.pierce ? 9 : 6, 0, Math.PI * 2);
         ctx.fill();
-        if (bu.charged) {
-            ctx.fillStyle = bu.glow || '#88ffff';
-            ctx.beginPath();
-            ctx.arc(bu.x, bu.y, r * 0.5, 0, Math.PI * 2);
-            ctx.fill();
-        }
     }
     for (const bu of f.enemyBullets) {
         ctx.fillStyle = bu.color || '#ff4422';
@@ -20842,120 +18474,9 @@ function drawFinale() {
     }
     ctx.globalAlpha = 1;
 
-    // === Hit-text popups ("PUNCH!" "KICK!" "UPPERCUT!" "CLASH!") ===
-    if (f.hitTexts && f.hitTexts.length) {
-        for (const ht of f.hitTexts) {
-            const a = Math.min(1, ht.life / 30);
-            ctx.save();
-            ctx.globalAlpha = a;
-            ctx.font = 'bold 28px Courier New';
-            ctx.textAlign = 'center';
-            ctx.fillStyle = ht.color || '#ffffff';
-            ctx.shadowColor = ht.color || '#ffffff';
-            ctx.shadowBlur = 16;
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = '#000';
-            ctx.strokeText(ht.text, ht.x, ht.y);
-            ctx.fillText(ht.text, ht.x, ht.y);
-            ctx.restore();
-        }
-        ctx.textAlign = 'left';
-    }
-
-    // === Slow-mo desaturation tint ===
-    if (f.slowMo < 1.0) {
-        ctx.save();
-        ctx.globalAlpha = (1.0 - f.slowMo) * 0.3;
-        ctx.fillStyle = '#88aaff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.restore();
-    }
-
     // === Dialogue overlay ===
-    ctx.restore();   // exit camera-zoom transform — dialogue/HUD draw at native scale
-    if (f.dialogue && (f.phase === 'dialogue1' || f.phase === 'dialogue2' || f.phase === 'knockdownDialogue')) {
+    if (f.dialogue && (f.phase === 'dialogue1' || f.phase === 'dialogue2')) {
         drawFinaleDialogue();
-    }
-    // Anime transformation overlay (effects layer)
-    if (f.phase === 'transformAnime') {
-        drawFinaleTransformAnime();
-    }
-    // Allies during knockdown / revive
-    if (f.allies && (f.phase === 'knockdown' || f.phase === 'knockdownDialogue' || f.phase === 'knockdownRevive')) {
-        drawFinaleAllies();
-    }
-
-    // === ANIME-STYLE SPEED LINES — radial streaks during big moments ===
-    if (f.speedLinesTimer > 0) {
-        const lifeFrac = f.speedLinesTimer / 36;
-        const intensity = (f.speedLinesIntensity || 1.0) * lifeFrac;
-        ctx.save();
-        ctx.globalAlpha = 0.85 * intensity;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
-        ctx.lineCap = 'round';
-        const cxC = canvas.width / 2;
-        const cyC = canvas.height / 2;
-        const innerR = 200;
-        // Many radial streaks emanating from center
-        const streakCount = 36;
-        for (let i = 0; i < streakCount; i++) {
-            const a = (i / streakCount) * Math.PI * 2 + (f.timer || 0) * 0.01;
-            // Skip a band around the focus area so combat is still readable
-            const mid = Math.atan2(0, 1);     // forward axis
-            const r1 = innerR + Math.random() * 80;
-            const r2 = canvas.width * 0.7;
-            ctx.beginPath();
-            ctx.moveTo(cxC + Math.cos(a) * r1, cyC + Math.sin(a) * r1);
-            ctx.lineTo(cxC + Math.cos(a) * r2, cyC + Math.sin(a) * r2);
-            ctx.stroke();
-        }
-        // A few thicker bright streaks for emphasis
-        ctx.lineWidth = 4;
-        ctx.globalAlpha = intensity;
-        for (let i = 0; i < 8; i++) {
-            const a = (i / 8) * Math.PI * 2 + (f.timer || 0) * 0.02;
-            const r1 = innerR + 60;
-            const r2 = canvas.width * 0.7;
-            ctx.beginPath();
-            ctx.moveTo(cxC + Math.cos(a) * r1, cyC + Math.sin(a) * r1);
-            ctx.lineTo(cxC + Math.cos(a) * r2, cyC + Math.sin(a) * r2);
-            ctx.stroke();
-        }
-        ctx.restore();
-    }
-
-    // === Cinematic vignette + phase tint ===
-    // Darkens edges, intensifies during phase 3/4. Drawn under the HUD so the
-    // HUD remains readable.
-    {
-        const phase = f.boss.phase || 1;
-        const vigStrength = phase >= 4 ? 0.55 : (phase === 3 ? 0.40 : (phase === 2 ? 0.25 : 0.18));
-        const vigColor = phase >= 4 ? '#330000' : (phase === 3 ? '#220000' : (phase === 2 ? '#220011' : '#000011'));
-        const vig = ctx.createRadialGradient(
-            canvas.width / 2, canvas.height / 2, 200,
-            canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) * 0.7);
-        vig.addColorStop(0, 'rgba(0,0,0,0)');
-        vig.addColorStop(0.55, 'rgba(0,0,0,' + (vigStrength * 0.4).toFixed(2) + ')');
-        vig.addColorStop(1, vigColor);
-        ctx.save();
-        ctx.globalCompositeOperation = 'multiply';
-        ctx.globalAlpha = vigStrength + 0.2;
-        ctx.fillStyle = vig;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.restore();
-        // Thin chromatic edge bands during phase 3+
-        if (phase >= 3) {
-            ctx.save();
-            ctx.globalAlpha = 0.4 + Math.sin((f.timer || 0) * 0.05) * 0.1;
-            const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
-            grad.addColorStop(0, phase >= 4 ? 'rgba(255,0,0,0.25)' : 'rgba(255,68,255,0.18)');
-            grad.addColorStop(0.5, 'rgba(0,0,0,0)');
-            grad.addColorStop(1, phase >= 4 ? 'rgba(255,0,0,0.25)' : 'rgba(255,68,255,0.18)');
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.restore();
-        }
     }
 
     // === HUD ===
@@ -21107,142 +18628,17 @@ function drawFinaleDialogue() {
     }
 }
 
-// Computes the WORLD-space position of the end of a 2-segment limb anchored
-// at LOCAL (sx, sy) — where sx is in facing-right local x. Pass `mirror`
-// (-1 for facing-left, +1 for facing-right). Returns world-relative
-// (x, y) BEFORE adding cx — caller adds cx. Also returns the lower segment
-// world-direction angle (already accounting for mirror).
-function finaleLimbEndPos(sx, sy, upperAng, lowerAng, upperLen, lowerLen, extra, mirror) {
-    const m = mirror || 1;
-    // Local position of the end relative to the limb anchor (in local-right frame):
-    const localX = Math.sin(upperAng) * upperLen + Math.sin(upperAng + lowerAng) * (lowerLen + (extra || 0));
-    const localY = Math.cos(upperAng) * upperLen + Math.cos(upperAng + lowerAng) * (lowerLen + (extra || 0));
-    // BOTH the anchor (sx) and the limb-relative offset (localX) get mirrored
-    // because they're both expressed in local-right space.
-    return {
-        x: m * (sx + localX),
-        y: sy + localY,
-        ang: upperAng + lowerAng
-    };
-}
-
-// Draws a connected limb (upper segment + lower segment + fist/foot/cannon)
-// using ctx transforms. Origin (sx, sy) is the joint anchor. upperAng/lowerAng
-// in radians measured from "down" (0=hanging straight down, +π/2=horizontal
-// in +x direction). Set ctx.scale(facing, 1) on the canvas before calling and
-// pass angles in facing-right coordinates — the scale handles mirroring.
-function drawFinaleLimb(sx, sy, upperAng, lowerAng, upperLen, lowerLen, thick, color, accent, endCap) {
-    ctx.save();
-    ctx.translate(sx, sy);
-    ctx.rotate(upperAng);
-    // Upper segment
-    ctx.fillStyle = '#1a1a2a';
-    ctx.fillRect(-thick * 0.5, 0, thick, upperLen);
-    ctx.fillStyle = color;
-    ctx.fillRect(-thick * 0.4, 2, thick * 0.8, upperLen - 4);
-    // Joint disc (knee / elbow)
-    ctx.translate(0, upperLen);
-    ctx.fillStyle = '#222';
-    ctx.beginPath(); ctx.arc(0, 0, thick * 0.55, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = accent;
-    ctx.beginPath(); ctx.arc(0, 0, thick * 0.3, 0, Math.PI * 2); ctx.fill();
-    // Lower segment (rotation relative to upper)
-    ctx.rotate(lowerAng);
-    ctx.fillStyle = '#1a1a2a';
-    ctx.fillRect(-thick * 0.45, 0, thick * 0.9, lowerLen);
-    ctx.fillStyle = color;
-    ctx.fillRect(-thick * 0.35, 2, thick * 0.7, lowerLen - 4);
-    // End cap (fist / foot / cannon — pointed along the lower segment direction)
-    ctx.translate(0, lowerLen);
-    if (endCap === 'fist') {
-        ctx.fillStyle = '#222';
-        ctx.fillRect(-thick * 0.7, -thick * 0.2, thick * 1.4, thick * 1.0);
-        ctx.fillStyle = accent;
-        ctx.shadowColor = accent;
-        ctx.shadowBlur = 10;
-        ctx.fillRect(-thick * 0.5, 0, thick * 1.0, thick * 0.7);
-        ctx.shadowBlur = 0;
-        // Knuckles
-        ctx.fillStyle = '#888';
-        for (let i = -1; i <= 1; i++) {
-            ctx.fillRect(i * thick * 0.4 - 2, -thick * 0.05, 4, 4);
-        }
-    } else if (endCap === 'foot') {
-        ctx.fillStyle = '#222';
-        ctx.fillRect(-thick * 0.6, -4, thick * 1.5, thick * 0.7);
-        ctx.fillStyle = color;
-        ctx.fillRect(-thick * 0.5, -2, thick * 1.3, thick * 0.5);
-    } else if (endCap === 'cannon') {
-        // Barrel extends ALONG the limb direction (local +y) so the muzzle
-        // is at the end of the limb path.
-        const barrelLen = thick * 1.6;
-        const barrelW = thick * 0.7;
-        ctx.fillStyle = '#222';
-        ctx.fillRect(-barrelW * 0.55, 0, barrelW * 1.1, barrelLen);
-        ctx.fillStyle = '#555';
-        ctx.fillRect(-barrelW * 0.45, 2, barrelW * 0.9, barrelLen - 6);
-        // Muzzle tip glow
-        ctx.fillStyle = accent;
-        ctx.shadowColor = accent;
-        ctx.shadowBlur = 14;
-        ctx.beginPath();
-        ctx.arc(0, barrelLen, barrelW * 0.45, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        // Side vents for character
-        ctx.fillStyle = '#888';
-        ctx.fillRect(-barrelW * 0.7, barrelLen * 0.3, 4, barrelLen * 0.4);
-        ctx.fillRect(barrelW * 0.55, barrelLen * 0.3, 4, barrelLen * 0.4);
-    }
-    ctx.restore();
-}
-
 function drawFinalePlayer() {
     const f = finale;
     const p = f.player;
+    // Scale anim during intro: starts at 0.4 (smallish) and grows to 1.0
     const scale = f.phase === 'intro' ? (0.4 + p.scaleAnim * 0.6) : 1.0;
     const w = p.w * scale;
     const h = p.h * scale;
     const cx = p.x;
     const top = p.y + (p.h - h);
-    // Evolved form gets golden glow accents + halo
-    const colorBody   = p.evolved ? '#88ddff' : (p.charColor || '#00ddff');
-    const colorAccent = p.evolved ? '#ffdd44' : (p.charAccent || '#00ffaa');
-    const sgn = p.facing;
-
-    // Hyper mode aura — pulsing gold halo behind the player
-    if (p.hyperTimer > 0) {
-        const haloR = p.w * 1.6 + Math.sin(p.hyperTimer * 0.3) * 8;
-        ctx.save();
-        const grad = ctx.createRadialGradient(cx, p.y + p.h * 0.5, 10, cx, p.y + p.h * 0.5, haloR);
-        grad.addColorStop(0, 'rgba(255, 221, 68, 0.45)');
-        grad.addColorStop(0.6, 'rgba(255, 170, 0, 0.2)');
-        grad.addColorStop(1, 'rgba(255, 170, 0, 0)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(cx - haloR, p.y + p.h * 0.5 - haloR, haloR * 2, haloR * 2);
-        ctx.restore();
-        // Trailing sparks
-        if (Math.random() < 0.5) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(cx + Math.cos(ang) * p.w,
-                p.y + p.h * 0.5 + Math.sin(ang) * p.h * 0.4,
-                ['#ffaa00', '#ffdd44', '#ffffff'][Math.floor(Math.random() * 3)],
-                Math.cos(ang) * 0.5, Math.sin(ang) * 0.5, 30);
-        }
-    }
-
-    // Evolved-form halo — soft constant golden ring around player
-    if (p.evolved) {
-        ctx.save();
-        const haloR = p.w * 1.05 + Math.sin((f.timer || 0) * 0.05) * 3;
-        const grad = ctx.createRadialGradient(cx, p.y + p.h * 0.5, p.w * 0.3, cx, p.y + p.h * 0.5, haloR);
-        grad.addColorStop(0, 'rgba(255, 221, 68, 0)');
-        grad.addColorStop(0.6, 'rgba(255, 221, 68, 0.18)');
-        grad.addColorStop(1, 'rgba(255, 221, 68, 0)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(cx - haloR, p.y + p.h * 0.5 - haloR, haloR * 2, haloR * 2);
-        ctx.restore();
-    }
+    const colorBody = p.charColor || '#00ddff';
+    const colorAccent = p.charAccent || '#00ffaa';
 
     // Drop shadow
     ctx.fillStyle = 'rgba(0,0,0,0.45)';
@@ -21250,816 +18646,81 @@ function drawFinalePlayer() {
     ctx.ellipse(cx, 600 - 38, w / 2 + 10, 6, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Walk bob
+    // Walk bob (giant heavy stride)
     const bob = Math.abs(Math.sin(p.walkPhase)) * 3;
     const bodyY = top - bob;
-    const torsoLocalY = bodyY + h * 0.18;
+
+    // Legs (chunky tubes)
+    ctx.fillStyle = '#222';
+    ctx.fillRect(cx - w * 0.3, bodyY + h * 0.55, w * 0.22, h * 0.45);
+    ctx.fillRect(cx + w * 0.08, bodyY + h * 0.55, w * 0.22, h * 0.45);
+    // Leg accent stripe
+    ctx.fillStyle = colorAccent;
+    ctx.fillRect(cx - w * 0.25, bodyY + h * 0.6, w * 0.04, h * 0.35);
+    ctx.fillRect(cx + w * 0.21, bodyY + h * 0.6, w * 0.04, h * 0.35);
+
+    // Torso (rounded rectangle with bevel)
+    const torsoX = cx - w / 2;
+    const torsoY = bodyY + h * 0.18;
+    const torsoW = w;
     const torsoH = h * 0.42;
-    const shoulderY = torsoLocalY + h * 0.04;
-    const hipY = torsoLocalY + torsoH - h * 0.02;
-
-    // === RENDER PASS — enter mirrored local space ===
-    ctx.save();
-    ctx.translate(cx, 0);
-    ctx.scale(sgn, 1);
-    // Now local +x = "forward" (toward enemy), -x = "back"
-
-    // Walk swing for legs (only when actually moving — walkPhase advances from input)
-    const walkSwing = Math.sin(p.walkPhase) * 14;     // pixel offset, easier to reason about
-
-    // === LEGS — connected upper-leg + lower-leg drawn directly ===
-    // Hip at hipY. Front hip slightly forward, back hip slightly back.
-    const legUpperLen = h * 0.22;
-    const legLowerLen = h * 0.22;
-    const legW = w * 0.18;
-    // Front leg pose
-    let frontLegLift = walkSwing;          // positive = forward
-    let frontLegBend = -walkSwing * 0.4;
-    // Back leg pose
-    let backLegLift = -walkSwing;
-    let backLegBend = walkSwing * 0.4;
-    // Override during KICK — front leg lifts forward
-    if (p.meleeTimer > 0 && p.meleeStage === 2) {
-        const t = 1 - p.meleeTimer / 14;
-        frontLegLift = 60 * t;             // big forward kick
-        frontLegBend = 40 * (1 - t);       // straightens out at apex
-    }
-    // Helper to draw a 2-segment leg from hip(x,y) with horizontal lift offset
-    function drawLegLocal(hipX, hipY, lift, bend, isFront) {
-        // Upper leg — rectangle from hip down-and-forward by `lift`
-        const kneeX = hipX + lift * 0.5;
-        const kneeY = hipY + legUpperLen * 0.95;
-        ctx.fillStyle = '#1a1a2a';
-        // Connect hip → knee with a thick line
-        ctx.beginPath();
-        ctx.lineWidth = legW;
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = '#1a1a2a';
-        ctx.moveTo(hipX, hipY); ctx.lineTo(kneeX, kneeY);
-        ctx.stroke();
-        ctx.strokeStyle = colorBody;
-        ctx.lineWidth = legW * 0.75;
-        ctx.beginPath();
-        ctx.moveTo(hipX, hipY); ctx.lineTo(kneeX, kneeY);
-        ctx.stroke();
-        // Knee disc
-        ctx.fillStyle = colorAccent;
-        ctx.beginPath(); ctx.arc(kneeX, kneeY, legW * 0.4, 0, Math.PI * 2); ctx.fill();
-        // Lower leg → foot
-        const footX = kneeX + bend;
-        const footY = kneeY + legLowerLen * 0.95;
-        ctx.lineWidth = legW * 0.85;
-        ctx.strokeStyle = '#1a1a2a';
-        ctx.beginPath();
-        ctx.moveTo(kneeX, kneeY); ctx.lineTo(footX, footY);
-        ctx.stroke();
-        ctx.strokeStyle = colorBody;
-        ctx.lineWidth = legW * 0.6;
-        ctx.beginPath();
-        ctx.moveTo(kneeX, kneeY); ctx.lineTo(footX, footY);
-        ctx.stroke();
-        // Foot
-        ctx.fillStyle = '#222';
-        ctx.fillRect(footX - legW * 0.6, footY - 4, legW * 1.4, 8);
-        ctx.fillStyle = colorBody;
-        ctx.fillRect(footX - legW * 0.5, footY - 2, legW * 1.2, 4);
-    }
-    // Render order: back leg first (behind), then torso, then front leg
-    drawLegLocal(-w * 0.16, hipY, backLegLift, backLegBend, false);
-
-    // === TORSO — cool mech detailing ===
-    const torsoX = -w / 2;
-    // Tapered silhouette — wider at shoulders, narrower at waist
-    // Outer shell (dark trim)
-    ctx.fillStyle = '#1a1a2a';
-    ctx.beginPath();
-    ctx.moveTo(torsoX,         torsoLocalY);
-    ctx.lineTo(torsoX + w,     torsoLocalY);
-    ctx.lineTo(torsoX + w * 0.92, torsoLocalY + torsoH);
-    ctx.lineTo(torsoX + w * 0.08, torsoLocalY + torsoH);
-    ctx.closePath();
-    ctx.fill();
-    // Body fill with gradient — chest highlight then waist taper
-    const torsoG = ctx.createLinearGradient(0, torsoLocalY, 0, torsoLocalY + torsoH);
-    torsoG.addColorStop(0,   colorBody);
-    torsoG.addColorStop(0.4, '#2a2a45');
-    torsoG.addColorStop(0.7, '#1a1a30');
-    torsoG.addColorStop(1,   colorBody);
+    ctx.fillStyle = '#1a1a30';
+    ctx.fillRect(torsoX, torsoY, torsoW, torsoH);
+    const torsoG = ctx.createLinearGradient(torsoX, torsoY, torsoX, torsoY + torsoH);
+    torsoG.addColorStop(0, colorBody);
+    torsoG.addColorStop(0.5, '#1a1a30');
+    torsoG.addColorStop(1, colorBody);
     ctx.fillStyle = torsoG;
-    ctx.beginPath();
-    ctx.moveTo(torsoX + 4,            torsoLocalY + 4);
-    ctx.lineTo(torsoX + w - 4,        torsoLocalY + 4);
-    ctx.lineTo(torsoX + w * 0.92 - 3, torsoLocalY + torsoH - 4);
-    ctx.lineTo(torsoX + w * 0.08 + 3, torsoLocalY + torsoH - 4);
-    ctx.closePath();
-    ctx.fill();
-    // Vertical chest seam (center divider)
-    ctx.strokeStyle = '#1a1a2a';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, torsoLocalY + 6);
-    ctx.lineTo(0, torsoLocalY + torsoH - 6);
-    ctx.stroke();
-    // Diagonal chest plates (V-shape opening down toward core)
-    ctx.fillStyle = '#1a1a2a';
-    ctx.beginPath();
-    ctx.moveTo(torsoX + 4,           torsoLocalY + 6);
-    ctx.lineTo(0,                    torsoLocalY + torsoH * 0.3);
-    ctx.lineTo(torsoX + w * 0.18,    torsoLocalY + torsoH * 0.18);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(torsoX + w - 4,           torsoLocalY + 6);
-    ctx.lineTo(0,                        torsoLocalY + torsoH * 0.3);
-    ctx.lineTo(torsoX + w * 0.82,        torsoLocalY + torsoH * 0.18);
-    ctx.closePath();
-    ctx.fill();
-    // Glowing edge accent on the chest plates
-    ctx.strokeStyle = colorAccent;
-    ctx.lineWidth = 1.5;
-    ctx.shadowColor = colorAccent;
-    ctx.shadowBlur = 8;
-    ctx.beginPath();
-    ctx.moveTo(torsoX + 4,           torsoLocalY + 6);
-    ctx.lineTo(0,                    torsoLocalY + torsoH * 0.3);
-    ctx.moveTo(torsoX + w - 4,       torsoLocalY + 6);
-    ctx.lineTo(0,                    torsoLocalY + torsoH * 0.3);
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-    // Side vents (small angled slats on either side of the chest)
+    ctx.fillRect(torsoX + 4, torsoY + 4, torsoW - 8, torsoH - 8);
+    // Chest core (glowing)
     ctx.fillStyle = colorAccent;
     ctx.shadowColor = colorAccent;
-    ctx.shadowBlur = 8;
-    for (let i = 0; i < 3; i++) {
-        const sy0 = torsoLocalY + torsoH * 0.45 + i * 6;
-        ctx.fillRect(torsoX + w * 0.06, sy0, w * 0.18, 2);
-        ctx.fillRect(torsoX + w * 0.76, sy0, w * 0.18, 2);
-    }
-    ctx.shadowBlur = 0;
-    // Chest core (glowing ring with inner hex)
-    const corePulse = 0.85 + Math.sin(performance.now() * 0.005) * 0.15;
-    const coreX = 0;
-    const coreY = torsoLocalY + torsoH * 0.5;
-    const coreR = w * 0.13;
-    // Outer ring
-    ctx.strokeStyle = colorAccent;
-    ctx.lineWidth = 3;
-    ctx.shadowColor = colorAccent;
-    ctx.shadowBlur = 22 * corePulse;
+    ctx.shadowBlur = 18;
     ctx.beginPath();
-    ctx.arc(coreX, coreY, coreR, 0, Math.PI * 2);
-    ctx.stroke();
-    // Inner glow
-    ctx.fillStyle = colorAccent;
-    ctx.shadowBlur = 18 * corePulse;
-    ctx.beginPath();
-    ctx.arc(coreX, coreY, coreR * 0.7 * corePulse, 0, Math.PI * 2);
-    ctx.fill();
-    // White hot center
-    ctx.fillStyle = '#ffffff';
-    ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.arc(coreX, coreY, coreR * 0.35, 0, Math.PI * 2);
+    ctx.arc(cx, torsoY + torsoH * 0.5, w * 0.1, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
-    // Waist belt with side bolts
-    ctx.fillStyle = '#1a1a2a';
-    ctx.fillRect(torsoX + w * 0.06, torsoLocalY + torsoH - 8, w * 0.88, 6);
-    ctx.fillStyle = colorAccent;
-    ctx.fillRect(torsoX + w * 0.10, torsoLocalY + torsoH - 6, 6, 3);
-    ctx.fillRect(torsoX + w * 0.84, torsoLocalY + torsoH - 6, 6, 3);
 
-    // Front leg
-    drawLegLocal(w * 0.16, hipY, frontLegLift, frontLegBend, true);
-
-    // === ARMS ===
-    // Front shoulder = forward shoulder (toward enemy). Back shoulder = behind.
-    const frontShX = w * 0.42;
-    const backShX  = -w * 0.42;
-    const armW = w * 0.16;
-    const armUpperLen = h * 0.18;
-    const armLowerLen = h * 0.20;
-
-    // === Sleek angled shoulder pauldrons ===
-    // Each pauldron is a beveled trapezoid with a glowing accent strip
-    function drawPauldron(shX) {
-        // Outer shell
-        ctx.fillStyle = '#1a1a2a';
-        ctx.beginPath();
-        ctx.moveTo(shX - w * 0.16, shoulderY - h * 0.04);
-        ctx.lineTo(shX + w * 0.16, shoulderY - h * 0.06);
-        ctx.lineTo(shX + w * 0.13, shoulderY + h * 0.07);
-        ctx.lineTo(shX - w * 0.14, shoulderY + h * 0.06);
-        ctx.closePath();
-        ctx.fill();
-        // Body fill
-        ctx.fillStyle = colorBody;
-        ctx.beginPath();
-        ctx.moveTo(shX - w * 0.13, shoulderY - h * 0.02);
-        ctx.lineTo(shX + w * 0.13, shoulderY - h * 0.04);
-        ctx.lineTo(shX + w * 0.10, shoulderY + h * 0.05);
-        ctx.lineTo(shX - w * 0.11, shoulderY + h * 0.04);
-        ctx.closePath();
-        ctx.fill();
-        // Accent slat across the top
-        ctx.fillStyle = colorAccent;
-        ctx.shadowColor = colorAccent;
-        ctx.shadowBlur = 8;
-        ctx.fillRect(shX - w * 0.13, shoulderY - h * 0.04, w * 0.26, 2);
-        ctx.shadowBlur = 0;
-        // Small spike at top edge for menace
-        ctx.fillStyle = '#1a1a2a';
-        ctx.beginPath();
-        ctx.moveTo(shX - w * 0.06, shoulderY - h * 0.06);
-        ctx.lineTo(shX,             shoulderY - h * 0.10);
-        ctx.lineTo(shX + w * 0.06, shoulderY - h * 0.05);
-        ctx.closePath();
-        ctx.fill();
-    }
-    drawPauldron(backShX);
-    drawPauldron(frontShX);
-
-    // === FRONT ARM ===
-    // When gun is "out" (recently shot or aiming), show the BLASTER (simple
-    // rigid arm + barrel pointing forward in aim direction).
-    // When stowed, show a compact arm hanging at the side — no gun visible.
-    if (p.gunOutTimer > 0) {
-        // === BLASTER OUT ===
-        const aimUp = (p.aim === -1);
-        const recoil = p.recoil;
-        const sX = frontShX - recoil;
-        const sY = shoulderY;
-        const armAng = aimUp ? -Math.PI / 4 : 0;
-        const aCos = Math.cos(armAng);
-        const aSin = Math.sin(armAng);
-        const totalArmLen = armUpperLen + armLowerLen;
-        const handX = sX + aCos * totalArmLen;
-        const handY = sY + aSin * totalArmLen;
-        // Upper + lower arm
-        ctx.lineWidth = armW;
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = '#1a1a2a';
-        ctx.beginPath();
-        ctx.moveTo(sX, sY); ctx.lineTo(handX, handY); ctx.stroke();
-        ctx.strokeStyle = colorBody;
-        ctx.lineWidth = armW * 0.75;
-        ctx.beginPath();
-        ctx.moveTo(sX, sY); ctx.lineTo(handX, handY); ctx.stroke();
-        // Elbow disc
-        const elbX = sX + aCos * armUpperLen;
-        const elbY = sY + aSin * armUpperLen;
-        ctx.fillStyle = colorAccent;
-        ctx.beginPath(); ctx.arc(elbX, elbY, armW * 0.4, 0, Math.PI * 2); ctx.fill();
-        // Barrel
-        const barrelLen = armW * 1.8;
-        const muzzleX = handX + aCos * barrelLen;
-        const muzzleY = handY + aSin * barrelLen;
-        ctx.save();
-        ctx.translate(handX, handY);
-        ctx.rotate(armAng);
-        ctx.fillStyle = '#444';
-        ctx.fillRect(0, -armW * 0.45, barrelLen, armW * 0.9);
-        ctx.fillStyle = '#666';
-        ctx.fillRect(2, -armW * 0.32, barrelLen - 4, armW * 0.64);
-        ctx.fillStyle = '#222';
-        ctx.fillRect(barrelLen * 0.3, -armW * 0.55, barrelLen * 0.3, 4);
-        ctx.fillRect(barrelLen * 0.3,  armW * 0.55 - 4, barrelLen * 0.3, 4);
-        ctx.fillStyle = colorAccent;
-        ctx.shadowColor = colorAccent;
-        ctx.shadowBlur = 14;
-        ctx.beginPath();
-        ctx.arc(barrelLen, 0, armW * 0.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.restore();
-        // Save world-space muzzle for finaleShoot
-        p.muzzleX = cx + sgn * muzzleX;
-        p.muzzleY = muzzleY;
-        p.muzzleAng = aimUp ? Math.PI / 4 : 0;
-        // Cache front-hand world position for sword/fx anchoring
-        p._frontHandX = cx + sgn * handX;
-        p._frontHandY = handY;
-    } else {
-        // === STOWED — compact arm hanging at the side, no gun visible ===
-        // Override pose during SWORD swing — arm extends straight forward
-        // so the blade reads as held in the front hand.
-        const sX = frontShX;
-        const sY = shoulderY;
-        let handX, handY, elbX, elbY;
-        if (p.swordTimer > 0) {
-            // Sword pose — arm fully extended forward (horizontal)
-            const totalArm = armUpperLen + armLowerLen;
-            handX = sX + totalArm;
-            handY = sY;
-            elbX = sX + armUpperLen;
-            elbY = sY;
-        } else {
-            // Default hang at side
-            handX = sX + 4;
-            handY = sY + armUpperLen + armLowerLen * 0.85;
-            elbX = sX + 2;
-            elbY = sY + armUpperLen;
-        }
-        ctx.lineWidth = armW;
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = '#1a1a2a';
-        ctx.beginPath();
-        ctx.moveTo(sX, sY); ctx.lineTo(elbX, elbY); ctx.stroke();
-        ctx.strokeStyle = colorBody;
-        ctx.lineWidth = armW * 0.75;
-        ctx.beginPath();
-        ctx.moveTo(sX, sY); ctx.lineTo(elbX, elbY); ctx.stroke();
-        ctx.strokeStyle = '#1a1a2a';
-        ctx.lineWidth = armW * 0.85;
-        ctx.beginPath();
-        ctx.moveTo(elbX, elbY); ctx.lineTo(handX, handY); ctx.stroke();
-        ctx.strokeStyle = colorBody;
-        ctx.lineWidth = armW * 0.6;
-        ctx.beginPath();
-        ctx.moveTo(elbX, elbY); ctx.lineTo(handX, handY); ctx.stroke();
-        ctx.fillStyle = colorAccent;
-        ctx.beginPath(); ctx.arc(elbX, elbY, armW * 0.4, 0, Math.PI * 2); ctx.fill();
-        // Closed hand at the end
-        ctx.fillStyle = '#222';
-        ctx.fillRect(handX - armW * 0.5, handY - armW * 0.4, armW, armW * 0.8);
-        ctx.fillStyle = colorBody;
-        ctx.fillRect(handX - armW * 0.4, handY - armW * 0.3, armW * 0.8, armW * 0.6);
-        // Save approximate muzzle position for any FX that fires before draw
-        p.muzzleX = cx + sgn * (sX + 50);
-        p.muzzleY = sY + 10;
-        p.muzzleAng = 0;
-        // Cache front-hand world position
-        p._frontHandX = cx + sgn * handX;
-        p._frontHandY = handY;
-    }
-
-    // === BACK ARM = FIST (used for punch + uppercut animations) ===
-    {
-        const sX = backShX;
-        const sY = shoulderY;
-        // Default idle pose — fist hanging down with slight forward bend
-        let armAng = Math.PI / 2 + walkSwing * 0.02;     // hangs down, tiny sway
-        let armBend = 0.2;
-        let extension = 1.0;
-        // Override for PUNCH — anime-style straight forward thrust
-        if (p.meleeTimer > 0 && p.meleeStage === 1) {
-            const t = 1 - p.meleeTimer / 14;
-            // Wind up first half (cock back), then explosive extension
-            if (t < 0.3) {
-                armAng = Math.PI / 2 + 0.6;     // cocked back
-                extension = 0.7;
-            } else {
-                // Fast forward thrust — straight horizontal
-                const t2 = (t - 0.3) / 0.7;
-                armAng = 0;                      // straight forward
-                extension = 0.7 + t2 * 0.5;     // overextend at apex
-            }
-            armBend = 0;
-        } else if (p.meleeTimer > 0 && p.meleeStage === 3) {
-            // UPPERCUT — anime-style rising arc from low to overhead
-            const t = 1 - p.meleeTimer / 14;
-            if (t < 0.25) {
-                // Wind up — drop fist back-low
-                armAng = Math.PI * 0.75;     // back-low
-                extension = 0.8;
-            } else {
-                const t2 = (t - 0.25) / 0.75;
-                // Sweep from low → overhead
-                armAng = Math.PI * 0.75 - t2 * (Math.PI * 1.4);     // 135° → -117° (overhead-back)
-                extension = 0.85 + t2 * 0.4;
-            }
-            armBend = 0;
-        }
-        const aCos = Math.cos(armAng);
-        const aSin = Math.sin(armAng);
-        const totalArm = (armUpperLen + armLowerLen) * extension;
-        const fistX = sX + aCos * totalArm;
-        const fistY = sY + aSin * totalArm;
-        const elbX = sX + aCos * armUpperLen * extension;
-        const elbY = sY + aSin * armUpperLen * extension + armBend * 10;
-        // Upper arm
-        ctx.lineWidth = armW;
-        ctx.strokeStyle = '#1a1a2a';
-        ctx.beginPath();
-        ctx.moveTo(sX, sY); ctx.lineTo(elbX, elbY); ctx.stroke();
-        ctx.strokeStyle = colorBody;
-        ctx.lineWidth = armW * 0.75;
-        ctx.beginPath();
-        ctx.moveTo(sX, sY); ctx.lineTo(elbX, elbY); ctx.stroke();
-        // Lower arm
-        ctx.strokeStyle = '#1a1a2a';
-        ctx.lineWidth = armW * 0.85;
-        ctx.beginPath();
-        ctx.moveTo(elbX, elbY); ctx.lineTo(fistX, fistY); ctx.stroke();
-        ctx.strokeStyle = colorBody;
-        ctx.lineWidth = armW * 0.6;
-        ctx.beginPath();
-        ctx.moveTo(elbX, elbY); ctx.lineTo(fistX, fistY); ctx.stroke();
-        // Elbow disc
-        ctx.fillStyle = colorAccent;
-        ctx.beginPath(); ctx.arc(elbX, elbY, armW * 0.4, 0, Math.PI * 2); ctx.fill();
-        // Fist
-        ctx.fillStyle = '#222';
-        ctx.fillRect(fistX - armW * 0.7, fistY - armW * 0.5, armW * 1.4, armW);
-        ctx.fillStyle = colorAccent;
-        ctx.shadowColor = colorAccent;
-        ctx.shadowBlur = 12;
-        ctx.fillRect(fistX - armW * 0.5, fistY - armW * 0.35, armW * 1.0, armW * 0.7);
-        ctx.shadowBlur = 0;
-        // Knuckle pips
-        ctx.fillStyle = '#888';
-        for (let i = -1; i <= 1; i++) {
-            ctx.fillRect(fistX + i * armW * 0.3 - 2, fistY - armW * 0.55, 4, 4);
-        }
-        // Save back fist world position for FX
-        p._backFistX = cx + sgn * fistX;
-        p._backFistY = fistY;
-    }
-
-    // === HEAD — sleek mech helmet with crest + ear plates + tinted visor ===
-    const headY = torsoLocalY - h * 0.13;
-    const headH = h * 0.18;
-    // Outer shell (dark trim)
-    ctx.fillStyle = '#1a1a2a';
-    ctx.beginPath();
-    ctx.moveTo(-w * 0.18, headY + headH);
-    ctx.lineTo(-w * 0.16, headY + 4);
-    ctx.lineTo(-w * 0.10, headY);
-    ctx.lineTo( w * 0.10, headY);
-    ctx.lineTo( w * 0.16, headY + 4);
-    ctx.lineTo( w * 0.18, headY + headH);
-    ctx.closePath();
-    ctx.fill();
-    // Body fill
+    // Shoulders
+    ctx.fillStyle = '#222';
+    ctx.fillRect(cx - w * 0.55, torsoY - h * 0.04, w * 0.2, h * 0.2);
+    ctx.fillRect(cx + w * 0.35, torsoY - h * 0.04, w * 0.2, h * 0.2);
     ctx.fillStyle = colorBody;
-    ctx.beginPath();
-    ctx.moveTo(-w * 0.15, headY + headH - 2);
-    ctx.lineTo(-w * 0.13, headY + 6);
-    ctx.lineTo(-w * 0.08, headY + 3);
-    ctx.lineTo( w * 0.08, headY + 3);
-    ctx.lineTo( w * 0.13, headY + 6);
-    ctx.lineTo( w * 0.15, headY + headH - 2);
-    ctx.closePath();
-    ctx.fill();
-    // Forehead crest (small ridge across the top)
-    ctx.fillStyle = '#1a1a2a';
-    ctx.fillRect(-w * 0.06, headY + 2, w * 0.12, 4);
+    ctx.fillRect(cx - w * 0.52, torsoY - h * 0.02, w * 0.14, h * 0.14);
+    ctx.fillRect(cx + w * 0.38, torsoY - h * 0.02, w * 0.14, h * 0.14);
+
+    // Arms — front arm tracks the firing direction with recoil
+    const armLen = h * 0.36;
+    ctx.fillStyle = colorBody;
+    // Back arm (stable, hangs at side)
+    const backX = cx - p.facing * w * 0.45;
+    ctx.fillRect(backX - 5, torsoY + h * 0.12, 10, armLen);
+    // Front arm + cannon (recoil offset)
+    const frontX = cx + p.facing * w * 0.45 - p.facing * p.recoil;
+    ctx.fillRect(frontX - 6, torsoY + h * 0.12, 12, armLen * 0.6);
+    // Cannon barrel
+    ctx.fillStyle = '#444';
+    ctx.fillRect(frontX + p.facing * 6, torsoY + h * 0.18, p.facing * 30, 14);
     ctx.fillStyle = colorAccent;
-    ctx.fillRect(-w * 0.04, headY + 2, w * 0.08, 2);
-    // Ear plates (small angled blocks on the sides)
-    ctx.fillStyle = '#1a1a2a';
-    ctx.fillRect(-w * 0.20, headY + headH * 0.4, 4, 8);
-    ctx.fillRect( w * 0.16, headY + headH * 0.4, 4, 8);
-    // Visor — wider, brighter, with a horizontal seam
-    ctx.fillStyle = '#000';
-    ctx.fillRect(-w * 0.11, headY + headH * 0.32, w * 0.22, headH * 0.32);
-    ctx.fillStyle = colorAccent;
-    ctx.shadowColor = colorAccent;
-    ctx.shadowBlur = 16;
-    ctx.fillRect(-w * 0.10, headY + headH * 0.36, w * 0.20, headH * 0.20);
-    // Visor highlight bar
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(-w * 0.08, headY + headH * 0.38, w * 0.05, 2);
-    ctx.shadowBlur = 0;
-    // Twin antennae (front-leaning)
-    ctx.strokeStyle = '#1a1a2a';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-w * 0.04, headY + 2);
-    ctx.lineTo(-w * 0.02, headY - 6);
-    ctx.moveTo( w * 0.04, headY + 2);
-    ctx.lineTo( w * 0.06, headY - 6);
-    ctx.stroke();
+    ctx.fillRect(frontX + p.facing * 30, torsoY + h * 0.21, p.facing * 6, 8);
+
+    // Head
+    const headY = torsoY - h * 0.12;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(cx - w * 0.18, headY, w * 0.36, h * 0.18);
+    ctx.fillStyle = colorBody;
+    ctx.fillRect(cx - w * 0.15, headY + 3, w * 0.30, h * 0.13);
+    // Visor
     ctx.fillStyle = colorAccent;
     ctx.shadowColor = colorAccent;
-    ctx.shadowBlur = 6;
-    ctx.beginPath();
-    ctx.arc(-w * 0.02, headY - 6, 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc( w * 0.06, headY - 6, 2, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.shadowBlur = 14;
+    ctx.fillRect(cx - w * 0.13, headY + h * 0.04, w * 0.26, h * 0.06);
     ctx.shadowBlur = 0;
 
     // Invincibility flicker
     if (p.invincible > 0 && p.invincible % 4 < 2) {
         ctx.fillStyle = 'rgba(255,255,255,0.3)';
-        ctx.fillRect(torsoX, torsoLocalY - h * 0.15, w, torsoH + h * 0.2);
-    }
-
-    ctx.restore();   // exit mirrored local space
-
-    // === ANIME-STYLE PUNCH/KICK/UPPERCUT FX (in world space) ===
-    if (p.meleeTimer > 0) {
-        const t = 1 - p.meleeTimer / 14;
-        ctx.save();
-        if (p.meleeStage === 1 && t > 0.3) {
-            // PUNCH — radial impact lines + speed streaks behind fist
-            const fX = p._backFistX || p.x;
-            const fY = p._backFistY || p.y + h * 0.4;
-            // Big white shockwave aura at fist
-            ctx.fillStyle = '#ffffff';
-            ctx.shadowColor = colorAccent;
-            ctx.shadowBlur = 30;
-            ctx.globalAlpha = 0.7 - t * 0.3;
-            ctx.beginPath();
-            ctx.arc(fX, fY, 22, 0, Math.PI * 2);
-            ctx.fill();
-            // Anime impact lines (8 radial lines)
-            ctx.globalAlpha = 0.6;
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 4;
-            for (let i = 0; i < 8; i++) {
-                const a = (i / 8) * Math.PI * 2;
-                const r1 = 28;
-                const r2 = 28 + (i % 2 === 0 ? 18 : 12);
-                ctx.beginPath();
-                ctx.moveTo(fX + Math.cos(a) * r1, fY + Math.sin(a) * r1);
-                ctx.lineTo(fX + Math.cos(a) * r2, fY + Math.sin(a) * r2);
-                ctx.stroke();
-            }
-            // Speed streaks behind the fist (trailing toward shoulder)
-            ctx.strokeStyle = colorAccent;
-            ctx.lineWidth = 6;
-            ctx.globalAlpha = 0.4;
-            for (let k = 1; k <= 4; k++) {
-                ctx.beginPath();
-                ctx.moveTo(fX - sgn * k * 8, fY - 8 + k * 2);
-                ctx.lineTo(fX - sgn * k * 18, fY - 8 + k * 2);
-                ctx.stroke();
-            }
-        } else if (p.meleeStage === 2 && t > 0.3) {
-            // KICK — crescent arc trail from hip to foot, big foot impact
-            const sx = cx + sgn * w * 0.16;
-            const sy = hipY;
-            const fX = cx + sgn * (w * 0.16 + 60 * t);
-            const fY = hipY + (legUpperLen + legLowerLen) * 0.7 - 60 * t;
-            // Crescent kick arc
-            ctx.globalAlpha = 0.5;
-            ctx.strokeStyle = '#ffffff';
-            ctx.shadowColor = colorAccent;
-            ctx.shadowBlur = 20;
-            ctx.lineWidth = 14;
-            ctx.beginPath();
-            const arcR = 80;
-            ctx.arc(sx, sy + arcR * 0.3, arcR,
-                sgn > 0 ? -Math.PI * 0.2 : Math.PI - (-Math.PI * 0.2),
-                sgn > 0 ?  Math.PI * 0.7 : Math.PI - ( Math.PI * 0.7));
-            ctx.stroke();
-            // Foot impact glow
-            ctx.fillStyle = colorAccent;
-            ctx.shadowBlur = 26;
-            ctx.globalAlpha = 0.8;
-            ctx.beginPath();
-            ctx.arc(fX, fY, 22, 0, Math.PI * 2);
-            ctx.fill();
-        } else if (p.meleeStage === 3) {
-            // UPPERCUT — RISING magenta energy column + trail
-            const fX = p._backFistX || p.x;
-            const fY = p._backFistY || p.y;
-            // Massive magenta fist aura
-            ctx.fillStyle = '#ff44ff';
-            ctx.shadowColor = '#ff44ff';
-            ctx.shadowBlur = 40;
-            ctx.globalAlpha = 0.85;
-            ctx.beginPath();
-            ctx.arc(fX, fY, 30, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
-            ctx.arc(fX, fY, 14, 0, Math.PI * 2);
-            ctx.fill();
-            // Rising column from feet to fist
-            ctx.globalAlpha = 0.4;
-            const colGrad = ctx.createLinearGradient(fX, p.y + h, fX, fY);
-            colGrad.addColorStop(0, 'rgba(255,170,0,0)');
-            colGrad.addColorStop(0.6, 'rgba(255,170,0,0.6)');
-            colGrad.addColorStop(1, '#ff44ff');
-            ctx.fillStyle = colGrad;
-            ctx.fillRect(fX - 30, fY, 60, p.y + h - fY);
-            // Anime impact lines
-            ctx.globalAlpha = 0.55;
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 4;
-            for (let i = 0; i < 12; i++) {
-                const a = (i / 12) * Math.PI * 2;
-                ctx.beginPath();
-                ctx.moveTo(fX + Math.cos(a) * 36, fY + Math.sin(a) * 36);
-                ctx.lineTo(fX + Math.cos(a) * 60, fY + Math.sin(a) * 60);
-                ctx.stroke();
-            }
-            // Sparkles
-            for (let k = 0; k < 3; k++) {
-                spawnFinaleParticle(fX + (Math.random() - 0.5) * 40,
-                    fY + (Math.random() - 0.5) * 40,
-                    ['#ff44ff', '#ffaa00', '#ffffff'][k % 3],
-                    (Math.random() - 0.5) * 4,
-                    (Math.random() - 0.5) * 4, 28);
-            }
-        }
-        ctx.restore();
-    }
-
-    // === Cannon muzzle flash on shooting recoil (world space) ===
-    if (p.recoil > 0 && p.muzzleX) {
-        ctx.save();
-        ctx.globalAlpha = p.recoil / 5;
-        ctx.fillStyle = colorAccent;
-        ctx.shadowColor = colorAccent;
-        ctx.shadowBlur = 24;
-        ctx.beginPath();
-        ctx.arc(p.muzzleX, p.muzzleY, 18, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(p.muzzleX, p.muzzleY, 9, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    }
-
-    // === Charge-shot energy ball at muzzle while held ===
-    if (p.shootHeld && p.chargeShotTimer > 6 && p.muzzleX) {
-        const ch = Math.min(1, p.chargeShotTimer / p.chargeShotMax);
-        ctx.save();
-        const r = 10 + ch * 20 + Math.sin(p.chargeShotTimer * 0.6) * 3;
-        ctx.fillStyle = '#ffffff';
-        ctx.shadowColor = colorAccent;
-        ctx.shadowBlur = 24 + ch * 24;
-        ctx.globalAlpha = 0.5 + ch * 0.5;
-        ctx.beginPath();
-        ctx.arc(p.muzzleX, p.muzzleY, r, 0, Math.PI * 2);
-        ctx.fill();
-        if (p.chargeShotReady) {
-            ctx.strokeStyle = colorAccent;
-            ctx.lineWidth = 3;
-            ctx.globalAlpha = 0.5 + Math.sin(p.chargeShotTimer * 0.4) * 0.3;
-            ctx.beginPath();
-            ctx.arc(p.muzzleX, p.muzzleY, r + 12, 0, Math.PI * 2);
-            ctx.stroke();
-        }
-        ctx.restore();
-    }
-
-    // === Jet exhaust trails (world space) ===
-    if (p.jetActive) {
-        ctx.save();
-        ctx.globalAlpha = 0.7;
-        const flicker = 8 + Math.sin(p.jetExhaustPhase) * 4;
-        for (let side = -1; side <= 1; side += 2) {
-            const fx = cx + side * w * 0.18;
-            const fy = bodyY + h * 0.95;
-            ctx.fillStyle = '#ff8844';
-            ctx.shadowColor = '#ff8844';
-            ctx.shadowBlur = 18;
-            ctx.beginPath();
-            ctx.ellipse(fx, fy + flicker, 10, flicker + 4, 0, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#ffffaa';
-            ctx.shadowColor = '#ffffaa';
-            ctx.shadowBlur = 12;
-            ctx.beginPath();
-            ctx.ellipse(fx, fy + flicker - 2, 5, flicker, 0, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        ctx.shadowBlur = 0;
-        ctx.restore();
-    }
-
-    // === SHIELD bubble (world space) — cinematic energy barrier ===
-    if (p.shieldTimer > 0) {
-        ctx.save();
-        const sx = cx;
-        const sy = p.y + p.h * 0.5;
-        const r = p.w * 1.4 + Math.sin(p.shieldTimer * 0.3) * 4;
-        const lifeFrac = p.shieldTimer / 90;
-        // Outer atmospheric glow (huge soft gradient)
-        const outerGrad = ctx.createRadialGradient(sx, sy, r * 0.5, sx, sy, r * 1.5);
-        outerGrad.addColorStop(0, 'rgba(136, 255, 255, 0.3)');
-        outerGrad.addColorStop(0.7, 'rgba(136, 255, 255, 0.1)');
-        outerGrad.addColorStop(1, 'rgba(136, 255, 255, 0)');
-        ctx.fillStyle = outerGrad;
-        ctx.fillRect(sx - r * 1.5, sy - r * 1.5, r * 3, r * 3);
-        // Filled sphere with refraction tint
-        ctx.globalAlpha = 0.22 + Math.sin(p.shieldTimer * 0.4) * 0.07;
-        const sphereGrad = ctx.createRadialGradient(sx - r * 0.3, sy - r * 0.3, 5, sx, sy, r);
-        sphereGrad.addColorStop(0, '#ffffff');
-        sphereGrad.addColorStop(0.5, colorAccent);
-        sphereGrad.addColorStop(1, 'rgba(0, 200, 255, 0.4)');
-        ctx.fillStyle = sphereGrad;
-        ctx.beginPath();
-        ctx.arc(sx, sy, r, 0, Math.PI * 2);
-        ctx.fill();
-        // Inner hex grid (rotating)
-        ctx.globalAlpha = 0.6;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
-        ctx.shadowColor = colorAccent;
-        ctx.shadowBlur = 14;
-        const rot = p.shieldTimer * 0.04;
-        for (let layer = 0; layer < 2; layer++) {
-            const layerR = r * (0.6 + layer * 0.35);
-            const sides = 8 + layer * 2;
-            const offset = layer * 0.25;
-            for (let k = 0; k < sides; k++) {
-                const a1 = (k / sides) * Math.PI * 2 + rot * (layer ? -1 : 1) + offset;
-                const a2 = ((k + 1) / sides) * Math.PI * 2 + rot * (layer ? -1 : 1) + offset;
-                ctx.beginPath();
-                ctx.moveTo(sx + Math.cos(a1) * layerR, sy + Math.sin(a1) * layerR);
-                ctx.lineTo(sx + Math.cos(a2) * layerR, sy + Math.sin(a2) * layerR);
-                ctx.stroke();
-            }
-        }
-        // Crackling lightning bolts inside
-        ctx.shadowBlur = 18;
-        ctx.strokeStyle = colorAccent;
-        ctx.lineWidth = 1.5;
-        ctx.globalAlpha = 0.7;
-        for (let z = 0; z < 3; z++) {
-            const bolt = (p.shieldTimer + z * 30) % 60;
-            const ba1 = (z / 3) * Math.PI * 2 + rot * 2;
-            const ba2 = ba1 + Math.PI;
-            const seg = 5;
-            ctx.beginPath();
-            for (let s = 0; s <= seg; s++) {
-                const t = s / seg;
-                const a = ba1 + (ba2 - ba1) * t;
-                const rr = (1 - Math.abs(t - 0.5) * 2) * r * 0.85 + (Math.random() - 0.5) * 8;
-                const px = sx + Math.cos(a) * rr;
-                const py = sy + Math.sin(a) * rr;
-                if (s === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-            }
-            ctx.stroke();
-        }
-        // Outer ring (thick)
-        ctx.shadowBlur = 0;
-        ctx.globalAlpha = 0.85 * lifeFrac;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.arc(sx, sy, r, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.strokeStyle = colorAccent;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(sx, sy, r - 4, 0, Math.PI * 2);
-        ctx.stroke();
-        // Floating sparkle particles around the shell
-        if (f.timer % 2 === 0) {
-            const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(sx + Math.cos(ang) * r, sy + Math.sin(ang) * r,
-                colorAccent, Math.cos(ang) * 0.5, Math.sin(ang) * 0.5, 18);
-        }
-        ctx.restore();
-    }
-
-    // === SWORD slash beam (world space) — clean straight blade from hand ===
-    if (p.swordTimer > 0) {
-        const t = 1 - p.swordTimer / 18;
-        ctx.save();
-        const slashLen = 200;
-        // Anchor blade to front hand (cached during draw)
-        const sx = p._frontHandX || (cx + sgn * 50);
-        const sy = p._frontHandY || (p.y + p.h * 0.45);
-        const reveal = Math.min(1, t * 2.5);
-        const fade = t > 0.5 ? 1 - (t - 0.5) * 2 : 1;
-        const drawX = sx + sgn * slashLen * reveal;
-        // Outer glow
-        ctx.globalAlpha = 0.4 * fade;
-        ctx.strokeStyle = '#ffffff';
-        ctx.shadowColor = colorAccent;
-        ctx.shadowBlur = 28;
-        ctx.lineWidth = 22;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(sx, sy); ctx.lineTo(drawX, sy);
-        ctx.stroke();
-        // Mid blade
-        ctx.globalAlpha = 0.85 * fade;
-        ctx.strokeStyle = colorAccent;
-        ctx.lineWidth = 10;
-        ctx.beginPath();
-        ctx.moveTo(sx, sy); ctx.lineTo(drawX, sy);
-        ctx.stroke();
-        // Inner core
-        ctx.globalAlpha = fade;
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(sx, sy); ctx.lineTo(drawX, sy);
-        ctx.stroke();
-        // Pointed tip glow
-        ctx.shadowBlur = 24;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(drawX, sy, 8 * fade, 0, Math.PI * 2);
-        ctx.fill();
-        // Hilt (small accent square AT the hand position)
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = colorAccent;
-        ctx.fillRect(sx - sgn * 8, sy - 9, sgn * 12, 18);
-        ctx.fillStyle = '#222';
-        ctx.fillRect(sx - sgn * 6, sy - 7, sgn * 8, 14);
-        ctx.restore();
+        ctx.fillRect(torsoX, torsoY - h * 0.15, torsoW, torsoH + h * 0.2);
     }
 }
 
@@ -22067,16 +18728,10 @@ function drawFinaleBoss() {
     const f = finale;
     const b = f.boss;
     const phase2 = b.phase === 2;
-    const phase3 = b.phase === 3;
     const w = b.w;
     const h = b.h;
-    // Stagger lean — boss tilts back when struck by melee
-    const staggerLean = b.stagger > 0 ? Math.sin(b.stagger * 0.5) * 8 : 0;
-    const shake = b.shakeOffset > 0 ? (Math.random() - 0.5) * b.shakeOffset : 0;
-    if (b.shakeOffset > 0) b.shakeOffset *= 0.85;
-    const cx = b.x + staggerLean + shake;
+    const cx = b.x;
     const top = b.y;
-    const sgn = b.facing || 1;     // +1 right, -1 left
 
     // Drop shadow
     if (b.landed) {
@@ -22086,537 +18741,124 @@ function drawFinaleBoss() {
         ctx.fill();
     }
 
-    // Low-HP smoke trail (under 35% HP)
-    if (b.hp < b.maxHp * 0.35 && b.landed && f.timer % 4 === 0) {
-        spawnFinaleParticle(cx + (Math.random() - 0.5) * w * 0.6,
-            top + h * 0.3 + Math.random() * h * 0.4,
-            ['#222', '#444', '#553333'][Math.floor(Math.random() * 3)],
-            (Math.random() - 0.5) * 2, -1 - Math.random() * 2, 60);
-    }
-    if (b.hp < b.maxHp * 0.2 && b.landed && f.timer % 6 === 0) {
-        for (let k = 0; k < 2; k++) {
-            spawnFinaleParticle(cx + (Math.random() - 0.5) * w * 0.7,
-                top + Math.random() * h * 0.7,
-                ['#ffaa00', '#ffdd44', '#ff4422'][k % 3],
-                (Math.random() - 0.5) * 4, -2 - Math.random() * 3, 30);
-        }
-    }
-
-    // Phase aura
-    if (phase2 || phase3) {
+    // Phase 2 aura
+    if (phase2) {
         const auraR = 130 + Math.sin(b.walkPhase * 4) * 8;
         ctx.save();
         ctx.globalAlpha = 0.18;
-        ctx.fillStyle = phase3 ? '#ff0000' : '#ff44ff';
+        ctx.fillStyle = '#ff44ff';
         ctx.beginPath();
         ctx.arc(cx, top + h / 2, auraR, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
     }
 
-    // Sky form (life 2 / evolved) gets a brand new gold-and-crimson palette
-    let bodyColor, accent, trim;
-    if (b.evolved) {
-        bodyColor = phase3 ? '#3a0000' : '#5a1a00';     // dark crimson
-        accent    = phase3 ? '#ff0000' : '#ffaa00';     // gold/crimson energy
-        trim      = '#ffdd44';                           // bright gold trim
-    } else {
-        bodyColor = phase3 ? '#552222' : (phase2 ? '#552255' : '#553322');
-        accent    = phase3 ? '#ff0000' : (phase2 ? '#ff44ff' : '#ff4422');
-        trim      = phase3 ? '#ffaa66' : (phase2 ? '#ffaaff' : '#ffaa66');
-    }
+    const bodyColor = phase2 ? '#552255' : '#553322';
+    const accent = phase2 ? '#ff44ff' : '#ff4422';
+    const trim = phase2 ? '#ffaaff' : '#ffaa66';
 
-    // === Boss pose calculation (facing-RIGHT frame) ===
-    // Walk swing for legs and idle arm sway. Boss strides slow + heavy.
-    const walkSwing = Math.sin(b.walkPhase * 2) * 0.22;
-    const idleSway  = Math.sin(b.walkPhase * 1.6) * 0.08;
-    let bFrontArmUpper = -0.15 + idleSway;
-    let bFrontArmLower = 0.25;
-    let bBackArmUpper  = -0.05 - idleSway;
-    let bBackArmLower  = 0.30;
-    let bFrontLegUpper = -walkSwing * 0.5;
-    let bFrontLegLower = -0.05;
-    let bBackLegUpper  = walkSwing * 0.5;
-    let bBackLegLower  = -0.05;
+    // Legs
+    ctx.fillStyle = '#1a1a1a';
+    ctx.fillRect(cx - w * 0.32, top + h * 0.58, w * 0.22, h * 0.42);
+    ctx.fillRect(cx + w * 0.10, top + h * 0.58, w * 0.22, h * 0.42);
+    // Knee accents
+    ctx.fillStyle = accent;
+    ctx.fillRect(cx - w * 0.28, top + h * 0.7, w * 0.14, 6);
+    ctx.fillRect(cx + w * 0.14, top + h * 0.7, w * 0.14, 6);
 
-    // Override: if boss is winding up a slam, both arms raise overhead
-    if (b.slamWindup > 0) {
-        const wt = 1 - b.slamWindup / 50;
-        bFrontArmUpper = -1.4 - wt * 0.3;       // arms overhead
-        bFrontArmLower = 0.1;
-        bBackArmUpper  = -1.4 - wt * 0.3;
-        bBackArmLower  = 0.1;
-    }
-    // Override: if charging, lean forward + arms swept back
-    if (b.chargeTimer > 0) {
-        bFrontArmUpper = -0.6;
-        bBackArmUpper  = -0.4;
-        bFrontLegUpper = walkSwing * 1.2;       // exaggerated stride
-        bBackLegUpper  = -walkSwing * 1.2;
-    }
-    // Override: if hammerfist swiping, the active arm is extended forward
-    if (b.armAttackTimer > 0) {
-        const swingT = 1 - b.armAttackTimer / 36;
-        const reach = -1.0 + swingT * 2.4;       // -1.0 → +1.4 (cocked → forward)
-        // armAttackSide: +1 = front side swings, -1 = back side swings
-        if (b.armAttackSide === 1 || b.armAttackSide === sgn) {
-            // Front arm swings (when armAttackSide matches facing)
-            bFrontArmUpper = reach;
-            bFrontArmLower = 0.5 - swingT * 0.5;
-        } else {
-            bBackArmUpper = reach;
-            bBackArmLower = 0.5 - swingT * 0.5;
-        }
-    }
-
-    // Limb dimensions
-    const bArmUpper = h * 0.18;
-    const bArmLower = h * 0.20;
-    const bArmThick = w * 0.20;
-    const bLegUpper = h * 0.22;
-    const bLegLower = h * 0.22;
-    const bLegThick = w * 0.24;
-    // Local-space joint anchors (around centered torso)
-    const torsoLocalY = top + h * 0.18;
-    const torsoH = h * 0.42;
-    const shoulderY = torsoLocalY + h * 0.05;
-    const hipY = torsoLocalY + torsoH - h * 0.02;
-    const frontShX = w * 0.42;
-    const backShX  = -w * 0.42;
-    const frontHpX = w * 0.18;
-    const backHpX  = -w * 0.18;
-
-    // === Render: enter mirrored local space ===
-    ctx.save();
-    ctx.translate(cx, 0);
-    ctx.scale(sgn, 1);
-
-    // BACK leg
-    drawFinaleLimb(backHpX, hipY, bBackLegUpper, bBackLegLower,
-        bLegUpper, bLegLower, bLegThick, bodyColor, accent, 'foot');
-    // BACK arm
-    drawFinaleLimb(backShX, shoulderY, bBackArmUpper, bBackArmLower,
-        bArmUpper, bArmLower, bArmThick, bodyColor, accent, 'cannon');
-
-    // === TORSO ===
+    // Hip armor
     ctx.fillStyle = bodyColor;
-    ctx.fillRect(-w * 0.45, top + h * 0.18, w * 0.9, h * 0.38);
-    const tg = ctx.createLinearGradient(-w * 0.45, top, w * 0.45, top + h);
+    ctx.fillRect(cx - w * 0.4, top + h * 0.5, w * 0.8, h * 0.14);
+
+    // Torso (massive armored core)
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(cx - w * 0.45, top + h * 0.18, w * 0.9, h * 0.38);
+    const tg = ctx.createLinearGradient(cx - w * 0.45, top, cx + w * 0.45, top + h);
     tg.addColorStop(0, accent);
     tg.addColorStop(0.5, bodyColor);
     tg.addColorStop(1, accent);
     ctx.fillStyle = tg;
-    ctx.fillRect(-w * 0.4, top + h * 0.22, w * 0.8, h * 0.32);
-    // Hip armor
-    ctx.fillStyle = bodyColor;
-    ctx.fillRect(-w * 0.4, top + h * 0.5, w * 0.8, h * 0.14);
+    ctx.fillRect(cx - w * 0.4, top + h * 0.22, w * 0.8, h * 0.32);
 
     // Glowing core eye on chest
-    const intentBoost = (f.bossIntentFlash || 0) / 14;
-    const corePulse = 0.7 + Math.sin(b.walkPhase * 2) * 0.3 + intentBoost * 1.5;
-    ctx.fillStyle = intentBoost > 0 ? '#ffffff' : accent;
+    const corePulse = 0.7 + Math.sin(b.walkPhase * 2) * 0.3;
+    ctx.fillStyle = accent;
     ctx.shadowColor = accent;
     ctx.shadowBlur = 24 * corePulse;
     ctx.beginPath();
-    ctx.arc(0, top + h * 0.36, w * 0.13, 0, Math.PI * 2);
+    ctx.arc(cx, top + h * 0.36, w * 0.13, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
-    ctx.arc(0, top + h * 0.36, w * 0.05, 0, Math.PI * 2);
+    ctx.arc(cx, top + h * 0.36, w * 0.05, 0, Math.PI * 2);
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    // Massive shoulder pauldrons (over shoulder joints)
+    // Shoulders (massive)
     ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(backShX  - w * 0.13, shoulderY - h * 0.07, w * 0.26, h * 0.14);
-    ctx.fillRect(frontShX - w * 0.13, shoulderY - h * 0.07, w * 0.26, h * 0.14);
+    ctx.fillRect(cx - w * 0.6, top + h * 0.16, w * 0.22, h * 0.18);
+    ctx.fillRect(cx + w * 0.38, top + h * 0.16, w * 0.22, h * 0.18);
     ctx.fillStyle = bodyColor;
-    ctx.fillRect(backShX  - w * 0.10, shoulderY - h * 0.05, w * 0.20, h * 0.10);
-    ctx.fillRect(frontShX - w * 0.10, shoulderY - h * 0.05, w * 0.20, h * 0.10);
+    ctx.fillRect(cx - w * 0.56, top + h * 0.18, w * 0.14, h * 0.13);
+    ctx.fillRect(cx + w * 0.42, top + h * 0.18, w * 0.14, h * 0.13);
     // Shoulder spikes
     ctx.fillStyle = trim;
     ctx.beginPath();
-    ctx.moveTo(backShX  - w * 0.12, shoulderY - h * 0.07);
-    ctx.lineTo(backShX,             shoulderY - h * 0.18);
-    ctx.lineTo(backShX  + w * 0.12, shoulderY - h * 0.07);
+    ctx.moveTo(cx - w * 0.6, top + h * 0.16);
+    ctx.lineTo(cx - w * 0.5, top + h * 0.05);
+    ctx.lineTo(cx - w * 0.4, top + h * 0.16);
     ctx.fill();
     ctx.beginPath();
-    ctx.moveTo(frontShX - w * 0.12, shoulderY - h * 0.07);
-    ctx.lineTo(frontShX,            shoulderY - h * 0.18);
-    ctx.lineTo(frontShX + w * 0.12, shoulderY - h * 0.07);
+    ctx.moveTo(cx + w * 0.4, top + h * 0.16);
+    ctx.lineTo(cx + w * 0.5, top + h * 0.05);
+    ctx.lineTo(cx + w * 0.6, top + h * 0.16);
     ctx.fill();
 
-    // FRONT leg
-    drawFinaleLimb(frontHpX, hipY, bFrontLegUpper, bFrontLegLower,
-        bLegUpper, bLegLower, bLegThick, bodyColor, accent, 'foot');
-    // FRONT arm
-    drawFinaleLimb(frontShX, shoulderY, bFrontArmUpper, bFrontArmLower,
-        bArmUpper, bArmLower, bArmThick, bodyColor, accent, 'cannon');
+    // Arms with attack-pose lift (armSwing during attacks)
+    const armLift = b.armSwing * h * 0.1;
+    ctx.fillStyle = bodyColor;
+    ctx.fillRect(cx - w * 0.6, top + h * 0.34 - armLift, w * 0.16, h * 0.34);
+    ctx.fillRect(cx + w * 0.44, top + h * 0.34 - armLift, w * 0.16, h * 0.34);
+    // Forearm cannons
+    ctx.fillStyle = '#222';
+    ctx.fillRect(cx - w * 0.7, top + h * 0.5 - armLift, w * 0.16, 14);
+    ctx.fillRect(cx + w * 0.54, top + h * 0.5 - armLift, w * 0.16, 14);
 
-    // === HEAD — horned crown ===
+    // Head — horned crown
     const headW = w * 0.4;
     const headH = h * 0.2;
+    const headX = cx - headW / 2;
     const headY = top - headH * 0.3;
     ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(-headW / 2, headY, headW, headH);
+    ctx.fillRect(headX, headY, headW, headH);
     ctx.fillStyle = bodyColor;
-    ctx.fillRect(-headW / 2 + 4, headY + 4, headW - 8, headH - 8);
-    // Eye (asymmetric — visor on the front side, mirrors with facing)
+    ctx.fillRect(headX + 4, headY + 4, headW - 8, headH - 8);
+    // Eye
     ctx.fillStyle = accent;
     ctx.shadowColor = accent;
     ctx.shadowBlur = 18;
-    // Single big front-facing visor
-    ctx.fillRect(-headW * 0.2, headY + headH * 0.4, headW * 0.7, headH * 0.25);
+    ctx.fillRect(headX + headW * 0.2, headY + headH * 0.4, headW * 0.6, headH * 0.25);
     ctx.shadowBlur = 0;
-    // Brow pip on the forward side
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(headW * 0.3, headY + headH * 0.35, headW * 0.12, headH * 0.08);
     // Horns
     ctx.fillStyle = trim;
     ctx.beginPath();
-    ctx.moveTo(-headW / 2 + 4, headY);
-    ctx.lineTo(-headW / 2 - 8, headY - 22);
-    ctx.lineTo(-headW / 2 + 16, headY);
+    ctx.moveTo(headX + 4, headY);
+    ctx.lineTo(headX - 8, headY - 22);
+    ctx.lineTo(headX + 16, headY);
     ctx.fill();
     ctx.beginPath();
-    ctx.moveTo(headW / 2 - 16, headY);
-    ctx.lineTo(headW / 2 + 8, headY - 22);
-    ctx.lineTo(headW / 2 - 4, headY);
+    ctx.moveTo(headX + headW - 16, headY);
+    ctx.lineTo(headX + headW + 8, headY - 22);
+    ctx.lineTo(headX + headW - 4, headY);
     ctx.fill();
-    // EVOLVED form gets EXTRA inner horns + glowing crown ring
-    if (b.evolved) {
-        // Extra inner horns (smaller, closer to center)
-        ctx.fillStyle = '#ffdd44';
-        ctx.shadowColor = '#ffaa00';
-        ctx.shadowBlur = 12;
-        ctx.beginPath();
-        ctx.moveTo(-headW / 2 + 14, headY - 2);
-        ctx.lineTo(-headW / 2 + 4,  headY - 32);
-        ctx.lineTo(-headW / 2 + 22, headY - 4);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.moveTo(headW / 2 - 14, headY - 2);
-        ctx.lineTo(headW / 2 - 4,  headY - 32);
-        ctx.lineTo(headW / 2 - 22, headY - 4);
-        ctx.fill();
-        // Crown ring above the head — animated glow
-        ctx.shadowBlur = 20;
-        ctx.strokeStyle = '#ffaa00';
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.7 + Math.sin(b.walkPhase * 4) * 0.3;
-        ctx.beginPath();
-        ctx.arc(0, headY - 12, headW * 0.4, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-        ctx.globalAlpha = 1;
-    }
 
-    ctx.restore();   // exit mirrored space
-
-    // === Telegraph flicker before slam (world space, not mirrored) ===
+    // Telegraph flicker before slam
     if (b.telegraphTimer > 0) {
         ctx.save();
         ctx.globalAlpha = 0.3 + Math.sin(b.telegraphTimer * 0.6) * 0.3;
         ctx.fillStyle = '#ff0000';
         ctx.fillRect(cx - w * 0.5, top, w, h);
         ctx.restore();
-    }
-
-    // Hammerfist swipe energy overlay (the limb does the actual extension;
-    // this adds the spiked-fist glow on top)
-    if (b.armAttackTimer > 0) {
-        const swingT = 1 - b.armAttackTimer / 36;
-        // Compute world fist position from the swinging arm pose
-        const useFront = (b.armAttackSide === 1 || b.armAttackSide === sgn);
-        const armUp = useFront ? bFrontArmUpper : bBackArmUpper;
-        const armLo = useFront ? bFrontArmLower : bBackArmLower;
-        const shLocalX = useFront ? frontShX : backShX;
-        const fistEnd = finaleLimbEndPos(shLocalX, shoulderY, armUp, armLo,
-            bArmUpper, bArmLower, bArmThick * 0.6, sgn);
-        const fistX = cx + fistEnd.x;
-        const fistY = fistEnd.y;
-        ctx.save();
-        ctx.fillStyle = '#222';
-        ctx.shadowColor = accent;
-        ctx.shadowBlur = 24;
-        ctx.beginPath();
-        ctx.arc(fistX, fistY, 28, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = accent;
-        ctx.beginPath();
-        ctx.arc(fistX, fistY, 18, 0, Math.PI * 2);
-        ctx.fill();
-        // Knuckle spikes around the fist (small radial spikes)
-        ctx.fillStyle = '#888';
-        for (let i = -2; i <= 2; i++) {
-            const ang = i * 0.4;
-            const sx = fistX + Math.cos(ang) * 22;
-            const sy = fistY + Math.sin(ang) * 22;
-            ctx.fillRect(sx - 3, sy - 3, 6, 6);
-        }
-        // Trail particles along arc
-        if (b.armAttackTimer % 2 === 0) {
-            spawnFinaleParticle(fistX, fistY, accent,
-                (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, 18);
-        }
-        ctx.restore();
-    }
-
-    // Slam wind-up — pulsing chest glow + ground danger ring
-    if (b.slamWindup > 0) {
-        const wt = 1 - b.slamWindup / 50;
-        ctx.save();
-        ctx.fillStyle = '#ff4422';
-        ctx.shadowColor = '#ff4422';
-        ctx.shadowBlur = 30 + wt * 20;
-        ctx.globalAlpha = 0.6 + Math.sin(b.slamWindup * 0.8) * 0.3;
-        ctx.beginPath();
-        ctx.arc(cx, top + h * 0.36, w * 0.2 + wt * w * 0.1, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        if (b.life === 1) {
-            ctx.globalAlpha = 0.3 + Math.sin(b.slamWindup * 0.5) * 0.2;
-            ctx.strokeStyle = '#ff0000';
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.ellipse(cx, 600 - 38, 280, 24, 0, 0, Math.PI * 2);
-            ctx.stroke();
-        }
-        ctx.restore();
-    }
-
-    // Charge motion-blur trail
-    if (b.chargeTimer > 0 && b.telegraphTimer <= 0) {
-        ctx.save();
-        ctx.globalAlpha = 0.3;
-        for (let k = 1; k <= 4; k++) {
-            ctx.fillStyle = phase3 ? '#ff0000' : '#ff44ff';
-            ctx.fillRect(cx - b.chargeVx * k * 4 - w * 0.4, top, w * 0.8, h);
-        }
-        ctx.restore();
-    }
-
-    // Melee hit flash
-    if (b.hitFlash > 0) {
-        ctx.save();
-        ctx.globalAlpha = b.hitFlash / 10 * 0.6;
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(cx - w * 0.5, top - h * 0.05, w, h * 1.05);
-        ctx.restore();
-    }
-
-    // === ENERGY BARRIER overlay ===
-    if (b.barrierTimer > 0) {
-        ctx.save();
-        const bx = cx, by = top + h * 0.45;
-        const r = w * 0.9 + Math.sin(b.barrierTimer * 0.15) * 6;
-        ctx.globalAlpha = 0.18 + Math.sin(b.barrierTimer * 0.3) * 0.06;
-        ctx.fillStyle = '#ff44ff';
-        ctx.beginPath();
-        ctx.arc(bx, by, r, 0, Math.PI * 2);
-        ctx.fill();
-        // Hexagonal grid lines
-        ctx.globalAlpha = 0.5;
-        ctx.strokeStyle = '#ff88ff';
-        ctx.lineWidth = 2;
-        ctx.shadowColor = '#ff88ff';
-        ctx.shadowBlur = 12;
-        for (let k = 0; k < 6; k++) {
-            const a1 = (k / 6) * Math.PI * 2 + b.barrierTimer * 0.01;
-            const a2 = ((k + 1) / 6) * Math.PI * 2 + b.barrierTimer * 0.01;
-            ctx.beginPath();
-            ctx.moveTo(bx + Math.cos(a1) * r, by + Math.sin(a1) * r);
-            ctx.lineTo(bx + Math.cos(a2) * r, by + Math.sin(a2) * r);
-            ctx.stroke();
-        }
-        ctx.shadowBlur = 0;
-        // Barrier ring outline
-        ctx.globalAlpha = 0.7;
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.arc(bx, by, r, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-    }
-
-    // === HEAT BEAM SWEEP overlay ===
-    if (b.heatBeamTimer > 0 && b.telegraphTimer <= 0) {
-        ctx.save();
-        const bx = cx, by = top + h * 0.4;
-        const beamLen = 900;
-        const ex = bx + Math.cos(b.heatBeamAng) * beamLen;
-        const ey = by + Math.sin(b.heatBeamAng) * beamLen;
-        // Outer beam glow
-        ctx.strokeStyle = '#ff8844';
-        ctx.shadowColor = '#ff8844';
-        ctx.shadowBlur = 30;
-        ctx.lineWidth = 56;
-        ctx.lineCap = 'round';
-        ctx.globalAlpha = 0.4;
-        ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
-        // Inner core
-        ctx.strokeStyle = '#ffaa00';
-        ctx.lineWidth = 32;
-        ctx.globalAlpha = 0.6;
-        ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 12;
-        ctx.globalAlpha = 0.9;
-        ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
-        // Source orb
-        ctx.shadowBlur = 30;
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath(); ctx.arc(bx, by, 20, 0, Math.PI * 2); ctx.fill();
-        ctx.restore();
-    } else if (b.heatBeamTimer > 0 && b.telegraphTimer > 0) {
-        // Telegraph — thin red guide line
-        ctx.save();
-        const bx = cx, by = top + h * 0.4;
-        const beamLen = 900;
-        const ex = bx + Math.cos(b.heatBeamAng) * beamLen;
-        const ey = by + Math.sin(b.heatBeamAng) * beamLen;
-        ctx.globalAlpha = 0.5 + Math.sin(b.telegraphTimer * 0.5) * 0.3;
-        ctx.strokeStyle = '#ff0000';
-        ctx.lineWidth = 4;
-        ctx.setLineDash([8, 6]);
-        ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey); ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.restore();
-    }
-
-    // === METEOR FIST — show one missing arm overhead while active ===
-    if (b.meteorFistActive && b.meteorFistTimer > 50) {
-        // Fist climbing into the sky from boss shoulder
-        const launchT = 1 - (b.meteorFistTimer - 50) / 50;     // 0..1
-        const fx = cx + b.meteorFistSide * w * 0.45;
-        const fy = top + h * 0.25 - launchT * 280;
-        ctx.save();
-        ctx.fillStyle = '#222';
-        ctx.shadowColor = '#ffaa00';
-        ctx.shadowBlur = 20;
-        ctx.beginPath();
-        ctx.arc(fx, fy, 26, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffaa00';
-        ctx.beginPath();
-        ctx.arc(fx, fy, 16, 0, Math.PI * 2);
-        ctx.fill();
-        // Trail line back to shoulder
-        ctx.globalAlpha = 0.4;
-        ctx.strokeStyle = '#ffaa00';
-        ctx.lineWidth = 6;
-        ctx.beginPath();
-        ctx.moveTo(cx + b.meteorFistSide * w * 0.45, top + h * 0.25);
-        ctx.lineTo(fx, fy);
-        ctx.stroke();
-        ctx.restore();
-    }
-}
-
-// Anime-style transformation overlay — speed lines, counter-rotating
-// rings, full-body color flash. Drawn on top of the normal scene.
-function drawFinaleTransformAnime() {
-    const f = finale;
-    const t = f.timer;
-    const cx = canvas.width / 2;
-    const cy = canvas.height / 2;
-    // Background dim
-    ctx.save();
-    ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(0.55, t / 80 * 0.55)})`;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // Radial speed lines from center, rotating
-    const lineCount = 60;
-    const angOffset = t * 0.04;
-    for (let i = 0; i < lineCount; i++) {
-        const ang = (i / lineCount) * Math.PI * 2 + angOffset;
-        const len1 = 200 + Math.sin(t * 0.1 + i) * 80;
-        const len2 = canvas.width;
-        ctx.strokeStyle = `rgba(255, 255, 255, ${0.06 + (i % 2) * 0.05})`;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(cx + Math.cos(ang) * len1, cy + Math.sin(ang) * len1);
-        ctx.lineTo(cx + Math.cos(ang) * len2, cy + Math.sin(ang) * len2);
-        ctx.stroke();
-    }
-    // Counter-rotating energy rings around hero and boss
-    const heroX = f.player.x;
-    const heroY = f.player.y + f.player.h / 2;
-    const bossX = f.boss.x;
-    const bossY = f.boss.y + f.boss.h / 2;
-    for (let r = 0; r < 4; r++) {
-        const radius = 60 + r * 30 + Math.sin((t + r * 12) * 0.1) * 10;
-        ctx.strokeStyle = f.player.charAccent || '#88ffff';
-        ctx.shadowColor = f.player.charAccent || '#88ffff';
-        ctx.shadowBlur = 16;
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.5;
-        ctx.beginPath();
-        ctx.arc(heroX, heroY, radius, t * 0.05 + r, t * 0.05 + r + Math.PI * 1.5);
-        ctx.stroke();
-        ctx.strokeStyle = '#ff44ff';
-        ctx.shadowColor = '#ff44ff';
-        ctx.beginPath();
-        ctx.arc(bossX, bossY, radius * 1.2, -t * 0.05 - r, -t * 0.05 - r + Math.PI * 1.5);
-        ctx.stroke();
-    }
-    ctx.shadowBlur = 0;
-    ctx.globalAlpha = 1;
-    // Center title flash on the final beat
-    if (t > 180 && t < 220) {
-        const a = 1 - (t - 180) / 40;
-        ctx.globalAlpha = a;
-        ctx.fillStyle = '#ffffff';
-        ctx.shadowColor = '#ffffff';
-        ctx.shadowBlur = 24;
-        ctx.font = 'bold 48px Courier New';
-        ctx.textAlign = 'center';
-        ctx.fillText('TRANSFORM!', cx, cy);
-        ctx.shadowBlur = 0;
-        ctx.textAlign = 'left';
-        ctx.globalAlpha = 1;
-    }
-    ctx.restore();
-}
-
-// Allies during the knockdown rescue. Three small chibi silhouettes that
-// walk in from the left, then wave during the revive transformation.
-function drawFinaleAllies() {
-    const f = finale;
-    if (!f.allies) return;
-    for (const a of f.allies) {
-        const groundY = 380 + 100;       // ground level + sprite height anchor
-        // Body
-        ctx.fillStyle = '#222';
-        ctx.fillRect(a.x - 14, groundY - 60, 28, 50);
-        // Color band
-        ctx.fillStyle = a.color;
-        ctx.shadowColor = a.color;
-        ctx.shadowBlur = 10;
-        ctx.fillRect(a.x - 12, groundY - 56, 24, 14);
-        ctx.shadowBlur = 0;
-        // Visor
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(a.x - 8, groundY - 50, 16, 4);
-        // Head
-        ctx.fillStyle = '#222';
-        ctx.fillRect(a.x - 10, groundY - 78, 20, 18);
-        // Wave arm during revive
-        const waving = (f.phase === 'knockdownRevive');
-        if (waving) {
-            const armY = -(Math.abs(Math.sin(a.waveT || 0)) * 30);
-            ctx.strokeStyle = a.color;
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.moveTo(a.x + 12, groundY - 50);
-            ctx.lineTo(a.x + 18, groundY - 60 + armY);
-            ctx.stroke();
-        }
-        // Name label
-        ctx.fillStyle = a.color;
-        ctx.font = '10px Courier New';
-        ctx.textAlign = 'center';
-        ctx.fillText(a.name, a.x, groundY - 88);
-        ctx.textAlign = 'left';
     }
 }
 
@@ -22652,9 +18894,7 @@ function drawFinaleHUD() {
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'right';
     const bossLabel = f.boss.life === 2 ? 'EARTHBREAKER · CORE FORM' : 'EARTHBREAKER';
-    const phaseTag = f.boss.phase === 4 ? ' [PH4 DESPERATION]' :
-        (f.boss.phase === 3 ? ' [PH3 RAGE]' : (f.boss.phase === 2 ? ' [PH2]' : ''));
-    ctx.fillText(`${bossLabel}${phaseTag}  ${Math.round(f.boss.hp)} / ${f.boss.maxHp}`, canvas.width - 28, 35);
+    ctx.fillText(`${bossLabel}  ${Math.round(f.boss.hp)} / ${f.boss.maxHp}`, canvas.width - 28, 35);
     // Life pips (shows 2/2 or 1/2 remaining)
     ctx.font = '14px Courier New';
     ctx.fillStyle = '#ffdd44';
@@ -22704,7 +18944,7 @@ function drawFinaleHUD() {
         ctx.fillStyle = '#88ddff';
         ctx.font = '14px Courier New';
         ctx.textAlign = 'center';
-        ctx.fillText('A/D move • SPACE jump (hold = JET) • SHIFT dash • F fire (hold = CHARGE) • G punch • ↓ kick • H upper • C shield • R rocket • V sword • Q beam', canvas.width / 2, canvas.height - 30);
+        ctx.fillText('A/D move • W/SPACE jump (×2 in air) • SHIFT dash • F fire • Q special', canvas.width / 2, canvas.height - 30);
         ctx.globalAlpha = 1;
         ctx.textAlign = 'left';
     }
@@ -22725,8 +18965,7 @@ function drawFinaleHUD() {
     }
 }
 
-// Draws cooldown squares for DASH, MELEE, SPECIAL plus a jet-fuel gauge
-// and combo counter.
+// Draws three small cooldown squares for DASH and SPECIAL.
 function drawFinaleAbilityHUD() {
     const f = finale;
     const p = f.player;
@@ -22734,16 +18973,9 @@ function drawFinaleAbilityHUD() {
     const baseX = 20;
     const cw = 50;
     const labels = [
-        { name: 'SHIFT', sub: 'DASH',    cd: p.dashCooldown,    max: 50,  col: '#88ffff' },
-        { name: 'G',     sub: 'PUNCH',   cd: p.meleeCooldown,   max: 32,  col: '#ff88ff' },
-        { name: 'C',     sub: 'SHIELD',  cd: p.shieldCooldown,  max: 300, col: '#88ffaa' },
-        { name: 'R',     sub: 'ROCKET',  cd: p.rocketCooldown,  max: 180, col: '#ff8844' },
-        { name: 'V',     sub: 'SWORD',   cd: p.swordCooldown,   max: 60,  col: '#ffffff' },
-        { name: 'Q',     sub: 'BEAM',    cd: p.specialCooldown, max: 240, col: '#ffaa44' }
+        { name: 'SHIFT', sub: 'DASH', cd: p.dashCooldown, max: 50, col: '#88ffff' },
+        { name: 'Q', sub: 'SPECIAL', cd: p.specialCooldown, max: 240, col: '#ffaa44' }
     ];
-    if (p.evolved) {
-        labels.push({ name: 'B', sub: 'HYPER', cd: p.hyperCooldown, max: 600, col: '#ffdd44' });
-    }
     for (let i = 0; i < labels.length; i++) {
         const l = labels[i];
         const x = baseX + i * (cw + 8);
@@ -22765,48 +18997,6 @@ function drawFinaleAbilityHUD() {
         ctx.fillText(l.name, x + cw / 2, baseY + 16);
         ctx.font = '10px Courier New';
         ctx.fillText(l.sub, x + cw / 2, baseY + 30);
-    }
-
-    // === Jet fuel gauge ===
-    const jx = baseX + labels.length * (cw + 8) + 8;
-    const jw = 110;
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(jx, baseY, jw, 36);
-    ctx.strokeStyle = '#ffaa44';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(jx, baseY, jw, 36);
-    // Bar
-    const fuelPct = p.jetFuel / p.jetMax;
-    const fuelCol = fuelPct > 0.4 ? '#ffaa44' : (fuelPct > 0.15 ? '#ff8844' : '#ff4422');
-    ctx.fillStyle = fuelCol;
-    ctx.shadowColor = fuelCol;
-    ctx.shadowBlur = p.jetActive ? 10 : 0;
-    ctx.fillRect(jx + 4, baseY + 18, (jw - 8) * fuelPct, 14);
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#ffaa44';
-    ctx.font = 'bold 11px Courier New';
-    ctx.textAlign = 'left';
-    ctx.fillText('JET / SPACE', jx + 6, baseY + 13);
-
-    // === Combo counter (right side, only when active) ===
-    if (p.comboCount >= 2) {
-        const cx = canvas.width / 2;
-        const cy = canvas.height - 80;
-        const a = Math.min(1, p.comboTimer / 30);
-        ctx.save();
-        ctx.globalAlpha = a;
-        ctx.font = 'bold 36px Courier New';
-        ctx.textAlign = 'center';
-        const col = p.comboCount >= 5 ? '#ff44ff' : (p.comboCount >= 3 ? '#ffaa44' : '#88ffff');
-        ctx.fillStyle = col;
-        ctx.shadowColor = col;
-        ctx.shadowBlur = 16;
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = '#000';
-        const txt = `${p.comboCount} HIT COMBO!`;
-        ctx.strokeText(txt, cx, cy);
-        ctx.fillText(txt, cx, cy);
-        ctx.restore();
     }
     ctx.textAlign = 'left';
 }
