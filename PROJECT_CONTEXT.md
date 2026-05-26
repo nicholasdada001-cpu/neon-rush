@@ -4,7 +4,295 @@ A 2D action platformer + space dogfighter built in vanilla HTML5 Canvas + JavaSc
 
 ---
 
-## ⚡ MOST RECENT SESSION (May 25, 2026)
+## ⚡ MOST RECENT SESSION (May 25, 2026 — late evening, post-revert restoration)
+
+Quick addendum to the v3 finale overhaul block below. This run had three real changes plus a revert/restore round-trip:
+
+1. **`fd04a88` — anime transformation cinematic + knockdown rescue scaffold.** The commit message described just the new phases, but the diff was +4143/-333 — it bundled in a large amount of in-flight working-tree work too: joint-articulated player + boss sprites, evolved-form rendering, hyper mode, new boss attack systems (UNLEASH at HP ≤ 2000 with 10× damage, kill-cinematic-on-low-HP trigger, the elaborate 6-act cityToSpace cutscene with kill beam → flatline → allies channel → transform → ascend), `b.unleashed`, `b.killCinematicQueued`, `p.evolved`, `p.maxHp = 2400` post-transform, `p.hyperTimer`, evolved sprite halos.
+
+2. **Player-not-taking-damage bug.** The new `finaleOnPlayerDeath()` helper introduced by `fd04a88` set `f.player.invincible = 9999` and routed to a simpler home-grown `'knockdown'` phase that pre-empted the elaborate cityToSpace cinematic. Player became immortal and the rescue acts (allies talking, falling down, transforming) never showed.
+
+3. **`31909a1` — misguided revert of `fd04a88`.** Tried to revert the broken knockdown but **the revert pulled out the joint sprites, evolved form, attack systems, and elaborate cinematic alongside it**. Big regression to the giant-robot fight visuals.
+
+4. **`5039770` — replacement rescue cinematic.** Wrote a fresh 6-act `updateFinaleCityToSpace` that handles both paths (victory vs rescue) via `f.knockdownPath`. Functional, but visually thinner than the elaborate one that was reverted.
+
+5. **`e0a1d5b` — restoration.** `git checkout fd04a88 -- game.js` brought the joint sprites + evolved form + cinematic back. Then patched only `finaleOnPlayerDeath()` to set `f.knockdownPath = true` and route to the existing elaborate `cityToSpace` (instead of the broken `'knockdown'` phase). Net: joints + new designs back in, rescue plays through the elaborate cityToSpace with full kill-beam → flatline → allies channel → transform → ascend.
+
+### Current state of the finale (canonical)
+
+- **`updateFinaleCityToSpace`** at line ~19684 — elaborate 6-act cinematic:
+  - Act 1 (0–120): boss kill beam charges + fires
+  - Act 2 (120–280): player flatlines, boss lifts off
+  - Act 3 (280–520): four allies fade in, channel energy
+  - Act 4 (520–760): player ascends + transforms in flight
+  - Act 5 (760–900): boss transforms into final form
+  - t = 900: hand off to sky-battle (`battle` phase, `boss.life = 2`)
+- **`finaleOnPlayerDeath()`** sets `f.knockdownPath = true`, clamps HP to 1, kicks `f.phase = 'cityToSpace'`. The cinematic acts on `knockdownPath` to play the rescue beats.
+- **`b.unleashed`** flips at boss HP ≤ 2000 (`b.damageMul = 10` until cinematic). `b.killCinematicQueued` triggers when player HP ≤ 100 with `b.unleashed` set, deferring 30 frames before kicking `cityToSpace`.
+- **`p.evolved`** flag set during cityToSpace Act 3 → unlocks hyper mode (B key, `p.hyperTimer`), bumps `p.maxHp` to 2400, enables golden visual accents in `drawFinalePlayer`.
+
+### Lessons / pending cleanup
+
+- The fd04a88 commit message was misleading vs the diff. Going forward: inspect commit diff stats before reverting; if a commit is > 1k lines, assume the message is incomplete.
+- The simpler "knockdown" phase added in fd04a88 (`updateFinaleKnockdown`, `updateFinaleKnockdownRevive`, `'knockdownDialogue'`, `transformAnime`) still exists in the file but is **unreachable** now since `finaleOnPlayerDeath` no longer routes there. Could be cleaned up next session for ~300 lines saved.
+- File is now ~25,009 lines.
+
+---
+
+## ⚡ MOST RECENT SESSION (May 25, 2026 — v3 cinematic finale overhaul)
+
+A multi-pass session that fundamentally restructured the EARTHBREAKER finale into a proper anime-style giant-mech showdown with a dramatic kill-cinematic, evolution sequence, and ascended sky battle. Boss balance, player abilities, body design, arena scale, and movement all overhauled.
+
+### What changed in v3 (chronological)
+
+1. **Three-key melee** — replaced "G cycles through punch/kick/uppercut" with three independent keys: **G = PUNCH**, **↓ = KICK**, **H = UPPERCUT**. Each press always plays the same move. Predictable input. `meleeStage` is set directly from the pressed key (1/2/3), not advanced.
+
+2. **Cannon arm locked + stowed** — front cannon arm completely separated from melee animation:
+   - **Hidden by default** — only renders the blaster when `gunOutTimer > 0` (held F or aiming up). Stows back to a closed-fist hanging arm 30 frames after each shot.
+   - When out: **horizontally locked** (`frontArmUpper = π/2, frontArmLower = 0`) so the gun barrel always points forward. Aim up (↑) rotates to ~45° up-forward.
+   - **Bullets fire from actual barrel tip** — `p.muzzleX/Y/Ang` cached per frame from the barrel-end world position; `finaleShoot` reads those.
+   - **Direct line-drawing** instead of rotated-rectangle limb: `ctx.lineCap='round'` thick lines + glowing elbow disc + barrel rectangle attached to hand. Cleaner than the rotation transform approach which had mirroring math bugs.
+
+3. **Cooler player body** — `w` 70 → 60 (slimmer mech), `h` 145.
+   - Tapered torso silhouette (wider shoulders, narrower waist) replacing the plain rectangle
+   - Diagonal V-chest plates with glowing accent edges
+   - Three pairs of glowing side vents (cooling slats)
+   - Layered chest core: outer pulsing ring + accent glow + white-hot center + waist belt with bolts
+   - Beveled trapezoidal pauldrons with glowing accent slats + menacing top spikes
+   - Mech helmet with chamfered top, forehead crest, ear plates, tinted black visor with bright accent bar, twin antennae with glowing tips
+
+4. **Three new abilities** (giant-mech arsenal):
+   - **C — SHIELD**: 90f hex bubble that blocks bullets. Cooldown 300f. Multi-layer cinematic visual: outer atmospheric glow, refraction-tint sphere, two counter-rotating hex grids (8/10-side), 3 procedural lightning bolts inside, drift sparkle particles. Block FX: 50px white shockwave + 80px accent shockwave + 8 directional sparks.
+   - **R — TRIPLE ROCKETS**: 3-missile salvo from shoulder/chest/hip launchers. Each rocket: chrome-gradient body with red+orange stripes, dual rear fins, tapered nose cone with hot-red glowing tip, layered flame trail (yellow-white core → orange → fading red), per-missile sparkle trails. Homes toward boss. 75 dmg direct + 50 AOE per missile, 100px AOE radius. Cooldown 200f.
+   - **V — ENERGY SWORD**: clean straight horizontal slash from front hand. 200px reach. Three layers: outer white halo (22px) + accent mid-blade (10px) + inner white core (4px). Reveal animation extends blade rapidly in first 40% of swing. Pointed tip glow. Hilt rendered AT the front hand. 130 dmg + 18 knockback + stagger. Cooldown 60f.
+
+5. **Charged shot rebalance** — F-tap fires twin shot (20 dmg). F-hold builds charge over 60f → release for 5-ray pierce beam at **90 dmg per ray** (450 total max). Cancels if released before 24f.
+
+6. **Articulated boss** — boss now uses the same drawFinaleLimb rig with `ctx.scale(b.facing, 1)` so its limbs swing as it walks/attacks. Walk swing on legs, idle arm sway, slam-windup raises both arms overhead, charge locks arms back + exaggerated stride. Hammerfist swings the active arm via the limb pose, not a free-floating tube.
+
+7. **Bigger arena** — city arena 200..1100 → **200..1500** wide. Player roam city 700 → **1100**, space 940 → **1340**. Boss orbit radius 240→**360**, vertical bob 100→**130**.
+
+8. **Boss keeps respectable distance** — hover gap 280 → **450px**, walk speed 1.8 → 1.4 (heavyweight feel), leap-landing target distance **350px** from player. Space dash stops at **350px** rather than ramming.
+
+9. **Anime speed lines** — new `finale.speedLinesTimer` + `speedLinesIntensity`. Triggers on CLASH, UPPERCUT, and CHARGE-collision. 36 thin radial streaks + 8 thick ones emanating from screen center, skipping a 200px inner radius so the focus action stays readable. Slow rotation (1°/2°/f) for subtle motion.
+
+10. **Boss "INTENT" flash** — `f.bossIntentFlash` ticks down for 14f before EVERY attack. Boss core eye flashes white + 60px shockwave + 6 sparks. Gives a clear "tell" so attacks feel telegraphed and fair.
+
+11. **`` ` `` (backtick) shortcut** + dedicated **⚡ FINALE — EARTHBREAKER** dev panel button (red border, top-right under Esc). Both work from any state including title/charSelect (the keyboard handler used to gate against intro/charSelect — fixed).
+
+12. **The CINEMATIC RESTRUCTURE** (the big one) — the city→space transition is now a **15-second, 5-act 900-frame anime sequence**:
+
+   **Act 1 (0..120) — KILL SHOT**
+   - Boss charges a multi-stage beam (60f charge with sparks + pulsing shockwaves)
+   - At t=60 the beam **fires** — multi-layer beam (60px outer gold glow + 30px white mid + 10px bright core) blasts the player from boss core to player position
+   - Player drops to **1 HP** + tumbles backward and falls
+
+   **Act 2 (120..280) — FLATLINE + BOSS LIFT-OFF**
+   - Player crumples, sparks emit from damaged body
+   - Boss accelerates upward with rocket exhaust trail and ascent shockwaves
+
+   **Act 3 (280..520) — ALLIES CHANNEL ENERGY**
+   - 4 ally mech silhouettes appear around fallen player (pink, cyan, orange, green)
+   - Each ally fires a continuous energy beam from their core toward the player
+   - Energy stream particles flow from each ally to the player every 3f
+   - Player slowly **levitates** as energy fills + heals from 1 to 2400 HP
+   - Pulsing golden shockwaves + aura particles
+   - **Meanwhile in upper screen**: 5 colored planet orbs (blue/orange/green/gold/purple) appear, boss destroys them sequentially every 30f starting t=380 (white+colored shockwaves + 30 colored debris particles each)
+   - At t=480 final convergence: 400/600 shockwaves + 80 particles. Player marked `evolved=true`, `maxHp = 2400`
+
+   **Act 4 (520..760) — PLAYER ASCENDS, TRANSFORMS**
+   - Twin gold jet streams from boots
+   - Cloud streaks until t=620, then star bursts (atmosphere → space)
+   - Speed-line shockwaves every 24f
+   - Backdrop transitions from city to space at t=620
+
+   **Act 5 (760..900) — BOSS TRANSFORMS, STANDOFF**
+   - Particles spiral INTO boss core (transformation anim)
+   - 3 dramatic shockwave beats at t=800/840/880 (red+gold each)
+   - Both combatants face each other, frozen in pose
+
+   **t=900 — SKY BATTLE BEGINS**
+   - 800px white shockwave + 100 particles
+   - Boss `maxHp = 12000` (massively buffed in evolved sky form)
+   - Three-line dialogue: "You... you came BACK?" / "I am EVERYONE'S strength now. We end this together." / "Then I shall consume galaxies to match you."
+
+13. **UNLEASH trigger at 2000 HP** — when boss HP hits 2000:
+   - Sets `b.unleashed = true` + `b.damageMul = 10`
+   - Boss **stays vulnerable** but does **10× damage** on EVERY attack (bullets, hammerfist, slam, charge, hazards, beams, leap, minions — all multiplied by `b.damageMul`)
+   - Big "☠ UNLEASHED — 10× DAMAGE ☠" entrance flash + triple shockwave + 80 particles + 60f player i-frames so it doesn't blindside
+   - Player keeps fighting until their HP gets ground down to ≤100, then the kill cinematic auto-fires
+
+14. **Kill cinematic auto-trigger at PLAYER HP ≤ 100** — once `b.unleashed && p.hp <= 100`:
+   - `b.killCinematicQueued = true`
+   - 60f player i-frames + 30-frame defer for the moment to read
+   - Boss invincibility set + all in-flight attacks/hazards/minions wiped
+   - Phase switches to `cityToSpace` → 900-frame sequence plays
+
+15. **HP safety floor during UNLEASH** — at the top of `updateFinaleBattle`:
+   ```js
+   if (b.unleashed && !b.killCinematicQueued && p.hp <= 1) p.hp = 1;
+   if (b.killCinematicQueued) { p.invincible = max(p.invincible, 30); if (p.hp <= 1) p.hp = 1; }
+   ```
+   Player can't die during the rage phase or the deferred cinematic transition — they just get pinned at low HP until the cinematic carries them through.
+
+16. **EVOLVED player visuals** — when `p.evolved`:
+   - Color shift: `colorBody = '#88ddff'`, `colorAccent = '#ffdd44'` (gold)
+   - Soft constant golden halo around player
+   - **HYPER MODE (B key)** unlocked: 240f duration, 600f cooldown, **3× damage multiplier** on all attacks, big pulsing gold halo + trailing sparks particles
+   - HUD shows extra HYPER button (5 → 6 ability slots)
+
+17. **EVOLVED boss visuals** — when `b.evolved`:
+   - New gold-and-crimson palette: dark crimson body (`#5a1a00` → `#3a0000` phase 3), gold/crimson accents (`#ffaa00`/`#ff0000`), bright gold trim (`#ffdd44`)
+   - Extra inner horns (gold, smaller, angled inward)
+   - Floating crown ring above head (animated gold halo pulsing with walkPhase)
+
+### Final HP / damage numbers (post-balance)
+
+- City boss: **4000 HP**, normal damage
+- After UNLEASH (≤2000 HP): boss **10× damage**
+- Sky boss: **12000 HP**, normal damage
+- Player base: 1500 maxHp
+- Player evolved: 2400 maxHp
+
+### Player ability table (final)
+
+| Key | Move | Damage | Cooldown |
+|---|---|---|---|
+| F (tap) | Twin shot | 20 (× hyper 3) | 8f |
+| F (hold) | Charge beam | 90×5 = 450 (× hyper 3) | 24f |
+| Q | Special beam | 50×5 = 250 (× hyper 3) | 240f |
+| G | PUNCH | 60 | 16f |
+| ↓ | KICK | 75 | 16f |
+| H | UPPERCUT | 140 + slow-mo + camera punch-in | 32f |
+| C | SHIELD | blocks bullets 90f | 300f |
+| R | TRIPLE ROCKETS | 75×3 + 50 AOE×3 = up to 375 | 200f |
+| V | ENERGY SWORD | 130 + knockback | 60f |
+| SHIFT | Dash w/ i-frames | — | 50f |
+| SPACE (hold) | JET BOOSTER (after double-jump) | — | uses jetFuel |
+| B | HYPER MODE (evolved only) | 3× damage 240f | 600f |
+
+### Notable code pointers (v3)
+
+- `updateFinaleCityToSpace` — the 900-frame multi-act cinematic. Acts split by `t` thresholds. Spawns `f.allies` and `f.bossPlanets` mid-sequence.
+- `updateFinaleBattle` — top has the HP-floor guards. UNLEASH trigger near phase-transition block. 10× damage applied via `b.damageMul` multiplier on all `p.hp -=` lines.
+- `b.unleashed` / `b.killCinematicQueued` / `b.damageMul` / `b.invincible` / `b.evolved` — the new boss state flags.
+- `p.evolved` / `p.evolveAnim` / `p.hyperTimer` / `p.gunOutTimer` / `p.shieldTimer` / `p.rocketCooldown` / `p.swordTimer` — player state.
+- `drawFinalePlayer` — `ctx.scale(sgn, 1)` mirroring, then direct line-segment limbs (not rotation-transform). Front arm has `gunOutTimer > 0` branch (BLASTER) vs stowed branch (closed-fist).
+- `drawFinaleBoss` — uses `drawFinaleLimb` rig with boss pose state. New `b.evolved` branch picks the gold-crimson palette + extra horns + crown ring.
+- `f.speedLinesTimer` — anime speed-line overlay rendered after dialogue, before vignette.
+- Backtick shortcut + dev panel `⚡ FINALE — EARTHBREAKER` button both jump straight to `startFinale()` from any state.
+
+### Pending work (good prompts for the next session)
+
+1. **Sky-battle exclusive boss attacks** — currently the same 15-attack pool. Could add space-only patterns: orbital strike, gravity well, dark-matter wave.
+2. **Player evolved-form unique moves** — HYPER MODE is a stat boost; could add a unique evolved-only move (Q variant in evolved form fires a giant gold beam?).
+3. **Ally character variations** — currently allies are 4 generic colored mechs. Could match the four player characters (with their charColor) — picks the four NOT currently equipped.
+4. **Mid-cinematic dialogue text overlay** — Act 3 currently has no text. Could add narration: "THE WORLD'S DEFENDERS SHARE THEIR STRENGTH" + character-specific quips.
+5. **Boss death animation** — when boss finally dies in sky form, currently fires the standard victory shockwave. Could do a multi-stage explosion: limb-by-limb rip-apart, core implosion, screen black, "THE WORLD IS SAVED" text crawl.
+
+---
+
+## ⚡ Previous Session — May 25, 2026 (Late + v2)
+
+The EARTHBREAKER finale fight got a second pass focused on (1) properly articulated player melee animations (no more disconnected fists), (2) lots more boss attacks/abilities, (3) longer fight (HP 4500 → 6500 + phase 3 at 25%).
+
+### What changed in v2 (in order)
+
+1. **Articulated player body** — new `drawFinaleLimb(sx, sy, upperAng, lowerAng, upperLen, lowerLen, thick, color, accent, endCap)` helper renders a tapered upper segment, joint disc, lower segment, and end cap (`fist` / `foot` / `cannon`). All limbs use ctx.translate + ctx.rotate so they're connected to the body. Render order: back leg → back arm → torso → front leg → front arm → head, so depth reads right.
+
+2. **Pose-based fight animations** — every melee swing computes `frontArmUpper / Lower / backArmUpper / Lower / frontLegUpper / Lower / backLegUpper / Lower` from `meleeStage` + `meleeTimer`. PUNCH rotates the back arm from cocked-back (-1.0 rad) to extended-forward (+1.4 rad) over 14 frames, KICK lifts the front leg from down (-0.2) to forward-up (+1.5), UPPERCUT rotates the back arm from forward-low (+1.0) to overhead-back (-1.6) with crouch-to-extend body motion. Walk swing baseline drives subtle idle limb sway.
+
+3. **Boss attack pool expanded from 6 to 12 patterns** — 6 new attacks added on top of the original 6:
+   - **HAMMERFIST SWIPE** — boss arm extends in a wide arc toward the player. Live damage frames 8..28, 30 dmg + knockback. Drawn as a thick connecting tube from shoulder to spiked fist.
+   - **GROUND SLAM** — 50f wind-up (chest pulses red, ground danger ring telegraphs), then AOE shockwave + 8 lava globs erupt outward. 28 direct dmg if grounded within 220px.
+   - **TITAN CHARGE** — 36f telegraph, then 60f of charge motion across the arena. Trail of magenta/orange particles + motion-blur ghosts. 36 dmg + heavy knockback on body collision. Cancels boss patrol while active.
+   - **DRONE SWARM** — spawns 5/6/8 homing drone minions (more in space + phase 3) that orbit the boss for ~50f then track the player. Drone HP 60, deal 14 dmg on contact-explode. Killable with bullets or melee.
+   - **LASER GRID** — 40f telegraph, then two vertical beams + two ground-lava patches that linger for 130f (beams) / 200f (lava). 12 / 8 damage if you stand in them.
+   - **PLASMA RAIN** (phase 3 only) — 10 vertical pillars rain across the arena over ~90f + leave 220f-lifetime lava patches. 18 dmg per pillar.
+
+4. **Phase 3 RAGE state at 25% HP** — triggers `phase3Triggered`, sets `boss.phase = 3`, plays a triple-shockwave + 60-particle entrance, screen flash, "⚠ FINAL RAGE ⚠" hit-text banner. Phase 3 unlocks PLASMA RAIN, drops attack-cooldown windows by ~30%, immediately drops 6 plasma pillars on entry. Phase 3 re-arms when life 2 begins (full HP refill, but rage state can trigger again at 25%).
+
+5. **Hazard system** — new `boss.hazards` array (kinds: `beam`, `lava`, `rain`). Each entry has `{ x, y, w, h, life, color, dmg, telegraph }`. Update tick handles motion (rain falls), telegraph countdown (no damage during), AABB damage check against player. Drawn before bullets so they read as floor-level.
+
+6. **Minion system** — new `finale.minions` array. Each minion: `{ x, y, vx, vy, hp, orbitAng, orbitTimer, spawnFlash }`. Spawn cycle: appear at boss with 12f flash → orbit boss 50-80f at radius 60 → home toward player with steering force 0.35. Take damage from bullets, instant-death from any active melee swing.
+
+7. **Boss melee + reaction tweaks** — boss patrol/orbit drift now skips while charging, knocked-back, or staggered (was overriding `chargeVx`). New `armAttackTimer` / `slamWindup` / `chargeTimer` / `minionsToSpawn` fields on the boss.
+
+8. **HUD** — boss HP bar shows `[PH2]` / `[PH3 RAGE]` tag suffix. Hit-text feedback added for boss-side hits ("SMACK!" on hammerfist, "BLOCKED!" on charge body-check, "SMASH!" on melee-killed minion).
+
+9. **Boss draw additions** — hammerfist limb connection from shoulder→fist with knuckle spikes, slam wind-up chest swell + ground-danger ring telegraph, charge motion-blur ghost trail.
+
+10. **Boss HP bumped 4500 → 6500** per life. Total HP across both lives is now 13,000 (up from 9,000). Combined with phase 3's extra attacks, fight is meaningfully longer.
+
+### Notable code pointers (v2)
+
+- `drawFinaleLimb` — top-level helper above `drawFinalePlayer`. Used for both arms and legs.
+- `drawFinalePlayer` — fully rewritten, computes pose from animation state, calls `drawFinaleLimb` 4× (legs + arms).
+- `finaleBossAttack` — 12-pattern switch (`if (next === 0..11)`).
+- Boss tick logic for new attacks lives in `updateFinaleBattle` between the AI variable section and phase 2 detection.
+- `boss.hazards` — declarative hazard array; tick + draw both iterate.
+- `finale.minions` — drone swarm. Killable; collide with player.
+- Phase 3 trigger immediately after phase 2 trigger in the same block.
+
+### Pending work (good prompts for the next session)
+
+1. **Boss death animations per life** — life-1 ending could use a more dramatic stagger-into-explosion pose; life-2 could literally rip apart limb-by-limb.
+2. **Player taking direct boss melee damage during the swing** — currently the hammerfist hit applies damage directly, but the boss arm doesn't respect player's dash/parry counters. Add parry support: if player presses a counter key during armAttackTimer 8..28, reflect the swing.
+3. **Mid-fight quips** — phase 2 / phase 3 / life 2 entries could each spawn one-line dialogue popups instead of just banner text.
+4. **Boss form-shift cinematic** — when entering phase 3, the boss could briefly transform (sprout extra arms / split chest core / grow horns).
+5. **Tighter clash interactions** — clash currently only triggers from telegraphTimer. Could extend to clash-on-hammerfist, clash-on-charge, clash-on-slam-windup for richer reactive play.
+
+---
+
+## ⚡ MOST RECENT SESSION (May 25, 2026 — Late)
+
+Freshest context. The session focused on making the EARTHBREAKER finale fight feel like an actual Transformers-style brawl with melee combat and aerial flight.
+
+### What changed in this session (in order)
+
+1. **Melee combat in the finale** (`G` key, 3-hit chain) — punch / kick / uppercut. Each press advances `player.meleeStage`; chain window resets after 30 frames.
+   - Stage 1 PUNCH: 90 dmg, 16f cooldown, energy-fist trail.
+   - Stage 2 KICK: 110 dmg, 16f cooldown, crescent arc trail.
+   - Stage 3 UPPERCUT: 220 dmg, 32f cooldown, big magenta+orange explosion, **slow-mo** (factor 0.4 for 30f), launches boss upward in space form.
+   - Whiff still consumes the press but doesn't reset the chain (forgiving).
+   - Hits trigger boss `stagger` (30f normal, 80f uppercut), boss `knockback` (drift along its `knockbackVx/Vy`), `hitFlash` (white tint), and `shakeOffset` (micro-shake decay).
+   - Combo counter (`player.comboCount`) increments on every connect, displays "N HIT COMBO!" at center-bottom for 90f. Color escalates blue → orange → magenta at 3 / 5 hits.
+
+2. **CLASH mechanic** — punching/kicking the boss while its `telegraphTimer > 6` triggers a clash. Cancels the boss attack, both rebound, slow-mo (0.35 for 24f), sparks ring at the midpoint, "CLASH!" text in gold. The forgiving counter to bullet-spam patterns.
+
+3. **JET BOOSTER flight** (hold `SPACE` while airborne) — Transformers-style mid-air thrust. New `player.jetFuel` (max 100) drains at 0.9/f in city, 0.6/f in space. Refuels +1.5/f on ground, +0.5/f passively in space. Twin exhaust flames render from the boots whenever `player.jetActive` is true. The double-jump still works first; jet boost takes over after.
+
+4. **Slow-mo system** — `finale.slowMo` (1.0 normal, lower = slower) with `finale.slowMoTimer` countdown. All bullets and gravity tick scaled by `slowMo`. Triggers: clash (0.35 / 24f), uppercut (0.4 / 30f). Visual: subtle blue desaturation overlay during slow-mo.
+
+5. **Hit-text popups** — floating "PUNCH!" / "KICK!" / "UPPERCUT!" / "CLASH!" text rendered via new `finale.hitTexts` array. Each pops up at the boss, drifts up, fades over 50f. Color-coded (blue / blue / magenta / gold).
+
+6. **Boss stagger reactions** — boss tilts back during stagger (visual `staggerLean = sin(stagger * 0.5) * 8`), flashes white during `hitFlash > 0`, won't fire while `stagger > 0` (prevents stunlock-into-death-spam). Knockback drift uses `knockbackVx/Vy` damped by 0.88/0.92 per frame.
+
+7. **Low-HP boss FX** — under 35% HP the boss emits dark smoke trail particles every 4f; under 20% HP also shoots up sparks every 6f. Damaged-mech vibes.
+
+8. **Beefier city→space ascent** — accelerating velocity (`-1.5 - (t-80)*0.04`), twin jet exhaust trails from the boots, vertical cloud streaks during atmosphere phase (t<150), expanding speed-line shockwaves every 30f. `player.jetActive = true` set during the ascent so the boots render with thruster flames.
+
+9. **HUD additions** — bottom-left now shows DASH / **MELEE** / SPECIAL cooldown squares plus a JET fuel gauge (110px, color shifts to red below 15%). Combo counter floats at center-bottom when `comboCount >= 2`.
+
+10. **Boss attack gated by stagger** — the `if (b.attackTimer <= 0)` trigger is now `if (b.attackTimer <= 0 && b.stagger <= 0)` so the boss can't fire while staggered. Meaningful payoff for landing the combo.
+
+### Notable code pointers (current state)
+
+- All finale state lives in the global `finale = { ... }` object created by `startFinale()`.
+- Player melee state: `meleeTimer / meleeCooldown / meleeStage / meleeChain / comboCount / comboTimer`.
+- Player jet state: `jetFuel / jetMax / jetActive / jetExhaustPhase`.
+- Boss reaction state: `stagger / hitFlash / shakeOffset / knockback / knockbackVx / knockbackVy / launchVy`.
+- Slow-mo: `finale.slowMo` (multiplier), `finale.slowMoTimer` (frames remaining).
+- Hit text: `finale.hitTexts` array, drawn after particles.
+- Melee logic: in `updateFinaleBattle` directly after the SPECIAL key block (~line 18092).
+- Jet logic: in `updateFinaleBattle` directly after the JUMP block (~line 18016).
+- Bullet update applies `* sm` slow-mo factor.
+- Player rendering adds `=== Melee swing FX ===` block (fist/foot/uppercut visuals) and `=== Jet exhaust trails ===` block (boot thrusters).
+- Boss rendering applies `staggerLean + shake` to `cx`, draws low-HP smoke + sparks, applies `hitFlash` white overlay.
+
+---
+
+## ⚡ Previous Session — May 25, 2026 (Earlier)
 
 Freshest context — read this first if dropping into a new chat. Previous sessions preserved further down.
 
@@ -285,7 +573,7 @@ This is the prior session's MOST RECENT block, preserved verbatim for context.
 ```
 /Users/darrwang/Downloads/nicholas/
 ├── index.html          # Page wrapper, canvas, dev panel + audio panel + keyboard shortcuts (~674 lines)
-├── game.js             # Entire game (~21,200 lines)
+├── game.js             # Entire game (~25,000 lines)
 ├── README.md           # GitHub-facing readme (~81 lines)
 └── PROJECT_CONTEXT.md  # This file
 ```
