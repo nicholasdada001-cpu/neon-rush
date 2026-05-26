@@ -17780,7 +17780,13 @@ function updateFinale() {
     else if (finale.phase === 'dialogue1') updateFinaleDialogue();
     else if (finale.phase === 'dialogue2') updateFinaleDialogue();
     else if (finale.phase === 'battle')  updateFinaleBattle();
-    else if (finale.phase === 'cityToSpace') updateFinaleCityToSpace();
+    else if (finale.phase === 'cityToSpace') {
+        // If a dialogue is up during the cinematic, run the dialogue
+        // handler INSTEAD of the cinematic timer (it pauses) so the
+        // player can read at their own pace.
+        if (finale.dialogue) updateFinaleDialogue();
+        else updateFinaleCityToSpace();
+    }
     else if (finale.phase === 'battle2') updateFinaleBattle();   // same battle loop, life 2
     else if (finale.phase === 'victory') updateFinaleVictory();
     // Phase update may have nulled finale (e.g. victory→won), so bail early
@@ -17860,6 +17866,12 @@ function updateFinaleDialogue() {
         d.idx++;
         d.charTimer = 0;
         if (d.idx >= d.lines.length) {
+            // Inline rescue dialogue (during cityToSpace cinematic):
+            // just clear the dialogue and let the cinematic continue.
+            if (d.inlineReturn) {
+                f.dialogue = null;
+                return;
+            }
             // Done — start (or resume) battle. dialogue2 routes to life-2
             // battle so the boss arrives in space form.
             f.phase = 'battle';
@@ -18131,52 +18143,225 @@ function updateFinaleBattle() {
             audio.play('hurt');
             if (p.hp <= 0) {
                 p.hp = 0;
-                gameState = 'dead';
-                spawnExplosion(p.x, p.y + p.h / 2);
+                if (!triggerFinaleKnockdown()) {
+                    gameState = 'dead';
+                    spawnExplosion(p.x, p.y + p.h / 2);
+                }
                 return;
             }
         }
     }
 }
 
-// City → space transition cinematic. Boss core implodes and reforms in
-// orbit; player launches up. Camera tilts to a star field.
+// City → space transition cinematic. Plays the full rescue sequence:
+// kill beam knocks player down → allies arrive and talk → channel energy
+// to revive → player transforms and launches to orbit.
+//
+// Two entry points:
+//   1. Boss life 1 dies (player kills boss in city) — cinematic plays
+//      with a victory tone; player is healthy, boss reforms in orbit.
+//   2. Player would die in city fight — `triggerFinaleKnockdown()`
+//      sets f.knockdownPath = true and routes here. Allies revive.
+//
+// Time budget (frames):
+//   0..60   ACT 1 — beam charge / debris fountain
+//   60..180 ACT 2 — knockdown / flatline (player on the ground)
+//   180..360 ACT 3 — allies walk in + dialogue beat (uses `dialogue` field)
+//   360..540 ACT 4 — channel + transform burst
+//   540..720 ACT 5 — launch to orbit, scene goes black
+//   720..900 ACT 6 — boss reforms in space, banner
+//   900     hand off to dialogue2 / battle (life 2)
 function updateFinaleCityToSpace() {
     const f = finale;
     const t = f.timer;
-    // Boss debris cascade
-    if (t < 120 && t % 6 === 0) {
-        for (let k = 0; k < 12; k++) {
-            spawnFinaleParticle(
-                f.boss.x + (Math.random() - 0.5) * 100,
-                f.boss.y + Math.random() * 200,
-                ['#ff4422', '#ffaa00', '#ffffff'][k % 3],
-                (Math.random() - 0.5) * 6,
-                -2 - Math.random() * 4, 60);
-        }
-    }
-    if (t === 30) {
-        spawnFinaleShockwave(f.boss.x, f.boss.y + f.boss.h / 2, 200, '#ffffff', 1.0);
-        screenShake = 18;
-    }
-    // Player launches upward at t=80, scales 1.0 → 0.8 to feel "zoomed out"
-    if (t > 80 && t < 200) {
-        f.player.y -= 1.5;       // gentle ascent
-        if (t % 3 === 0) {
-            spawnFinaleParticle(f.player.x, f.player.y + f.player.h,
-                f.player.charColor, (Math.random() - 0.5) * 2, 6, 30);
-        }
-    }
-    // At t=180, switch to space form: refill HP, set boss life=2,
-    // reset positions, generate stars.
-    if (t === 180) {
-        screenShake = 24;
-        spawnFinaleShockwave(canvas.width / 2, canvas.height / 2, 600, '#ffffff', 1.0);
-        for (let k = 0; k < 60; k++) {
+    const p = f.player;
+    const b = f.boss;
+    const knockdown = !!f.knockdownPath;
+
+    // Player is locked down for the whole cinematic — full invincibility
+    // and we ignore input. boss is also paused (no attacks fire because
+    // we don't call finaleBossAttack from this phase).
+    p.invincible = 9999;
+
+    // === ACT 1 (0..60) ===
+    if (t < 60) {
+        // Knockdown path: boss is firing the kill beam
+        if (knockdown && t % 4 === 0) {
             const ang = Math.random() * Math.PI * 2;
-            spawnFinaleParticle(canvas.width / 2, canvas.height / 2,
-                '#ffffff', Math.cos(ang) * 8, Math.sin(ang) * 8, 50);
+            spawnFinaleParticle(b.x, b.y + b.h / 2,
+                ['#ffaa00', '#ff4422', '#ffffff'][Math.floor(Math.random() * 3)],
+                Math.cos(ang) * (1 + Math.random() * 3),
+                Math.sin(ang) * (1 + Math.random() * 3), 30);
         }
+        if (knockdown && t % 12 === 0) {
+            spawnFinaleShockwave(b.x, b.y + b.h / 2, 60 + t * 1.5, '#ffaa00', 0.7);
+        }
+        if (knockdown && t === 50) {
+            // BEAM HIT — player crumples
+            screenShake = 36;
+            hitStop = 8;
+            audio.play('explosion');
+            audio.play('death');
+            p.hp = 1;
+            p.knockedDown = true;
+            spawnFinaleShockwave(p.x, p.y + p.h / 2, 320, '#ffffff', 1.0);
+            for (let k = 0; k < 50; k++) {
+                const ang = Math.random() * Math.PI * 2;
+                spawnFinaleParticle(p.x, p.y + p.h / 2,
+                    ['#ffffff', '#ff4422', '#ffaa00'][k % 3],
+                    Math.cos(ang) * (3 + Math.random() * 6),
+                    Math.sin(ang) * (3 + Math.random() * 6), 50);
+            }
+        }
+        // Victory path: boss debris
+        if (!knockdown && t % 6 === 0) {
+            for (let k = 0; k < 6; k++) {
+                spawnFinaleParticle(b.x + (Math.random() - 0.5) * 100,
+                    b.y + Math.random() * 200,
+                    ['#ff4422', '#ffaa00', '#ffffff'][k % 3],
+                    (Math.random() - 0.5) * 6,
+                    -2 - Math.random() * 4, 60);
+            }
+        }
+    }
+
+    // === ACT 2 (60..180) — Knockdown: player falls to ground; victory: boss debris continues ===
+    if (t >= 60 && t < 180) {
+        if (knockdown) {
+            // Player tumbles to the ground
+            if (t < 120) {
+                p.vy = Math.min(p.vy + 0.5, 8);
+                p.y += p.vy;
+                if (p.y > 380) { p.y = 380; p.vy = 0; }
+                p.x += (b.facing > 0 ? -2 : 2);
+            } else {
+                p.y = 380; p.vy = 0;
+            }
+            // Damage sparks from the player
+            if (t % 8 === 0) {
+                spawnFinaleParticle(p.x + (Math.random() - 0.5) * 60,
+                    p.y + Math.random() * p.h,
+                    ['#222', '#ff4422', '#888'][Math.floor(Math.random() * 3)],
+                    (Math.random() - 0.5) * 2, -1 - Math.random() * 2, 50);
+            }
+        }
+    }
+
+    // === ACT 3 (180..360) — ALLIES ARRIVE + DIALOGUE ===
+    if (t === 180) {
+        // Spawn allies on the left
+        f.allies = [
+            { x: -40, y: 380, targetX: 80,  color: '#ff44aa', name: 'JADE',  alpha: 1, waveT: 0 },
+            { x: -40, y: 380, targetX: 140, color: '#88ffff', name: 'STORM', alpha: 1, waveT: 0 },
+            { x: -40, y: 380, targetX: 200, color: '#ffaa44', name: 'EMBER', alpha: 1, waveT: 0 }
+        ];
+        f.bannerTimer = 0;
+        audio.play('warpIn');
+    }
+    if (t >= 180 && t < 280 && f.allies) {
+        for (const a of f.allies) a.x += (a.targetX - a.x) * 0.08;
+    }
+    if (t === 280) {
+        // Trigger the rescue dialogue
+        f.dialogue = {
+            lines: knockdown ? [
+                { speaker: 'JADE',  text: 'Get up. The world still needs you.', color: '#ff44aa' },
+                { speaker: 'STORM', text: 'We channel everything we are into this last shot.', color: '#88ffff' },
+                { speaker: 'EMBER', text: 'TILL ALL ARE ONE. Take it to the stars.', color: '#ffaa44' }
+            ] : [
+                { speaker: 'JADE',  text: 'You did it — the city is safe.', color: '#ff44aa' },
+                { speaker: 'STORM', text: 'But there is one more battle. In orbit.', color: '#88ffff' },
+                { speaker: 'EMBER', text: 'Take our power. Finish what we started.', color: '#ffaa44' }
+            ],
+            idx: 0,
+            charTimer: 0,
+            advanceHeld: false,
+            // When dialogue finishes, return to this phase + advance timer past 360
+            inlineReturn: 'cityToSpace_act4'
+        };
+    }
+    // Block normal time progression while dialogue is up — player must
+    // press Enter to dismiss it. We pause here at t=280.
+    if (t === 280 && f.dialogue) {
+        f.dialogPaused = true;
+    }
+    // Once dialogue is dismissed, advance to act 4
+    if (f.dialogPaused) {
+        if (!f.dialogue) {
+            f.dialogPaused = false;
+            f.timer = 360;     // skip to act 4
+        }
+        return;
+    }
+
+    // === ACT 4 (360..540) — CHANNEL + TRANSFORM BURST ===
+    if (t === 360) {
+        spawnFinaleShockwave(p.x, p.y + p.h / 2, 200, '#ffaa44', 1.0);
+        spawnFinaleShockwave(p.x, p.y + p.h / 2, 320, '#88ffff', 1.0);
+        screenShake = 14;
+        audio.play('evolve');
+    }
+    if (t >= 360 && t < 540) {
+        const ringProg = (t - 360) / 180;
+        // Allies wave during the rise
+        if (f.allies) {
+            for (const a of f.allies) {
+                a.waveT += 0.18;
+            }
+        }
+        // Energy converging on player
+        if (t % 4 === 0) {
+            for (const a of (f.allies || [])) {
+                spawnFinaleParticle(a.x, a.y + 20,
+                    a.color,
+                    (p.x - a.x) * 0.04 + (Math.random() - 0.5) * 2,
+                    -3 - Math.random() * 2, 40);
+            }
+            spawnFinaleShockwave(p.x, p.y + p.h / 2,
+                30 + ringProg * 200,
+                p.charAccent || '#88ffff', 0.6);
+        }
+        // Heal the player gradually back to full
+        if (knockdown) {
+            p.hp = Math.min(p.maxHp, p.hp + p.maxHp / 180);
+        }
+    }
+    if (t === 540) {
+        // Big burst at the end of channel — player is fully restored
+        spawnFinaleShockwave(p.x, p.y + p.h / 2, 400, '#ffffff', 1.0);
+        spawnFinaleShockwave(p.x, p.y + p.h / 2, 500, '#ffaa44', 1.0);
+        for (let k = 0; k < 80; k++) {
+            const ang = Math.random() * Math.PI * 2;
+            spawnFinaleParticle(p.x, p.y + p.h / 2,
+                ['#ffaa44', '#88ffff', '#ffffff'][k % 3],
+                Math.cos(ang) * (4 + Math.random() * 8),
+                Math.sin(ang) * (4 + Math.random() * 8), 60);
+        }
+        screenShake = 24;
+        hitStop = 8;
+        p.hp = p.maxHp;
+        p.knockedDown = false;
+        audio.play('transform');
+    }
+
+    // === ACT 5 (540..720) — LAUNCH TO ORBIT ===
+    if (t >= 540 && t < 720) {
+        const launchT = (t - 540) / 180;
+        p.y = 380 - launchT * 800;
+        if (t % 2 === 0) {
+            spawnFinaleParticle(p.x + (Math.random() - 0.5) * 30,
+                p.y + p.h, p.charAccent || '#88ffff',
+                (Math.random() - 0.5) * 1, 6 + launchT * 4, 40);
+        }
+        // Allies wave goodbye
+        if (f.allies) {
+            for (const a of f.allies) a.waveT += 0.18;
+        }
+        if (t === 600) audio.play('warpIn');
+    }
+
+    // === ACT 6 (720..900) — SWITCH TO SPACE ===
+    if (t === 720) {
         // Generate starfield
         f.stars = [];
         for (let s = 0; s < 200; s++) {
@@ -18187,17 +18372,17 @@ function updateFinaleCityToSpace() {
                 twinkle: Math.random() * Math.PI * 2
             });
         }
-        // Reset combatants
-        f.player.x = 200;
-        f.player.y = 300;
-        f.player.vy = 0;
-        f.player.hp = f.player.maxHp;
-        f.player.invincible = 90;
-        f.player.jumpsUsed = 0;
+        // Allies fade out (off-screen now)
+        f.allies = null;
+        // Reset combatants for space battle
+        p.x = 200; p.y = 300; p.vy = 0;
+        p.hp = p.maxHp; p.invincible = 90;
+        p.jumpsUsed = 0;
+        if (typeof p.jetMax === 'number') p.jetFuel = p.jetMax;
         f.boss.life = 2;
         f.boss.hp = f.boss.maxHp;
-        f.boss.phase = 2;        // life 2 starts already in rage form
-        f.boss.phase2Triggered = true;     // skip the mid-life trigger
+        f.boss.phase = 2;
+        f.boss.phase2Triggered = true;
         f.boss.x = 700; f.boss.y = 240;
         f.boss.attackTimer = 90;
         f.boss.telegraphTimer = 0;
@@ -18206,7 +18391,16 @@ function updateFinaleCityToSpace() {
         f.bullets.length = 0;
         f.enemyBullets.length = 0;
         f.cameraX = 0;
-        // Brief dialogue beat queued through dialogue2 phase
+        f.knockdownPath = false;
+        spawnFinaleShockwave(canvas.width / 2, canvas.height / 2, 600, '#ffffff', 1.0);
+        for (let k = 0; k < 60; k++) {
+            const ang = Math.random() * Math.PI * 2;
+            spawnFinaleParticle(canvas.width / 2, canvas.height / 2,
+                '#ffffff', Math.cos(ang) * 8, Math.sin(ang) * 8, 50);
+        }
+        screenShake = 24;
+    }
+    if (t >= 900) {
         f.dialogue = {
             lines: [
                 { speaker: 'EARTHBREAKER', text: 'You think the city was my ARMY? It was my SHELL.', color: '#ff44ff' },
@@ -18219,6 +18413,23 @@ function updateFinaleCityToSpace() {
         f.phase = 'dialogue2';
         f.timer = 0;
     }
+}
+
+// Helper used from finaleBattle player-damage sites: hijack the death the
+// FIRST time the player would die during the city fight, route into the
+// rescue cinematic. Returns true if death was hijacked.
+function triggerFinaleKnockdown() {
+    const f = finale;
+    if (!f) return false;
+    if (f.boss.life !== 1 || f.usedRevive) return false;
+    f.usedRevive = true;
+    f.knockdownPath = true;
+    f.phase = 'cityToSpace';
+    f.timer = 0;
+    f.bannerTimer = 0;
+    f.player.vx = 0;
+    f.player.vy = 0;
+    return true;
 }
 
 function finaleShoot() {
@@ -18475,8 +18686,12 @@ function drawFinale() {
     ctx.globalAlpha = 1;
 
     // === Dialogue overlay ===
-    if (f.dialogue && (f.phase === 'dialogue1' || f.phase === 'dialogue2')) {
+    if (f.dialogue && (f.phase === 'dialogue1' || f.phase === 'dialogue2' || f.phase === 'cityToSpace')) {
         drawFinaleDialogue();
+    }
+    // Allies during the rescue cinematic
+    if (f.allies && f.phase === 'cityToSpace') {
+        drawFinaleAllies();
     }
 
     // === HUD ===
@@ -18859,6 +19074,49 @@ function drawFinaleBoss() {
         ctx.fillStyle = '#ff0000';
         ctx.fillRect(cx - w * 0.5, top, w, h);
         ctx.restore();
+    }
+}
+
+// Allies during the rescue cinematic. Three small chibi silhouettes that
+// walk in from the left, then wave during the revive transformation.
+function drawFinaleAllies() {
+    const f = finale;
+    if (!f.allies) return;
+    for (const a of f.allies) {
+        const groundY = 480;     // bottom of sprite
+        ctx.globalAlpha = a.alpha != null ? a.alpha : 1;
+        // Body
+        ctx.fillStyle = '#222';
+        ctx.fillRect(a.x - 14, groundY - 60, 28, 50);
+        // Color band
+        ctx.fillStyle = a.color;
+        ctx.shadowColor = a.color;
+        ctx.shadowBlur = 10;
+        ctx.fillRect(a.x - 12, groundY - 56, 24, 14);
+        ctx.shadowBlur = 0;
+        // Visor
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(a.x - 8, groundY - 50, 16, 4);
+        // Head
+        ctx.fillStyle = '#222';
+        ctx.fillRect(a.x - 10, groundY - 78, 20, 18);
+        // Wave arm during revive
+        if ((a.waveT || 0) > 0) {
+            const armY = -(Math.abs(Math.sin(a.waveT)) * 30);
+            ctx.strokeStyle = a.color;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(a.x + 12, groundY - 50);
+            ctx.lineTo(a.x + 18, groundY - 60 + armY);
+            ctx.stroke();
+        }
+        // Name label
+        ctx.fillStyle = a.color;
+        ctx.font = '10px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(a.name, a.x, groundY - 88);
+        ctx.textAlign = 'left';
+        ctx.globalAlpha = 1;
     }
 }
 
