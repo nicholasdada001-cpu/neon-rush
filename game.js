@@ -17741,7 +17741,13 @@ function startFinale() {
             // Hyper mode (B key) — temporary damage+speed boost in evolved form only
             hyperTimer: 0,
             hyperCooldown: 0,
-            hyperHeld: false
+            hyperHeld: false,
+            // KNOCKDOWN — set true during the cityToSpace rescue path so the
+            // robot is rendered tipped over on the ground (Acts 1-3) and
+            // stands back up during the convergence (Act 4 lead-in).
+            knockedDown: false,
+            knockedDownAng: 0,        // body tilt in radians (0 upright, π/2 = lying down)
+            knockedDownLift: 0        // upward offset during stand-up (negative pulls toward ground)
         },
         // Boss — EARTHBREAKER. 2 lives: city → space.
         boss: {
@@ -19399,6 +19405,10 @@ function updateFinaleBattle() {
             f.phase = 'cityToSpace';
             f.timer = 0;
             f.bannerTimer = 0;
+            // Mark this as the rescue path so the cityToSpace cinematic
+            // tips the player over (knockdown), plays the EVOLVE overlay,
+            // and stands them back up at the convergence.
+            f.knockdownPath = true;
             // Boss becomes invincible during the cinematic
             b.invincible = true;
             // Wipe all hazards/bullets/minions
@@ -19688,6 +19698,74 @@ function updateFinaleCityToSpace() {
     const p = f.player;
     const b = f.boss;
 
+    // === KNOCKDOWN PHYSICS (rescue path only) ===
+    // The rescue path tips the robot over on the ground from t=60 (kill-beam
+    // impact) through t≈500, then stands back up during the convergence.
+    // Drives p.knockedDownAng (0=upright, π/2=lying down) so drawFinalePlayer
+    // renders the body rotated. p.knockedDownLift slides the sprite slightly
+    // toward the ground while down.
+    if (f.knockdownPath) {
+        if (t < 60) {
+            // Pre-impact: still standing
+            p.knockedDown = false;
+            p.knockedDownAng = 0;
+            p.knockedDownLift = 0;
+        } else if (t < 120) {
+            // Falling: rotate from 0 → π/2 over ~60 frames with overshoot
+            const fallT = (t - 60) / 60;
+            const eased = fallT * fallT;       // ease-in (slow start, fast slam)
+            p.knockedDown = true;
+            p.knockedDownAng = (Math.PI / 2) * Math.min(1, eased * 1.05);
+            p.knockedDownLift = -fallT * 26;   // shift body down toward ground
+            // Impact dust on the slam frame
+            if (t === 119) {
+                spawnFinaleShockwave(p.x, 600 - 38, 200, '#ddccaa', 0.7);
+                for (let k = 0; k < 18; k++) {
+                    const ang = Math.PI + (Math.random() - 0.5) * Math.PI;
+                    spawnFinaleParticle(p.x, 600 - 40,
+                        ['#ddccaa', '#888', '#ff4422'][Math.floor(Math.random() * 3)],
+                        Math.cos(ang) * (3 + Math.random() * 3),
+                        -Math.abs(Math.sin(ang)) * (1 + Math.random() * 2),
+                        50);
+                }
+                screenShake = Math.max(screenShake, 20);
+                hitStop = Math.max(hitStop, 4);
+            }
+        } else if (t < 480) {
+            // Lying prone — full π/2 tilt, anchored low
+            p.knockedDown = true;
+            p.knockedDownAng = Math.PI / 2;
+            p.knockedDownLift = -28;
+            // Subtle shudder from damage every ~30f
+            if (t % 30 === 0) {
+                p.knockedDownAng = Math.PI / 2 + (Math.random() - 0.5) * 0.06;
+            }
+        } else if (t < 540) {
+            // Stand-up: rotate back π/2 → 0 over 60 frames during convergence.
+            // Pairs with the existing convergence flash at t=480.
+            const upT = (t - 480) / 60;
+            const eased = 1 - (1 - upT) * (1 - upT);   // ease-out
+            p.knockedDown = upT < 1;
+            p.knockedDownAng = (Math.PI / 2) * (1 - eased);
+            p.knockedDownLift = -28 * (1 - eased);
+        } else {
+            p.knockedDown = false;
+            p.knockedDownAng = 0;
+            p.knockedDownLift = 0;
+        }
+    }
+
+    // === ANIME-STYLE TRANSFORMATION OVERLAY WINDOW ===
+    // Re-uses the existing drawFinaleTransformAnime overlay (counter-rotating
+    // rings, radial speed lines, "EVOLVE!" title flash) during the actual
+    // transformation moment of the rescue: convergence → ascent → mid-flight
+    // transform. Drawn on top of the scene by drawFinale.
+    if (f.knockdownPath) {
+        f.cityToSpaceAnimeOverlay = (t >= 460 && t < 720);
+    } else {
+        f.cityToSpaceAnimeOverlay = false;
+    }
+
     // === ACT 1 (t 0..120) — KILL SHOT ===
     if (t < 120) {
         // Boss charges + fires a giant beam. Player goes limp on impact.
@@ -19776,13 +19854,32 @@ function updateFinaleCityToSpace() {
     if (t === 280) {
         // Spawn ally positions (4 around the player)
         f.allies = [
-            { x: p.x - 200, y: 380, color: '#ff44aa', alpha: 0 },
-            { x: p.x - 100, y: 380, color: '#88ffff', alpha: 0 },
-            { x: p.x + 100, y: 380, color: '#ffaa44', alpha: 0 },
-            { x: p.x + 200, y: 380, color: '#88ff88', alpha: 0 }
+            { x: p.x - 200, y: 380, color: '#ff44aa', alpha: 0, name: 'CRIMSON' },
+            { x: p.x - 100, y: 380, color: '#88ffff', alpha: 0, name: 'STORM' },
+            { x: p.x + 100, y: 380, color: '#ffaa44', alpha: 0, name: 'EMBER' },
+            { x: p.x + 200, y: 380, color: '#88ff88', alpha: 0, name: 'JADE' }
         ];
         f.bannerTimer = 240;
+        // Cinematic quips — paired with each ally in Act 3. Each quip pops
+        // up over its ally's head, fades after ~80f, four total spread
+        // across the 240-frame Act 3 + convergence (t=300..540).
+        f.cinematicQuips = [
+            { atFrame: 300, allyIdx: 3, text: 'Get up. The world still needs you.', life: 0, max: 90 },
+            { atFrame: 360, allyIdx: 1, text: 'We channel everything into this last shot.', life: 0, max: 90 },
+            { atFrame: 420, allyIdx: 2, text: 'TILL ALL ARE ONE. Take it to the stars.', life: 0, max: 90 },
+            { atFrame: 480, allyIdx: 0, text: 'RISE.', life: 0, max: 60 }
+        ];
         audio.play('warpIn');
+    }
+    // Drive cinematic quip lifetimes — fade in fast, hold, fade out
+    if (f.cinematicQuips) {
+        for (const q of f.cinematicQuips) {
+            if (t >= q.atFrame && q.life < q.max) {
+                q.life++;
+                // Audio cue per quip start
+                if (q.life === 1) audio.play('ui');
+            }
+        }
     }
     if (t >= 280 && t < 520) {
         const aT = (t - 280) / 240;
@@ -19804,9 +19901,13 @@ function updateFinaleCityToSpace() {
                 }
             }
         }
-        // Player slowly rises off the ground as energy fills + heals
+        // Player slowly rises off the ground as energy fills + heals.
+        // On the rescue path, stay prone on the ground — the stand-up plays
+        // t=480..540 right after the convergence flash. Healing still happens.
         if (t > 360) {
-            p.y -= 0.5 + (t - 360) * 0.01;
+            if (!f.knockdownPath) {
+                p.y -= 0.5 + (t - 360) * 0.01;
+            }
             // Heal player from 1 HP back to max over the channel duration
             p.hp = Math.min(p.maxHp, p.hp + 1.2);
             // Golden aura particles around player
@@ -19841,28 +19942,79 @@ function updateFinaleCityToSpace() {
         if (f.bossPlanets) {
             for (const pl of f.bossPlanets) {
                 if (pl.alive) {
-                    // Boss destroys planets one-by-one every 30f starting t=380
+                    // Boss CONSUMES planets one-by-one every 30f starting t=380.
+                    // Each absorbs into the boss core: planet shrinks, energy
+                    // stream particles travel toward boss, boss core glows
+                    // brighter with every consumption.
                     const idx = f.bossPlanets.indexOf(pl);
                     const destroyAt = 380 + idx * 30;
                     if (t === destroyAt) {
                         pl.alive = false;
-                        pl.deathTimer = 30;
-                        spawnFinaleShockwave(pl.x, pl.y, pl.r * 2, '#ffffff', 1.0);
-                        spawnFinaleShockwave(pl.x, pl.y, pl.r * 3, pl.color, 1.0);
-                        for (let k = 0; k < 30; k++) {
+                        pl.deathTimer = 60;          // longer so absorb stream lasts
+                        pl.consuming = true;
+                        spawnFinaleShockwave(pl.x, pl.y, pl.r * 1.5, '#ffffff', 1.0);
+                        spawnFinaleShockwave(pl.x, pl.y, pl.r * 2.5, pl.color, 1.0);
+                        // Initial outward debris
+                        for (let k = 0; k < 18; k++) {
                             const ang = Math.random() * Math.PI * 2;
                             spawnFinaleParticle(pl.x, pl.y, pl.color,
-                                Math.cos(ang) * (3 + Math.random() * 5),
-                                Math.sin(ang) * (3 + Math.random() * 5), 60);
+                                Math.cos(ang) * (2 + Math.random() * 3),
+                                Math.sin(ang) * (2 + Math.random() * 3), 40);
                         }
                         screenShake = Math.max(screenShake, 14);
+                        // Boss grows + glows brighter — track consumed count.
+                        b.consumedPlanets = (b.consumedPlanets || 0) + 1;
+                        b.consumeGlow = 1.0;        // pulse to 1, decays to baseline
                         audio.play('explosion', { throttle: 100 });
+                        audio.play('warpIn', { throttle: 100 });
                     }
                 } else if (pl.deathTimer > 0) {
+                    // ABSORPTION STREAM — particles flow from planet → boss core
                     pl.deathTimer--;
+                    if (pl.deathTimer % 2 === 0) {
+                        const dx = b.x - pl.x;
+                        const dy = (b.y + b.h * 0.36) - pl.y;
+                        for (let k = 0; k < 3; k++) {
+                            const off = (Math.random() - 0.5) * pl.r * 0.6;
+                            spawnFinaleParticle(pl.x + off, pl.y + off,
+                                pl.color,
+                                dx * 0.018 + (Math.random() - 0.5) * 1.5,
+                                dy * 0.018 + (Math.random() - 0.5) * 1.5,
+                                30);
+                        }
+                    }
+                    // When the absorb stream lands, pulse the boss core
+                    if (pl.deathTimer === 30) {
+                        spawnFinaleShockwave(b.x, b.y + b.h * 0.36, 100, pl.color, 0.8);
+                        b.consumeGlow = Math.min(1.5, (b.consumeGlow || 0) + 0.4);
+                    }
                 }
             }
         }
+        // Boss consume-glow decays toward 0 between feasts; each consumption
+        // bumps it back up. drawFinaleBoss reads this for an extra core halo.
+        if (b.consumeGlow) b.consumeGlow = Math.max(0, b.consumeGlow - 0.012);
+    }
+    // FINAL CONSUMPTION BEAT — boss devours a giant core mass at t=500.
+    // This is the visible "boss is gorging on cosmic energy" moment, paired
+    // with the player's convergence at t=480, so both transformations are
+    // clearly powered by what just happened in Act 3.
+    if (t === 500 && f.knockdownPath) {
+        // Big absorption shockwave at the boss
+        spawnFinaleShockwave(b.x, b.y + b.h * 0.36, 280, '#ff44ff', 1.0);
+        spawnFinaleShockwave(b.x, b.y + b.h * 0.36, 420, '#ffaa00', 1.0);
+        for (let k = 0; k < 60; k++) {
+            const ang = Math.random() * Math.PI * 2;
+            const dist = 180 + Math.random() * 80;
+            spawnFinaleParticle(b.x + Math.cos(ang) * dist,
+                b.y + b.h * 0.36 + Math.sin(ang) * dist,
+                ['#ff44ff', '#ffaa00', '#ff0000'][k % 3],
+                -Math.cos(ang) * 4, -Math.sin(ang) * 4, 50);
+        }
+        b.consumeGlow = 2.0;
+        b.consumedPlanets = Math.max(b.consumedPlanets || 0, 5);
+        screenShake = Math.max(screenShake, 22);
+        audio.play('explosion');
     }
     if (t === 480) {
         // Final energy CONVERGENCE — all energy snaps into player
@@ -19994,6 +20146,14 @@ function updateFinaleCityToSpace() {
         p.hp = p.maxHp; p.invincible = 90;
         p.jumpsUsed = 0; p.jetFuel = p.jetMax;
         p.meleeStage = 0; p.comboCount = 0; p.comboTimer = 0;
+        // CRITICAL: clear the 9999 invincibility that finaleOnPlayerDeath
+        // sets — without this, the player is permanently immortal in the
+        // sky battle. Reset to a fair entrance window only.
+        p.invincible = 90;
+        // Clear knockdown state — the rescue is over, hero is upright.
+        p.knockedDown = false;
+        p.knockedDownAng = 0;
+        p.knockedDownLift = 0;
         b.life = 2;
         b.maxHp = 12000;       // boss massively stronger in evolved sky form
         b.hp = b.maxHp;
@@ -20001,6 +20161,14 @@ function updateFinaleCityToSpace() {
         b.phase2Triggered = true;
         b.phase3Triggered = false;
         b.phase4Triggered = false;
+        // CRITICAL: clear the kill-cinematic invincibility so the player
+        // can actually damage the boss in the sky battle. The flag is set
+        // on entry to the cinematic but never cleared otherwise.
+        b.invincible = false;
+        // Reset state flags that gate damage/kill paths
+        b.killCinematicQueued = false;
+        b.unleashed = false;
+        b.damageMul = 1;
         b.x = 1000; b.y = 240;
         b.attackTimer = 90;
         b.telegraphTimer = 0;
@@ -20020,6 +20188,7 @@ function updateFinaleCityToSpace() {
         f.cameraX = 0;
         f.bossPlanets = null;
         f.allies = null;
+        f.cinematicQuips = null;
         f.dialogue = {
             lines: [
                 { speaker: 'EARTHBREAKER', text: 'You... you came BACK?', color: '#ff0000' },
@@ -20515,13 +20684,17 @@ function drawFinale() {
                 ctx.arc(pl.x, pl.y, pl.r + 4, 0, Math.PI * 2);
                 ctx.stroke();
             } else if (pl.deathTimer > 0) {
-                // Explosion debris
-                ctx.globalAlpha = pl.deathTimer / 30;
+                // Explosion debris — alpha & growth keyed off the new 60-frame
+                // deathTimer max (was 30 before consume rework).
+                const deathMax = 60;
+                ctx.globalAlpha = Math.max(0, Math.min(1, pl.deathTimer / deathMax));
                 ctx.fillStyle = pl.color;
                 ctx.shadowColor = pl.color;
                 ctx.shadowBlur = 30;
+                // Growth factor stays positive across the full deathTimer span
+                const growth = 1 + Math.max(0, (deathMax - pl.deathTimer)) * 0.025;
                 ctx.beginPath();
-                ctx.arc(pl.x, pl.y, pl.r * (1 + (30 - pl.deathTimer) * 0.05), 0, Math.PI * 2);
+                ctx.arc(pl.x, pl.y, Math.max(1, pl.r * growth), 0, Math.PI * 2);
                 ctx.fill();
                 ctx.shadowBlur = 0;
             }
@@ -20880,6 +21053,59 @@ function drawFinale() {
     // Anime transformation overlay (effects layer)
     if (f.phase === 'transformAnime') {
         drawFinaleTransformAnime();
+    }
+    // Anime-style EVOLVE overlay during the rescue cityToSpace cinematic.
+    // Centers the rings on the player (rising hero) with the boss as the
+    // secondary point. Banner pulses "EVOLVE!" near the convergence beat.
+    if (f.phase === 'cityToSpace' && f.cityToSpaceAnimeOverlay) {
+        const t = f.timer;
+        const overlayT = t - 460;        // 0 at start of overlay window
+        // Banner peaks at convergence (t=480 → overlayT=20)
+        drawAnimeTransformOverlay({
+            t: overlayT,
+            focusX: f.player.x,
+            focusY: f.player.y + f.player.h / 2,
+            focusColor: f.player.charAccent || '#ffdd44',
+            // Boss is way up at this point — use the player as both rings to
+            // keep visual focus locked on the rising hero.
+            secondaryX: null, secondaryY: null,
+            secondaryColor: '#ff44ff',
+            bannerStart: 20,
+            bannerLength: 50,
+            bannerText: 'EVOLVE!',
+            dimMax: 0.45,
+            dimRamp: 30
+        });
+    }
+    // Cinematic quip text bubbles (allies talking during Act 3 of rescue).
+    if (f.phase === 'cityToSpace' && f.cinematicQuips && f.allies) {
+        drawFinaleCinematicQuips();
+    }
+    // Boss-transformation banner — flashes when the boss enters its new
+    // form during Act 5 of cityToSpace, and during the kill-cinematic
+    // power-up. Reads as "BOSS EVOLVED" so it's clearly a transform beat.
+    if (f.phase === 'cityToSpace' && f.timer >= 760 && f.timer < 880) {
+        const tA = f.timer - 760;
+        let bannerAlpha;
+        if (tA < 30) bannerAlpha = tA / 30;
+        else if (tA < 90) bannerAlpha = 1;
+        else bannerAlpha = 1 - (tA - 90) / 30;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, bannerAlpha);
+        ctx.fillStyle = '#ff0044';
+        ctx.shadowColor = '#ffaa00';
+        ctx.shadowBlur = 30;
+        ctx.font = 'bold 38px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('☠ EARTHBREAKER · CORE FORM ☠',
+            canvas.width / 2, 110);
+        ctx.font = 'bold 14px Courier New';
+        ctx.fillStyle = '#ffaa00';
+        ctx.fillText('— consumed five worlds —',
+            canvas.width / 2, 138);
+        ctx.shadowBlur = 0;
+        ctx.textAlign = 'left';
+        ctx.restore();
     }
     // Allies during knockdown / revive
     if (f.allies && (f.phase === 'knockdown' || f.phase === 'knockdownDialogue' || f.phase === 'knockdownRevive')) {
@@ -21264,6 +21490,19 @@ function drawFinalePlayer() {
     ctx.translate(cx, 0);
     ctx.scale(sgn, 1);
     // Now local +x = "forward" (toward enemy), -x = "back"
+
+    // KNOCKDOWN — tip the body over so the robot lies on the ground.
+    // Rotate around a pivot near the feet so the sprite collapses sideways
+    // instead of spinning in place. p.knockedDownAng = π/2 means fully prone.
+    // p.knockedDownLift slides the whole body down toward the ground while
+    // it's tipped over. Negative facing flip already applied so we rotate in
+    // local space — the boss stays to player's "forward" side.
+    if (p.knockedDownAng) {
+        const pivotY = p.y + p.h - 8;     // near the feet
+        ctx.translate(0, pivotY + p.knockedDownLift);
+        ctx.rotate(p.knockedDownAng);
+        ctx.translate(0, -pivotY);
+    }
 
     // Walk swing for legs (only when actually moving — walkPhase advances from input)
     const walkSwing = Math.sin(p.walkPhase) * 14;     // pixel offset, easier to reason about
@@ -22115,6 +22354,71 @@ function drawFinaleBoss() {
         ctx.restore();
     }
 
+    // CONSUME GLOW — pulses up each time the boss devours a cosmic planet
+    // during cityToSpace Act 3. Layered radial halo around the core to read
+    // as "absorbing energy" rather than just being aura-tinted.
+    if (b.consumeGlow > 0) {
+        ctx.save();
+        const glowR = 110 + b.consumeGlow * 80 + Math.sin(f.timer * 0.4) * 6;
+        const grad = ctx.createRadialGradient(
+            cx, top + h * 0.36, 20,
+            cx, top + h * 0.36, glowR);
+        grad.addColorStop(0, `rgba(255, 220, 80, ${0.55 * Math.min(1, b.consumeGlow)})`);
+        grad.addColorStop(0.5, `rgba(255, 80, 200, ${0.32 * Math.min(1, b.consumeGlow)})`);
+        grad.addColorStop(1, 'rgba(255, 0, 0, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(cx, top + h * 0.36, glowR, 0, Math.PI * 2);
+        ctx.fill();
+        // Crackling inner ring scaled with consumed planet count
+        const consumedTier = Math.min(5, b.consumedPlanets || 0);
+        if (consumedTier > 0) {
+            ctx.strokeStyle = '#ffdd44';
+            ctx.shadowColor = '#ffdd44';
+            ctx.shadowBlur = 14;
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.7 * Math.min(1, b.consumeGlow);
+            ctx.beginPath();
+            ctx.arc(cx, top + h * 0.36,
+                40 + consumedTier * 6 + Math.sin(f.timer * 0.6) * 3,
+                0, Math.PI * 2);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
+    // BOSS TRANSFORM ANIMATION (Act 5 — t=760..900 in cityToSpace).
+    // Visibly grows over the act, color trends crimson-gold, body emits
+    // periodic light pulses. bossTransformAnim is set 0..1 by the cinematic.
+    let transformScale = 1;
+    if (b.bossTransformAnim > 0 && b.bossTransformAnim < 1) {
+        const a = b.bossTransformAnim;
+        // Body grows by up to 18% during the transform
+        transformScale = 1 + a * 0.18;
+        // Strobe-flash overlay on the boss core every 20 frames
+        if (f.timer % 20 === 0) {
+            ctx.save();
+            ctx.globalAlpha = 0.5 * (1 - a);
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(cx, top + h * 0.36, 60 + a * 80, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    // Apply transform scale around the body anchor (boss feet) for the
+    // entirety of the body render. Stack a save here that we restore at
+    // the very end via the existing ctx.restore in this function.
+    let _transformScalePushed = false;
+    if (transformScale !== 1) {
+        ctx.save();
+        ctx.translate(cx, 600 - 38);
+        ctx.scale(transformScale, transformScale);
+        ctx.translate(-cx, -(600 - 38));
+        _transformScalePushed = true;
+    }
+
     // Sky form (life 2 / evolved) gets a brand new gold-and-crimson palette
     let bodyColor, accent, trim;
     if (b.evolved) {
@@ -22512,18 +22816,47 @@ function drawFinaleBoss() {
         ctx.stroke();
         ctx.restore();
     }
+
+    // Close the cityToSpace transform-scale ctx.save (Act 5 body grow).
+    if (_transformScalePushed) {
+        ctx.restore();
+    }
 }
 
 // Anime-style transformation overlay — speed lines, counter-rotating
 // rings, full-body color flash. Drawn on top of the normal scene.
 function drawFinaleTransformAnime() {
-    const f = finale;
-    const t = f.timer;
+    drawAnimeTransformOverlay({
+        t: finale.timer,
+        focusX: finale.player.x,
+        focusY: finale.player.y + finale.player.h / 2,
+        focusColor: finale.player.charAccent || '#88ffff',
+        secondaryX: finale.boss.x,
+        secondaryY: finale.boss.y + finale.boss.h / 2,
+        secondaryColor: '#ff44ff',
+        bannerStart: 180,
+        bannerLength: 40,
+        bannerText: 'TRANSFORM!',
+        dimMax: 0.55,
+        dimRamp: 80
+    });
+}
+
+// Generalized anime overlay — used by both the pre-battle TRANSFORM intro
+// and the cityToSpace EVOLVE convergence. Caller controls the timer, focus
+// points, banner text, and dim curve so a single overlay style covers both
+// moments.
+function drawAnimeTransformOverlay(opts) {
+    const { t, focusX, focusY, focusColor,
+        secondaryX, secondaryY, secondaryColor,
+        bannerStart, bannerLength, bannerText,
+        dimMax, dimRamp } = opts;
     const cx = canvas.width / 2;
     const cy = canvas.height / 2;
-    // Background dim
     ctx.save();
-    ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(0.55, t / 80 * 0.55)})`;
+    // Background dim
+    const dimAlpha = Math.min(dimMax, t / dimRamp * dimMax);
+    ctx.fillStyle = `rgba(0, 0, 0, ${dimAlpha})`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     // Radial speed lines from center, rotating
     const lineCount = 60;
@@ -22539,39 +22872,39 @@ function drawFinaleTransformAnime() {
         ctx.lineTo(cx + Math.cos(ang) * len2, cy + Math.sin(ang) * len2);
         ctx.stroke();
     }
-    // Counter-rotating energy rings around hero and boss
-    const heroX = f.player.x;
-    const heroY = f.player.y + f.player.h / 2;
-    const bossX = f.boss.x;
-    const bossY = f.boss.y + f.boss.h / 2;
+    // Counter-rotating energy rings around the focus + secondary points
     for (let r = 0; r < 4; r++) {
         const radius = 60 + r * 30 + Math.sin((t + r * 12) * 0.1) * 10;
-        ctx.strokeStyle = f.player.charAccent || '#88ffff';
-        ctx.shadowColor = f.player.charAccent || '#88ffff';
+        ctx.strokeStyle = focusColor;
+        ctx.shadowColor = focusColor;
         ctx.shadowBlur = 16;
         ctx.lineWidth = 2;
         ctx.globalAlpha = 0.5;
         ctx.beginPath();
-        ctx.arc(heroX, heroY, radius, t * 0.05 + r, t * 0.05 + r + Math.PI * 1.5);
+        ctx.arc(focusX, focusY, radius,
+            t * 0.05 + r, t * 0.05 + r + Math.PI * 1.5);
         ctx.stroke();
-        ctx.strokeStyle = '#ff44ff';
-        ctx.shadowColor = '#ff44ff';
-        ctx.beginPath();
-        ctx.arc(bossX, bossY, radius * 1.2, -t * 0.05 - r, -t * 0.05 - r + Math.PI * 1.5);
-        ctx.stroke();
+        if (secondaryX != null) {
+            ctx.strokeStyle = secondaryColor;
+            ctx.shadowColor = secondaryColor;
+            ctx.beginPath();
+            ctx.arc(secondaryX, secondaryY, radius * 1.2,
+                -t * 0.05 - r, -t * 0.05 - r + Math.PI * 1.5);
+            ctx.stroke();
+        }
     }
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
-    // Center title flash on the final beat
-    if (t > 180 && t < 220) {
-        const a = 1 - (t - 180) / 40;
+    // Center title flash
+    if (t > bannerStart && t < bannerStart + bannerLength) {
+        const a = 1 - (t - bannerStart) / bannerLength;
         ctx.globalAlpha = a;
         ctx.fillStyle = '#ffffff';
         ctx.shadowColor = '#ffffff';
         ctx.shadowBlur = 24;
         ctx.font = 'bold 48px Courier New';
         ctx.textAlign = 'center';
-        ctx.fillText('TRANSFORM!', cx, cy);
+        ctx.fillText(bannerText, cx, cy);
         ctx.shadowBlur = 0;
         ctx.textAlign = 'left';
         ctx.globalAlpha = 1;
@@ -22619,6 +22952,73 @@ function drawFinaleAllies() {
         ctx.fillText(a.name, a.x, groundY - 88);
         ctx.textAlign = 'left';
     }
+}
+
+// Cinematic quip bubbles — short ally lines that pop above the speaking
+// ally during cityToSpace Act 3. Fades in/out, rendered as a clear chat
+// bubble with a tail pointing down at the ally so it reads as dialogue.
+function drawFinaleCinematicQuips() {
+    const f = finale;
+    if (!f.cinematicQuips || !f.allies) return;
+    for (const q of f.cinematicQuips) {
+        if (q.life <= 0) continue;
+        const ally = f.allies[q.allyIdx];
+        if (!ally) continue;
+        // Alpha curve — fast fade in (10f), hold, fast fade out (15f).
+        let alpha;
+        if (q.life < 10) alpha = q.life / 10;
+        else if (q.life < q.max - 15) alpha = 1;
+        else alpha = Math.max(0, (q.max - q.life) / 15);
+        if (alpha <= 0) continue;
+        // Bubble metrics — width fits text + padding
+        ctx.font = 'bold 14px Courier New';
+        const padX = 14, padY = 8;
+        const textW = ctx.measureText(q.text).width;
+        const bubW = textW + padX * 2;
+        const bubH = 28;
+        const bx = ally.x - bubW / 2;
+        const by = ally.y - 130;     // float above ally head
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        // Bubble fill + border
+        ctx.fillStyle = 'rgba(8, 8, 20, 0.92)';
+        ctx.strokeStyle = ally.color;
+        ctx.shadowColor = ally.color;
+        ctx.shadowBlur = 14;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        if (ctx.roundRect) {
+            ctx.roundRect(bx, by, bubW, bubH, 8);
+        } else {
+            // Fallback for older Canvas APIs without roundRect
+            ctx.rect(bx, by, bubW, bubH);
+        }
+        ctx.fill();
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+        // Tail pointing down at ally
+        ctx.beginPath();
+        ctx.moveTo(ally.x - 8, by + bubH);
+        ctx.lineTo(ally.x, by + bubH + 14);
+        ctx.lineTo(ally.x + 8, by + bubH);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(8, 8, 20, 0.92)';
+        ctx.fill();
+        ctx.strokeStyle = ally.color;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // Speaker label
+        ctx.fillStyle = ally.color;
+        ctx.font = 'bold 10px Courier New';
+        ctx.textAlign = 'left';
+        ctx.fillText(ally.name, bx + padX, by - 4);
+        // Text
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 14px Courier New';
+        ctx.fillText(q.text, bx + padX, by + bubH / 2 + 5);
+        ctx.restore();
+    }
+    ctx.textAlign = 'left';
 }
 
 function drawFinaleHUD() {
