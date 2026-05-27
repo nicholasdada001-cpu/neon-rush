@@ -248,6 +248,7 @@
         <div class="row"><button class="stage-btn" data-boss="5">▶ STAGE 6 — NULLIFIER</button></div>
         <div class="row"><button class="stage-btn" data-boss="6">▶ STAGE 7 — OMEGA-PRIME</button></div>
         <div class="row"><button class="stage-btn" data-boss="7">▶ STAGE 8 — TITAN-LORD</button></div>
+        <div class="row"><button id="dev-finale-btn" style="background:#5a1010;border-color:#ff4422;color:#ffaa44;font-weight:bold">⚡ FINALE — EARTHBREAKER</button></div>
         <div class="row" style="margin-top:8px">
             <button class="util-btn" data-util="space">SPACE BATTLE</button>
             <button class="util-btn" data-util="heal">FULL HEAL</button>
@@ -384,6 +385,25 @@
                 const idx = parseInt(btn.dataset.boss, 10);
                 devSkipToBoss(idx);
             });
+        }
+
+        // Bind FINALE button — jumps directly to the EARTHBREAKER fight
+        {
+            const finaleBtn = document.getElementById('dev-finale-btn');
+            if (finaleBtn) {
+                finaleBtn.addEventListener('click', () => {
+                    if (typeof gameState !== 'undefined' &&
+                        (gameState === 'intro' || gameState === 'charSelect' || gameState === 'midCharSelect')) {
+                        gameState = 'playing';
+                    }
+                    if (typeof applyCharacter === 'function' && typeof charSelectIndex !== 'undefined') {
+                        applyCharacter(charSelectIndex || 0);
+                    }
+                    if (typeof currentStage !== 'undefined') currentStage = 0;
+                    if (typeof buildLevel === 'function') buildLevel();
+                    if (typeof startFinale === 'function') startFinale();
+                });
+            }
         }
 
         // Bind utility buttons
@@ -564,6 +584,25 @@
             // Don't trigger if user is typing in an input field
             const tag = (ev.target && ev.target.tagName) || '';
             if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+            // ` (backtick) — jump directly to EARTHBREAKER finale.
+            // This works from any state (intro, charSelect, playing, etc.)
+            // so you can boot straight into the boss fight.
+            if (ev.code === 'Backquote') {
+                if (typeof gameState !== 'undefined') {
+                    if (gameState === 'intro' || gameState === 'charSelect' || gameState === 'midCharSelect') {
+                        gameState = 'playing';
+                    }
+                }
+                if (typeof applyCharacter === 'function' && typeof charSelectIndex !== 'undefined') {
+                    applyCharacter(charSelectIndex || 0);
+                }
+                if (typeof currentStage !== 'undefined') currentStage = 0;
+                if (typeof buildLevel === 'function') buildLevel();
+                if (typeof startFinale === 'function') startFinale();
+                ev.preventDefault();
+                return;
+            }
 
             // Only trigger when the regular game shop UI is closed (the shop
             // also uses 1-9). If shop is open, the player is buying items.

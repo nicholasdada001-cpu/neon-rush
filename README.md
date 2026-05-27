@@ -36,6 +36,21 @@ start index.html       # Windows
 | `ENTER` | Start / advance dialogue |
 | `L` (in shop) | Evolve (costs Robot Coins) |
 
+### Finale (giant-robot showdown)
+
+The EARTHBREAKER fight expands the controls into a full Transformers-style brawl.
+
+| Key | Action |
+|-----|--------|
+| `A`/`D` | Move |
+| `SPACE` | Jump (×2 in air); **HOLD** to engage **JET BOOSTER** and fly |
+| `SHIFT` | Dash with i-frames |
+| `F` | Cannon fire |
+| `G` | Melee combo: **PUNCH → KICK → UPPERCUT** (uppercut launches the boss + slow-mo) |
+| `Q` | Special — wide piercing energy beam |
+
+Land a melee hit while the boss is mid-telegraph for a **CLASH** — both rebound, sparks ring, slow-mo. Combo counter and jet-fuel gauge live in the bottom-left HUD.
+
 ### Dev shortcuts
 
 | Key | Action |
