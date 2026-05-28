@@ -17832,6 +17832,242 @@ function startFinale() {
     audio.play('bossIntro');
 }
 
+// =============================================================================
+// TRAINING MODE — practice arena where the player can test all finale moves
+// against a stationary, indestructible-but-resetting dummy boss. Reuses the
+// full finale player rig (movement, melee combo, jet, dash, special, sword,
+// rockets, shield, hyper, evolved form), so anything that works in the
+// EARTHBREAKER fight works here too. Tracks total damage dealt + DPS and
+// shows live damage popups over the dummy.
+//
+// Controls (in addition to all normal finale controls):
+//   R  — reset dummy HP and clear stats
+//   T  — toggle dummy AI: passive / shoot back
+//   E  — toggle player evolved form (unlocks HYPER mode + 2400 maxHp)
+//   ESC — exit back to title
+// =============================================================================
+function startTrainingMode() {
+    // Build a finale state similar to startFinale, but pinned in city form
+    // with phase='training' and a friendly dummy boss.
+    startFinale();
+    const f = finale;
+    f.phase = 'training';
+    f.timer = 0;
+    f.bannerTimer = 180;
+    f.dialogue = null;
+    // Skip intro animation — drop player and dummy straight in at full size
+    f.player.scaleAnim = 1;
+    f.player.x = 300; f.player.y = 380;
+    f.player.hp = f.player.maxHp;
+    f.player.invincible = 0;
+    // Dummy boss — visible HP that auto-resets when killed, no aggression by default
+    const b = f.boss;
+    b.x = 900; b.y = 320;
+    b.spawnY = 320;
+    b.landed = true;
+    b.hp = 100000;
+    b.maxHp = 100000;
+    b.attackTimer = 999999;       // never auto-fires
+    b.telegraphTimer = 0;
+    b.armAttackTimer = 0;
+    b.chargeTimer = 0;
+    b.slamWindup = 0;
+    b.minionsToSpawn = 0;
+    b.minionSpawnCooldown = 0;
+    b.barrierTimer = 0;
+    b.heatBeamTimer = 0;
+    b.meteorFistTimer = 0;
+    b.meteorFistActive = false;
+    b.hazards = [];
+    b.facing = -1;
+    b.invincible = false;
+    b.unleashed = false;
+    b.killCinematicQueued = false;
+    b.damageMul = 1;
+    f.minions = f.minions || [];
+    f.minions.length = 0;
+    f.bullets.length = 0;
+    f.enemyBullets.length = 0;
+    f.particles.length = 0;
+    f.shockwaves.length = 0;
+    // Training substate — controls dummy mode + DPS tracking + key-edge latches
+    f.training = {
+        mode: 'passive',          // 'passive' | 'shoot'
+        totalDamage: 0,
+        damageWindowFrames: 0,    // counts up; reset each "session"
+        sessionStart: 0,
+        damagePopups: [],         // { x, y, text, life, color }
+        keyRHeld: false,
+        keyTHeld: false,
+        keyEHeld: false,
+        keyEscHeld: false,
+        // Track dummy HP last frame so we can compute damage dealt this tick
+        lastBossHp: b.hp
+    };
+}
+
+// Per-frame training-mode tick. Reuses updateFinaleBattle for the heavy
+// lifting (player input, melee, bullets, particles, etc.) and layers
+// training-only behavior on top: dummy boss never schedules attacks
+// (unless mode='shoot'), auto-resets HP on death, tracks damage popups.
+function updateFinaleTraining() {
+    const f = finale;
+    const p = f.player;
+    const b = f.boss;
+    const tr = f.training;
+    if (!tr) return;
+
+    // === KEY EDGE-TRIGGERS ===
+    // R — reset dummy + stats
+    if (keys['KeyR'] && !tr.keyRHeld) {
+        tr.keyRHeld = true;
+        b.hp = b.maxHp;
+        b.stagger = 0; b.hitFlash = 0; b.shakeOffset = 0;
+        b.invincible = false;
+        b.knockbackVx = 0; b.knockbackVy = 0;
+        f.bullets.length = 0;
+        f.enemyBullets.length = 0;
+        if (f.minions) f.minions.length = 0;
+        b.hazards = [];
+        b.armAttackTimer = 0; b.chargeTimer = 0; b.slamWindup = 0;
+        b.barrierTimer = 0; b.heatBeamTimer = 0;
+        b.meteorFistTimer = 0; b.meteorFistActive = false;
+        tr.totalDamage = 0;
+        tr.damageWindowFrames = 0;
+        tr.sessionStart = f.timer;
+        tr.damagePopups = [];
+        tr.lastBossHp = b.hp;
+        spawnFinaleShockwave(b.x, b.y + b.h / 2, 200, '#88ddff', 0.8);
+        audio.play('warpIn');
+    } else if (!keys['KeyR']) tr.keyRHeld = false;
+
+    // T — toggle dummy mode (passive ↔ shoot)
+    if (keys['KeyT'] && !tr.keyTHeld) {
+        tr.keyTHeld = true;
+        tr.mode = tr.mode === 'passive' ? 'shoot' : 'passive';
+        f.bannerTimer = 90;
+        spawnFinaleShockwave(b.x, b.y + b.h / 2, 140,
+            tr.mode === 'shoot' ? '#ff4422' : '#88ddff', 0.8);
+        audio.play('ui');
+    } else if (!keys['KeyT']) tr.keyTHeld = false;
+
+    // E — toggle evolved form (so the player can practice HYPER mode etc.)
+    if (keys['KeyE'] && !tr.keyEHeld) {
+        tr.keyEHeld = true;
+        if (p.evolved) {
+            p.evolved = false;
+            p.evolveAnim = 0;
+            p.maxHp = 1500;
+            p.hp = Math.min(p.hp, p.maxHp);
+            p.hyperTimer = 0;
+        } else {
+            p.evolved = true;
+            p.evolveAnim = 1;
+            p.maxHp = 2400;
+            p.hp = p.maxHp;
+            spawnFinaleShockwave(p.x, p.y + p.h / 2, 240, '#ffdd44', 0.9);
+            audio.play('evolve');
+        }
+    } else if (!keys['KeyE']) tr.keyEHeld = false;
+
+    // ESC — exit back to title
+    if (keys['Escape'] && !tr.keyEscHeld) {
+        tr.keyEscHeld = true;
+        finale = null;
+        gameState = 'intro';
+        return;
+    } else if (!keys['Escape']) tr.keyEscHeld = false;
+
+    // === DUMMY MODE BEHAVIOR ===
+    if (tr.mode === 'shoot') {
+        // Periodic light shots toward the player so the player can practice
+        // dodging + parrying. Not lethal — keeps it a practice arena.
+        if (f.timer % 60 === 0) {
+            const dx = p.x - b.x;
+            const dy = (p.y + p.h * 0.4) - (b.y + b.h * 0.4);
+            const d = Math.hypot(dx, dy) || 1;
+            f.enemyBullets.push({
+                x: b.x, y: b.y + b.h * 0.4,
+                vx: dx / d * 6, vy: dy / d * 6,
+                life: 120, damage: 8, color: '#ff44ff'
+            });
+        }
+    }
+
+    // Re-pin boss in place (keep dummy stationary even after staggers /
+    // knockback push the body). Allow visual hit-flash + stagger to play
+    // but snap position back so the dummy doesn't drift around the arena.
+    const pinX = 900;
+    const pinY = 320;
+    b.x = pinX;
+    b.y = pinY;
+    b.knockbackVx = 0;
+    b.knockbackVy = 0;
+    b.facing = b.x > p.x ? -1 : 1;
+
+    // Player can't actually die in training — keeps focus on offense practice
+    if (p.hp <= 0) p.hp = 1;
+    if (p.invincible <= 0) p.invincible = 1;     // permanent gentle i-frames
+
+    // === RUN THE FULL BATTLE TICK ===
+    // Reuses all the player input / melee / bullet / hit-flash / particle
+    // logic. Boss attacks won't fire because attackTimer is 999999.
+    updateFinaleBattle();
+
+    // === POST-TICK TRAINING OVERRIDES ===
+    // Re-pin boss (battle tick may have nudged it from collisions)
+    b.x = pinX;
+    b.y = pinY;
+    b.life = 1;       // never advances life
+    b.phase2Triggered = false;
+    b.phase3Triggered = false;
+    b.phase4Triggered = false;
+    b.unleashed = false;
+    b.killCinematicQueued = false;
+
+    // Compute damage dealt this tick from HP delta, push a floating popup,
+    // and reset HP if dummy "died".
+    const dmg = tr.lastBossHp - b.hp;
+    if (dmg > 0) {
+        tr.totalDamage += dmg;
+        tr.damageWindowFrames = (tr.damageWindowFrames || 0) + 1;
+        // Round to int for clean display
+        tr.damagePopups.push({
+            x: b.x + (Math.random() - 0.5) * b.w * 0.6,
+            y: b.y + 40 + Math.random() * 30,
+            text: '-' + Math.round(dmg),
+            life: 50,
+            maxLife: 50,
+            vy: -1.5,
+            color: dmg >= 100 ? '#ffdd44' : (dmg >= 50 ? '#ff8844' : '#ffffff')
+        });
+    }
+    tr.lastBossHp = b.hp;
+
+    // Auto-reset on death — keeps the dummy alive for continuous practice
+    if (b.hp <= 0) {
+        b.hp = b.maxHp;
+        b.stagger = 0; b.hitFlash = 0; b.shakeOffset = 0;
+        spawnFinaleShockwave(b.x, b.y + b.h / 2, 240, '#88ddff', 1.0);
+        for (let k = 0; k < 24; k++) {
+            const ang = Math.random() * Math.PI * 2;
+            spawnFinaleParticle(b.x, b.y + b.h / 2, '#88ddff',
+                Math.cos(ang) * 4, Math.sin(ang) * 4, 30);
+        }
+        audio.play('warpIn');
+        tr.lastBossHp = b.hp;
+    }
+
+    // Tick floating damage popups
+    for (let i = tr.damagePopups.length - 1; i >= 0; i--) {
+        const dp = tr.damagePopups[i];
+        dp.life--;
+        dp.y += dp.vy;
+        dp.vy *= 0.96;
+        if (dp.life <= 0) tr.damagePopups.splice(i, 1);
+    }
+}
+
 function buildFinaleSkyline() {
     // Procedural city silhouette — 3 layers of buildings at increasing
     // depth, deterministic via simple PRNG so it looks the same each run.
@@ -17871,6 +18107,7 @@ function updateFinale() {
     else if (finale.phase === 'battle')  updateFinaleBattle();
     else if (finale.phase === 'cityToSpace') updateFinaleCityToSpace();
     else if (finale.phase === 'battle2') updateFinaleBattle();   // same battle loop, life 2
+    else if (finale.phase === 'training') updateFinaleTraining();
     else if (finale.phase === 'victory') updateFinaleVictory();
     // Phase update may have nulled finale (e.g. victory→won), so bail early
     // before touching its particle/shockwave arrays.
@@ -21189,6 +21426,10 @@ function drawFinale() {
     if (f.phase === 'battle' || f.phase === 'cityToSpace') {
         drawFinaleHUD();
     }
+    // Training mode HUD — dummy HP bar + DPS stats + key reference
+    if (f.phase === 'training') {
+        drawFinaleTrainingHUD();
+    }
 }
 
 function drawFinaleCityBackdrop() {
@@ -23124,6 +23365,126 @@ function drawFinaleHUD() {
             ctx.textAlign = 'left';
         }
     }
+}
+
+// Training mode HUD — dummy HP bar + total damage + DPS + mode indicator +
+// floating damage popups + key reference. Replaces the normal finale HUD
+// while in phase='training'.
+function drawFinaleTrainingHUD() {
+    const f = finale;
+    if (!f.training) return;
+    const tr = f.training;
+    const p = f.player;
+    const b = f.boss;
+
+    // === Floating damage popups over the dummy ===
+    ctx.save();
+    ctx.font = 'bold 18px Courier New';
+    ctx.textAlign = 'center';
+    for (const dp of tr.damagePopups) {
+        const a = dp.life / dp.maxLife;
+        ctx.globalAlpha = a;
+        ctx.fillStyle = dp.color;
+        ctx.shadowColor = dp.color;
+        ctx.shadowBlur = 10;
+        ctx.fillText(dp.text, dp.x, dp.y);
+    }
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+    ctx.restore();
+
+    // === Player HP bar (left) — match finale styling ===
+    ctx.fillStyle = '#000';
+    ctx.fillRect(20, 20, 280, 22);
+    ctx.fillStyle = '#001a2a';
+    ctx.fillRect(22, 22, 276, 18);
+    const hpPct = Math.max(0, p.hp / p.maxHp);
+    ctx.fillStyle = '#00ff88';
+    ctx.fillRect(22, 22, 276 * hpPct, 18);
+    ctx.strokeStyle = '#88ddff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(20, 20, 280, 22);
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px Courier New';
+    ctx.textAlign = 'left';
+    ctx.fillText(`YOU  ${Math.round(p.hp)} / ${p.maxHp}` +
+        (p.evolved ? '  [EVOLVED]' : ''), 28, 35);
+
+    // === Dummy HP bar (right) ===
+    ctx.fillStyle = '#000';
+    ctx.fillRect(canvas.width - 300, 20, 280, 22);
+    ctx.fillStyle = '#1a1a2a';
+    ctx.fillRect(canvas.width - 298, 22, 276, 18);
+    const dPct = Math.max(0, b.hp / b.maxHp);
+    ctx.fillStyle = '#88ddff';
+    ctx.fillRect(canvas.width - 298, 22, 276 * dPct, 18);
+    ctx.strokeStyle = '#88ddff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(canvas.width - 300, 20, 280, 22);
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'right';
+    ctx.fillText(`DUMMY  ${Math.round(b.hp).toLocaleString()} / ${b.maxHp.toLocaleString()}`,
+        canvas.width - 28, 35);
+    ctx.textAlign = 'left';
+
+    // === Stats panel (top-center) ===
+    const sx = canvas.width / 2 - 130;
+    const sy = 56;
+    ctx.fillStyle = 'rgba(8, 8, 20, 0.85)';
+    ctx.strokeStyle = '#88ddff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(sx, sy, 260, 50, 8);
+    else ctx.rect(sx, sy, 260, 50);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#88ddff';
+    ctx.font = 'bold 11px Courier New';
+    ctx.fillText('— TRAINING MODE —', sx + 70, sy + 14);
+    // Total damage + DPS
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px Courier New';
+    const elapsedSec = Math.max(1 / 60, (f.timer - tr.sessionStart) / 60);
+    const dps = tr.totalDamage / elapsedSec;
+    ctx.fillText(`TOTAL: ${Math.round(tr.totalDamage).toLocaleString()}`,
+        sx + 12, sy + 32);
+    ctx.fillText(`DPS: ${Math.round(dps).toLocaleString()}`,
+        sx + 145, sy + 32);
+    // Dummy mode indicator
+    ctx.fillStyle = tr.mode === 'shoot' ? '#ff8844' : '#88ff88';
+    ctx.font = 'bold 11px Courier New';
+    ctx.fillText(`DUMMY: ${tr.mode === 'shoot' ? 'SHOOTING BACK' : 'PASSIVE'}`,
+        sx + 12, sy + 46);
+
+    // === Key reference (bottom-right) ===
+    const refLines = [
+        '[R] RESET DUMMY + STATS',
+        '[T] TOGGLE DUMMY: PASSIVE / SHOOT',
+        '[E] TOGGLE EVOLVED FORM',
+        '[ESC] EXIT TO TITLE',
+        '— Try: F (shoot) · G (punch) · H (uppercut)',
+        '       ↓ (kick) · V (sword) · R-key already used',
+        '       C (shield) · SPACE-hold (jet)'
+    ];
+    const rx = canvas.width - 360;
+    const ry = canvas.height - 130;
+    ctx.fillStyle = 'rgba(8, 8, 20, 0.78)';
+    ctx.strokeStyle = '#88ddff';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(rx, ry, 340, 110, 6);
+    else ctx.rect(rx, ry, 340, 110);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#88ddff';
+    ctx.font = 'bold 10px Courier New';
+    for (let i = 0; i < refLines.length; i++) {
+        ctx.fillText(refLines[i], rx + 10, ry + 18 + i * 13);
+    }
+
+    // Ability cooldowns reused from the normal finale HUD
+    drawFinaleAbilityHUD();
 }
 
 // Draws cooldown squares for DASH, MELEE, SPECIAL plus a jet-fuel gauge

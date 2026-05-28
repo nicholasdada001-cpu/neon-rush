@@ -249,6 +249,7 @@
         <div class="row"><button class="stage-btn" data-boss="6">▶ STAGE 7 — OMEGA-PRIME</button></div>
         <div class="row"><button class="stage-btn" data-boss="7">▶ STAGE 8 — TITAN-LORD</button></div>
         <div class="row"><button id="dev-finale-btn" style="background:#5a1010;border-color:#ff4422;color:#ffaa44;font-weight:bold">⚡ FINALE — EARTHBREAKER</button></div>
+        <div class="row"><button id="dev-training-btn" style="background:#103a5a;border-color:#4488ff;color:#88ddff;font-weight:bold">🎯 TRAINING MODE</button></div>
         <div class="row" style="margin-top:8px">
             <button class="util-btn" data-util="space">SPACE BATTLE</button>
             <button class="util-btn" data-util="heal">FULL HEAL</button>
@@ -402,6 +403,25 @@
                     if (typeof currentStage !== 'undefined') currentStage = 0;
                     if (typeof buildLevel === 'function') buildLevel();
                     if (typeof startFinale === 'function') startFinale();
+                });
+            }
+        }
+
+        // Bind TRAINING MODE button — practice arena with a dummy boss
+        {
+            const trainingBtn = document.getElementById('dev-training-btn');
+            if (trainingBtn) {
+                trainingBtn.addEventListener('click', () => {
+                    if (typeof gameState !== 'undefined' &&
+                        (gameState === 'intro' || gameState === 'charSelect' || gameState === 'midCharSelect')) {
+                        gameState = 'playing';
+                    }
+                    if (typeof applyCharacter === 'function' && typeof charSelectIndex !== 'undefined') {
+                        applyCharacter(charSelectIndex || 0);
+                    }
+                    if (typeof currentStage !== 'undefined') currentStage = 0;
+                    if (typeof buildLevel === 'function') buildLevel();
+                    if (typeof startTrainingMode === 'function') startTrainingMode();
                 });
             }
         }
