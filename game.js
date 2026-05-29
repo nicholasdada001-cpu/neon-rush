@@ -862,9 +862,9 @@ const WEAPONS = [
     },
     {
         name: 'FLAME THROWER', tier: 12, shopOnly: true, cost: 420,
-        damage: 3, speed: 9, cooldown: 3, bullets: 1, spread: 0.28,
+        damage: 3, speed: 9, cooldown: 6, bullets: 1, spread: 0.28,
         color: '#ff8800', glow: '#ff4400', size: 8, life: 35,
-        burn: true, burnDmg: 3, burnDur: 55,
+        burn: true, burnDmg: 2, burnDur: 40,
         flavor: 'Short range, burns everything.'
     },
     {
@@ -1035,7 +1035,7 @@ const EVOLUTIONS = [
         ]
     },
     {
-        name: 'OMEGA',   rcCost: 75,   hpBonus: 100, dmgBonus: 1.30, speedBonus: 0.4,
+        name: 'OMEGA',   rcCost: 75,   hpBonus: 70,  dmgBonus: 1.15, speedBonus: 0.25,
         sizeBonus: 10,
         widthBonus: 4,
         heightBonus: 38,
@@ -1043,17 +1043,17 @@ const EVOLUTIONS = [
         ability: 'omegaBlast', abilityKey: 'KeyR',
         description: 'Final form. Plasma core + missile array. Colossal frame.',
         upgrades: [
-            '+100 Max HP',
-            '+30% Damage',
-            '+0.4 Move Speed',
+            '+70 Max HP',
+            '+15% Damage',
+            '+0.25 Move Speed',
             'Frame size +10 (colossus)',
-            'Quad missile array (auto-fires with main shot)',
-            '[R] OMEGA BLAST - massive AOE plasma wave',
+            'Triple missile array (auto-fires with main shot)',
+            '[R] OMEGA BLAST - AOE plasma wave',
             'Aura damage: enemies near you take burn damage'
         ]
     },
     {
-        name: 'APEX',    rcCost: 130,  hpBonus: 160, dmgBonus: 1.40, speedBonus: 0.5,
+        name: 'APEX',    rcCost: 130,  hpBonus: 110, dmgBonus: 1.20, speedBonus: 0.35,
         sizeBonus: 12,
         widthBonus: 5,
         heightBonus: 50,
@@ -1061,12 +1061,12 @@ const EVOLUTIONS = [
         ability: 'apexNova', abilityKey: 'KeyR',
         description: 'Ascended frame. Quad plasma cannons + halo blade rig.',
         upgrades: [
-            '+160 Max HP',
-            '+40% Damage',
-            '+0.5 Move Speed',
+            '+110 Max HP',
+            '+20% Damage',
+            '+0.35 Move Speed',
             'Frame size +12 (titan tier)',
             'Quad plasma cannons (auto-fires with main shot)',
-            '[R] APEX NOVA — full-screen plasma flash',
+            '[R] APEX NOVA — plasma flash',
             'Halo blade rig orbits player',
             'Bullet reflection while dashing'
         ]
@@ -1289,25 +1289,26 @@ function triggerEvoAbility(name) {
         spawnParticles(cx, cy, '#ffaa00', 25, 8);
         screenShake = 14;
     } else if (name === 'omegaBlast') {
-        // Massive plasma wave around the player. Damages all enemies.
+        // AOE plasma wave around the player. Damages all enemies within
+        // radius. Nerfed from 180 dmg / 350r (was killing bosses in seconds).
         spawnParticles(cx, cy, '#ffffff', 80, 14);
         spawnParticles(cx, cy, '#ffff00', 60, 10);
         spawnParticles(cx, cy, '#ff00ff', 40, 8);
         screenShake = 32;
-        const radius = 350;
+        const radius = 260;
         for (let i = enemies.length - 1; i >= 0; i--) {
             const e = enemies[i];
             const ddx = (e.x + e.w/2) - cx;
             const ddy = (e.y + e.h/2) - cy;
             if (ddx * ddx + ddy * ddy < radius * radius) {
-                e.hp -= Math.round(180 * player.dmgMul);
+                e.hp -= Math.round(90 * player.dmgMul);
                 if (e.hp <= 0) handleEnemyKilled(e, i);
             }
         }
         player.invincible = 60;
     } else if (name === 'apexNova') {
-        // APEX NOVA — full-screen plasma flash. Damages everything on screen
-        // and a wide ring outside. Grants brief i-frames + heal pulse.
+        // APEX NOVA — plasma flash. Damages enemies in a wide radius.
+        // Nerfed from 260 dmg / 520r — was screen-clearing too easily.
         spawnParticles(cx, cy, '#66ffff', 120, 16);
         spawnParticles(cx, cy, '#ffffff', 80, 12);
         spawnParticles(cx, cy, '#00ffff', 60, 10);
@@ -1315,13 +1316,13 @@ function triggerEvoAbility(name) {
         spawnShockwave(cx, cy, 460, '#00ffff');
         screenShake = 38;
         critFlash = 16;
-        const radius = 520;
+        const radius = 360;
         for (let i = enemies.length - 1; i >= 0; i--) {
             const e = enemies[i];
             const ddx = (e.x + e.w/2) - cx;
             const ddy = (e.y + e.h/2) - cy;
             if (ddx * ddx + ddy * ddy < radius * radius) {
-                e.hp -= Math.round(260 * player.dmgMul);
+                e.hp -= Math.round(140 * player.dmgMul);
                 if (e.hp <= 0) handleEnemyKilled(e, i);
             }
         }
@@ -5413,17 +5414,18 @@ function shootBullet() {
             }
             screenShake = Math.max(screenShake, 7);
         } else if (evo.sideArm === 'omega') {
-            // OMEGA: 4 missiles, alternating shoulders, fan pattern
-            for (let r = 0; r < 4; r++) {
+            // OMEGA: 3 missiles, alternating shoulders, fan pattern (nerfed
+            // from 4 missiles + 80 dmg + 100 AOE — was bursting bosses in 2 shots)
+            for (let r = 0; r < 3; r++) {
                 const sh = (r % 2 === 0) ? shoulderL : shoulderR;
                 bullets.push({
                     x: sh.x, y: sh.y - r * 2,
                     vx: baseDx * 9,
                     vy: -3 + r * 1.5,
-                    life: 100, damage: Math.round(80 * player.dmgMul),
+                    life: 100, damage: Math.round(45 * player.dmgMul),
                     color: '#ffff00', glow: '#ffaa00', size: 10,
                     pierce: false, hitEnemies: new Set(),
-                    explosive: true, aoeRadius: 100,
+                    explosive: true, aoeRadius: 70,
                     rocket: true
                 });
                 spawnParticles(sh.x, sh.y, '#ffff00', 4, 4);
@@ -5446,7 +5448,7 @@ function shootBullet() {
                     x: sh.x, y: sh.y,
                     vx: baseDx * 14 + (Math.random() - 0.5) * 0.6,
                     vy: -1 + (r - 1.5) * 0.7,
-                    life: 100, damage: Math.round(55 * player.dmgMul),
+                    life: 100, damage: Math.round(35 * player.dmgMul),
                     color: '#66ffff', glow: '#00ffff', size: 8,
                     pierce: true, hitEnemies: new Set(),
                     explosive: false
