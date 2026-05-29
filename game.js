@@ -862,10 +862,10 @@ const WEAPONS = [
     },
     {
         name: 'FLAME THROWER', tier: 12, shopOnly: true, cost: 420,
-        damage: 3, speed: 9, cooldown: 6, bullets: 1, spread: 0.28,
-        color: '#ff8800', glow: '#ff4400', size: 8, life: 35,
-        burn: true, burnDmg: 2, burnDur: 40,
-        flavor: 'Short range, burns everything.'
+        damage: 1, speed: 7, cooldown: 2, bullets: 2, spread: 0.34,
+        color: '#ff8800', glow: '#ff4400', size: 8, life: 22,
+        burn: true, burnDmg: 1, burnDur: 35, flame: true,
+        flavor: 'Continuous flame stream. Super fast, super weak.'
     },
     {
         name: 'BFG-9000', tier: 13, shopOnly: true, cost: 800,
@@ -1035,7 +1035,7 @@ const EVOLUTIONS = [
         ]
     },
     {
-        name: 'OMEGA',   rcCost: 75,   hpBonus: 70,  dmgBonus: 1.15, speedBonus: 0.25,
+        name: 'OMEGA',   rcCost: 75,   hpBonus: 70,  dmgBonus: 1.05, speedBonus: 0.25,
         sizeBonus: 10,
         widthBonus: 4,
         heightBonus: 38,
@@ -1044,16 +1044,16 @@ const EVOLUTIONS = [
         description: 'Final form. Plasma core + missile array. Colossal frame.',
         upgrades: [
             '+70 Max HP',
-            '+15% Damage',
+            '+5% Damage',
             '+0.25 Move Speed',
             'Frame size +10 (colossus)',
-            'Triple missile array (auto-fires with main shot)',
-            '[R] OMEGA BLAST - AOE plasma wave',
+            'Twin missile array (auto-fires with main shot)',
+            '[R] OMEGA BLAST - small AOE plasma wave',
             'Aura damage: enemies near you take burn damage'
         ]
     },
     {
-        name: 'APEX',    rcCost: 130,  hpBonus: 110, dmgBonus: 1.20, speedBonus: 0.35,
+        name: 'APEX',    rcCost: 130,  hpBonus: 110, dmgBonus: 1.08, speedBonus: 0.35,
         sizeBonus: 12,
         widthBonus: 5,
         heightBonus: 50,
@@ -1062,7 +1062,7 @@ const EVOLUTIONS = [
         description: 'Ascended frame. Quad plasma cannons + halo blade rig.',
         upgrades: [
             '+110 Max HP',
-            '+20% Damage',
+            '+8% Damage',
             '+0.35 Move Speed',
             'Frame size +12 (titan tier)',
             'Quad plasma cannons (auto-fires with main shot)',
@@ -1289,26 +1289,26 @@ function triggerEvoAbility(name) {
         spawnParticles(cx, cy, '#ffaa00', 25, 8);
         screenShake = 14;
     } else if (name === 'omegaBlast') {
-        // AOE plasma wave around the player. Damages all enemies within
-        // radius. Nerfed from 180 dmg / 350r (was killing bosses in seconds).
+        // Small AOE plasma wave around the player (further nerfed —
+        // was clearing rooms too easily).
         spawnParticles(cx, cy, '#ffffff', 80, 14);
         spawnParticles(cx, cy, '#ffff00', 60, 10);
         spawnParticles(cx, cy, '#ff00ff', 40, 8);
         screenShake = 32;
-        const radius = 260;
+        const radius = 220;
         for (let i = enemies.length - 1; i >= 0; i--) {
             const e = enemies[i];
             const ddx = (e.x + e.w/2) - cx;
             const ddy = (e.y + e.h/2) - cy;
             if (ddx * ddx + ddy * ddy < radius * radius) {
-                e.hp -= Math.round(90 * player.dmgMul);
+                e.hp -= Math.round(50 * player.dmgMul);
                 if (e.hp <= 0) handleEnemyKilled(e, i);
             }
         }
         player.invincible = 60;
     } else if (name === 'apexNova') {
-        // APEX NOVA — plasma flash. Damages enemies in a wide radius.
-        // Nerfed from 260 dmg / 520r — was screen-clearing too easily.
+        // APEX NOVA — plasma flash. Damages enemies in a radius. Further
+        // nerfed (was screen-clearing too easily even after first nerf).
         spawnParticles(cx, cy, '#66ffff', 120, 16);
         spawnParticles(cx, cy, '#ffffff', 80, 12);
         spawnParticles(cx, cy, '#00ffff', 60, 10);
@@ -1316,13 +1316,13 @@ function triggerEvoAbility(name) {
         spawnShockwave(cx, cy, 460, '#00ffff');
         screenShake = 38;
         critFlash = 16;
-        const radius = 360;
+        const radius = 320;
         for (let i = enemies.length - 1; i >= 0; i--) {
             const e = enemies[i];
             const ddx = (e.x + e.w/2) - cx;
             const ddy = (e.y + e.h/2) - cy;
             if (ddx * ddx + ddy * ddy < radius * radius) {
-                e.hp -= Math.round(140 * player.dmgMul);
+                e.hp -= Math.round(80 * player.dmgMul);
                 if (e.hp <= 0) handleEnemyKilled(e, i);
             }
         }
@@ -5353,7 +5353,8 @@ function shootBullet() {
             explosive: !!w.explosive,
             aoeRadius: w.aoeRadius || 100,
             burn: !!w.burn, burnDmg: w.burnDmg, burnDur: w.burnDur,
-            slow: !!w.slow, slowDur: w.slowDur, slowFactor: w.slowFactor
+            slow: !!w.slow, slowDur: w.slowDur, slowFactor: w.slowFactor,
+            flame: !!w.flame
         });
     }
     // Muzzle flash
@@ -5414,18 +5415,18 @@ function shootBullet() {
             }
             screenShake = Math.max(screenShake, 7);
         } else if (evo.sideArm === 'omega') {
-            // OMEGA: 3 missiles, alternating shoulders, fan pattern (nerfed
-            // from 4 missiles + 80 dmg + 100 AOE — was bursting bosses in 2 shots)
-            for (let r = 0; r < 3; r++) {
+            // OMEGA: 2 missiles, alternating shoulders, fan pattern (further
+            // nerfed — was bursting bosses too fast even after first nerf)
+            for (let r = 0; r < 2; r++) {
                 const sh = (r % 2 === 0) ? shoulderL : shoulderR;
                 bullets.push({
                     x: sh.x, y: sh.y - r * 2,
                     vx: baseDx * 9,
                     vy: -3 + r * 1.5,
-                    life: 100, damage: Math.round(45 * player.dmgMul),
+                    life: 100, damage: Math.round(30 * player.dmgMul),
                     color: '#ffff00', glow: '#ffaa00', size: 10,
                     pierce: false, hitEnemies: new Set(),
-                    explosive: true, aoeRadius: 70,
+                    explosive: true, aoeRadius: 50,
                     rocket: true
                 });
                 spawnParticles(sh.x, sh.y, '#ffff00', 4, 4);
@@ -5448,7 +5449,7 @@ function shootBullet() {
                     x: sh.x, y: sh.y,
                     vx: baseDx * 14 + (Math.random() - 0.5) * 0.6,
                     vy: -1 + (r - 1.5) * 0.7,
-                    life: 100, damage: Math.round(35 * player.dmgMul),
+                    life: 100, damage: Math.round(22 * player.dmgMul),
                     color: '#66ffff', glow: '#00ffff', size: 8,
                     pierce: true, hitEnemies: new Set(),
                     explosive: false
@@ -14276,6 +14277,58 @@ function drawPlatforms() {
 function drawBullets() {
     // Player bullets - color and size from weapon
     for (const b of bullets) {
+        // FLAME bullets render as flickering multi-layer flames instead of
+        // a static circle — gives the flamethrower a real flame stream feel.
+        if (b.flame) {
+            const sx = b.x - camera.x;
+            const sy = b.y - camera.y;
+            // Random flicker — size and offset jitter every frame so it
+            // dances like fire. Bullets near end-of-life shrink and fade.
+            const lifeFrac = Math.max(0, Math.min(1, (b.life || 22) / 22));
+            const baseR = (b.size || 8) * (0.7 + lifeFrac * 0.6);
+            const flicker = (Math.random() - 0.5) * 3;
+            const fy = sy + flicker;
+            // Outer glow — orange (largest, most transparent)
+            ctx.globalAlpha = lifeFrac * 0.5;
+            ctx.fillStyle = '#ff4400';
+            ctx.shadowColor = '#ff4400';
+            ctx.shadowBlur = 18;
+            ctx.beginPath();
+            ctx.arc(sx, fy - 2, baseR * 1.4, 0, Math.PI * 2);
+            ctx.fill();
+            // Mid layer — bright orange
+            ctx.globalAlpha = lifeFrac * 0.85;
+            ctx.fillStyle = '#ff8800';
+            ctx.shadowColor = '#ff8800';
+            ctx.shadowBlur = 14;
+            ctx.beginPath();
+            ctx.arc(sx + flicker * 0.4, fy, baseR, 0, Math.PI * 2);
+            ctx.fill();
+            // Inner core — yellow / white-hot
+            ctx.globalAlpha = lifeFrac;
+            ctx.fillStyle = '#ffdd44';
+            ctx.shadowColor = '#ffff88';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(sx + flicker * 0.6, fy + 1, baseR * 0.55, 0, Math.PI * 2);
+            ctx.fill();
+            // White core only on fresh flames (first half of life)
+            if (lifeFrac > 0.5) {
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.arc(sx, fy, baseR * 0.25, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            // Smoke wisps trailing — small dark puff behind
+            if (lifeFrac < 0.6 && Math.random() < 0.25) {
+                spawnParticles(b.x - (b.vx || 0) * 0.5,
+                    b.y + (Math.random() - 0.5) * 4,
+                    '#444', 1, 1);
+            }
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            continue;
+        }
         ctx.fillStyle = b.color || '#ffff66';
         ctx.shadowColor = b.glow || '#ffff00';
         ctx.shadowBlur = 12;
