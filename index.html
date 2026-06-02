@@ -228,10 +228,74 @@
 </head>
 <body>
     <div id="ui-overlay"></div>
+
+    <!-- Name prompt — shown on first load before the game starts.
+         Collects the player's name; if name matches "nicholas" (case-insensitive)
+         the dev tools (🛠 panel, hotkeys 1-9, backtick) are unlocked. Other
+         names get a gentle "🔒 dev access denied" message if they try them. -->
+    <div id="name-prompt" style="
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        background: radial-gradient(ellipse at center, #1a1a3a 0%, #050510 80%);
+        z-index: 100;
+        font-family: 'Courier New', monospace;
+    ">
+        <div style="
+            background: #0a0a18;
+            border: 2px solid #00ddff;
+            box-shadow: 0 0 40px rgba(0, 221, 255, 0.5);
+            padding: 32px 40px;
+            border-radius: 6px;
+            text-align: center;
+            max-width: 480px;
+        ">
+            <div style="
+                color: #00ffaa;
+                font-size: 28px;
+                font-weight: bold;
+                text-shadow: 0 0 12px #00ffaa;
+                margin-bottom: 6px;
+            ">⚡ NEON RUSH ⚡</div>
+            <div style="color: #ffaa44; font-size: 13px; margin-bottom: 22px;">
+                Enter your name to begin
+            </div>
+            <input id="name-input" type="text" maxlength="24" placeholder="Your name..."
+                style="
+                    width: 100%; box-sizing: border-box;
+                    background: #050510; color: #88ffdd;
+                    border: 2px solid #00aacc;
+                    border-radius: 3px;
+                    padding: 12px 14px;
+                    font-family: 'Courier New', monospace;
+                    font-size: 18px;
+                    text-align: center;
+                    outline: none;
+                    text-shadow: 0 0 6px #00ffaa;
+                "/>
+            <button id="name-submit" type="button" style="
+                margin-top: 16px;
+                background: #1a1a28;
+                color: #ffdd66;
+                border: 2px solid #ffaa44;
+                padding: 10px 28px;
+                font-family: 'Courier New', monospace;
+                font-size: 14px;
+                font-weight: bold;
+                cursor: pointer;
+                border-radius: 3px;
+                box-shadow: 0 0 8px rgba(255, 170, 68, 0.4);
+            ">▶ START GAME</button>
+            <div style="color: #555; font-size: 10px; margin-top: 22px; line-height: 1.5;">
+                ※ Press ENTER to confirm.<br>
+                ※ Your name is saved locally on this browser.
+            </div>
+        </div>
+    </div>
+
     <canvas id="game"></canvas>
     <div id="controls-info">
         ENTER: Start | A/D: Move | ↑: Jump | SHIFT: Dash | F: Shoot | G: Melee | Q: Ability | TAB: Swap | E: Shop / <span style="color:#ff9966">⚒ Craft</span> | <span style="color:#66ffff">X: Transform</span> | <span style="color:#66ddff">M: Mute</span><br>
-        <span style="color:#ff8844">[DEV] 1-8: Skip to Boss | 0: Space Battle | 9: God Mode</span>
+        <span id="controls-dev-hint" style="color:#ff8844">[DEV] 1-8: Skip to Boss | 0: Space Battle | 9: God Mode</span>
     </div>
 
     <!-- Toggle button (always visible) -->
@@ -303,6 +367,96 @@
 
     <script src="game.js"></script>
     <script>
+        // ===== NAME GATE =====
+        // First-load name prompt + developer detection. Stored in localStorage
+        // so the player only types it once. The "developer" check is name === 
+        // "nicholas" (case-insensitive, trimmed). Only matters for unlocking
+        // the dev panel + hotkeys; it's a soft gate (anyone with browser dev
+        // tools can bypass) but reads as intentional for normal players.
+        const PLAYER_NAME_KEY = 'neonRush.playerName';
+        let playerName = localStorage.getItem(PLAYER_NAME_KEY) || '';
+        // Names that unlock developer mode (case-insensitive). Add/remove
+        // here to control who gets the dev panel + hotkeys.
+        const DEV_NAMES = ['nicholas', 'micah', 'jax'];
+        function isDeveloper() {
+            const n = (playerName || '').trim().toLowerCase();
+            return DEV_NAMES.includes(n);
+        }
+        const namePrompt = document.getElementById('name-prompt');
+        const nameInput = document.getElementById('name-input');
+        const nameSubmit = document.getElementById('name-submit');
+
+        function dismissNamePrompt() {
+            const val = (nameInput.value || '').trim();
+            if (!val) {
+                nameInput.style.borderColor = '#ff4444';
+                nameInput.placeholder = '※ Please enter a name';
+                nameInput.focus();
+                return;
+            }
+            playerName = val;
+            localStorage.setItem(PLAYER_NAME_KEY, playerName);
+            namePrompt.style.display = 'none';
+            // Greet the player using the float-text system if available
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = {
+                    text: `Welcome, ${playerName}` + (isDeveloper() ? ' [DEV]' : ''),
+                    timer: 200,
+                    color: isDeveloper() ? '#ffaa44' : '#88ffdd'
+                };
+            }
+        }
+
+        if (playerName) {
+            // Already set — skip prompt entirely
+            namePrompt.style.display = 'none';
+        } else {
+            // Auto-focus the input so the player can type immediately
+            setTimeout(() => nameInput && nameInput.focus(), 50);
+        }
+        nameSubmit.addEventListener('click', dismissNamePrompt);
+        nameInput.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter') {
+                ev.preventDefault();
+                dismissNamePrompt();
+            }
+        });
+
+        // Tiny "playing as: NAME" indicator in bottom-left so the user knows
+        // which save slot they're using. Click to re-enter your name.
+        if (playerName) {
+            const nameTag = document.createElement('div');
+            nameTag.id = 'player-nametag';
+            nameTag.style.cssText = `
+                position: absolute; left: 12px; bottom: 8px;
+                color: ${isDeveloper() ? '#ffaa44' : '#88ddaa'};
+                font-family: 'Courier New', monospace;
+                font-size: 10px;
+                opacity: 0.55;
+                cursor: pointer;
+                z-index: 50;
+                user-select: none;
+                text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+            `;
+            nameTag.textContent = `${playerName}${isDeveloper() ? ' [DEV]' : ''} (click to change)`;
+            nameTag.addEventListener('click', () => {
+                localStorage.removeItem(PLAYER_NAME_KEY);
+                location.reload();
+            });
+            document.body.appendChild(nameTag);
+        }
+
+        // Show a brief on-canvas message when a non-dev attempts a dev action.
+        function denyDevAccess() {
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = {
+                    text: '🔒 Developer access only',
+                    timer: 90,
+                    color: '#ff4444'
+                };
+            }
+        }
+
         // ===== DEV PANEL WIRING =====
         // All actions reach into the global game state defined in game.js.
         const devPanel = document.getElementById('dev-panel');
@@ -312,7 +466,19 @@
 
         let godMode = false;
 
+        // Hide the 🛠 DEV button entirely for non-developers. Cleaner than
+        // letting them click and bounce off the access-denied toast.
+        if (!isDeveloper()) {
+            devToggle.style.display = 'none';
+            const devHint = document.getElementById('controls-dev-hint');
+            if (devHint) devHint.style.display = 'none';
+        }
+
         devToggle.addEventListener('click', () => {
+            if (!isDeveloper()) {
+                denyDevAccess();
+                return;
+            }
             const showing = !devPanel.classList.contains('hidden');
             if (showing) {
                 devPanel.classList.add('hidden');
@@ -600,10 +766,20 @@
         // Press 1-7 to instantly jump to that stage's boss fight.
         // Press 0 to start a space battle, 9 to toggle god mode.
         // Use Digit codes so the keys still work even when the canvas has focus.
+        // ALL of these are gated behind isDeveloper() — non-devs see nothing.
         document.addEventListener('keydown', (ev) => {
             // Don't trigger if user is typing in an input field
             const tag = (ev.target && ev.target.tagName) || '';
             if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+            // Dev keys are: Backquote, Digit0..9. Block them all if not dev.
+            const isDevKey = ev.code === 'Backquote' ||
+                             /^Digit[0-9]$/.test(ev.code);
+            if (isDevKey && !isDeveloper()) {
+                // Quietly ignore — don't even toast, since some Digit keys
+                // may be repurposed for normal gameplay (shop hotkeys, etc.).
+                return;
+            }
 
             // ` (backtick) — jump directly to EARTHBREAKER finale.
             // This works from any state (intro, charSelect, playing, etc.)
