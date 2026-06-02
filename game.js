@@ -862,10 +862,10 @@ const WEAPONS = [
     },
     {
         name: 'FLAME THROWER', tier: 12, shopOnly: true, cost: 420,
-        damage: 1, speed: 8, cooldown: 2, bullets: 2, spread: 0.34,
+        damage: 1, speed: 8, cooldown: 2, bullets: 1, spread: 0.08,
         color: '#ff8800', glow: '#ff4400', size: 8, life: 38,
         burn: true, burnDmg: 5, burnDur: 75, flame: true,
-        flavor: 'Long flame stream. Strong burn, weak per hit.'
+        flavor: 'Straight flame stream. Strong burn, weak per hit.'
     },
     {
         name: 'BFG-9000', tier: 13, shopOnly: true, cost: 800,
