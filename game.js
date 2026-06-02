@@ -1226,10 +1226,10 @@ const SHOP_ITEMS = [
     { key: '1', name: 'Heal +60 HP',         cost: 15, action: p => { p.hp = Math.min(p.maxHp, p.hp + 60); }, repeatable: true },
     { key: '2', name: 'Full Repair',         cost: 40, action: p => { p.hp = p.maxHp; }, repeatable: true },
     { key: '3', name: 'Max HP +25',          cost: 30, action: p => { p.maxHp += 25; p.hp += 25; }, repeatable: true },
-    { key: '4', name: 'Damage +5',           cost: 35, action: p => { p.bulletDamage += 5; }, repeatable: true },
+    { key: '4', name: 'Damage +5',           cost: 70, action: p => { p.bulletDamage += 5; }, repeatable: true },
     { key: '5', name: 'Speed +0.4',          cost: 25, action: p => { p.speed += 0.4; }, repeatable: true },
     { key: '6', name: 'Triple Jump',         cost: 80, action: p => { p.maxJumpsBonus += 1; }, repeatable: true },
-    { key: '7', name: 'Fire Rate +15%',      cost: 60, action: p => { p.fireRateMul *= 0.87; }, repeatable: true },
+    { key: '7', name: 'Fire Rate +15%',      cost: 120, action: p => { p.fireRateMul *= 0.87; }, repeatable: true },
     { key: '8', name: 'Buy: AUTO PISTOL',    cost: 150, action: p => { p.weaponsUnlocked[14] = true; p.weaponTier = 14; }, weapon: 14 },
     { key: '9', name: 'Buy: BURST RIFLE',    cost: 200, action: p => { p.weaponsUnlocked[8] = true; p.weaponTier = 8; }, weapon: 8 },
     { key: '0', name: 'Buy: SCATTER GUN',    cost: 280, action: p => { p.weaponsUnlocked[9] = true; p.weaponTier = 9; }, weapon: 9 },
@@ -1249,39 +1249,8 @@ const SHOP_ITEMS = [
     { key: 'L', name: 'EVOLVE',              cost: 0,   action: p => { evolvePlayer(p); }, evolution: true },
     // Scrap-metal trades. Scrap is plentiful, so the rates are stingy on
     // purpose — these are escape valves, not main income.
-    { key: 'Z', name: 'Trade: 50 SCRAP → 80¢', cost: 0, costScrap: 50, action: p => { p.coins += 80; }, repeatable: true, scrapTrade: true },
     { key: 'X', name: 'Trade: 25 SCRAP → 1 RC', cost: 0, costScrap: 25, action: p => { p.robotCoins += 1; }, repeatable: true, scrapTrade: true },
-    // === CRAFTING — uses scrap as primary cost. Some recipes also need coins.
-    // Crafted items are permanent stat upgrades or consumable boosts. The
-    // scrap economy lets the player spend the constant breakable/enemy drops.
-    { key: 'C', name: '⚒ Craft: REPAIR KIT', costScrap: 30, cost: 0,
-      action: p => { p.hp = p.maxHp; p.invincible = Math.max(p.invincible, 60); },
-      repeatable: true, craft: true,
-      craftDesc: 'Full HP restore + 1s i-frames' },
-    { key: 'D', name: '⚒ Craft: ARMOR PLATE', costScrap: 60, cost: 40,
-      action: p => { p.maxHp += 30; p.hp += 30; },
-      repeatable: true, craft: true,
-      craftDesc: '+30 max HP (permanent)' },
-    { key: 'F', name: '⚒ Craft: AMMO OVERCHARGE', costScrap: 80, cost: 0,
-      action: p => { p.bulletDamage += 4; },
-      repeatable: true, craft: true,
-      craftDesc: '+4 bullet damage (permanent)' },
-    { key: 'G', name: '⚒ Craft: SERVO BOOST', costScrap: 100, cost: 60,
-      action: p => { p.speed += 0.3; },
-      repeatable: true, craft: true,
-      craftDesc: '+0.3 movement speed' },
-    { key: 'H', name: '⚒ Craft: KINETIC SHIELD', costScrap: 90, cost: 0,
-      action: p => { p.invincible = Math.max(p.invincible, 240); },
-      repeatable: true, craft: true,
-      craftDesc: '4 seconds of invincibility' },
-    { key: 'J', name: '⚒ Craft: POWER CELL', costScrap: 150, cost: 80,
-      action: p => { p.maxJumpsBonus += 1; },
-      repeatable: true, craft: true,
-      craftDesc: '+1 extra jump (permanent)' },
-    { key: 'K', name: '⚒ Craft: ENERGON CORE', costScrap: 200, cost: 0,
-      action: p => { p.robotCoins += 5; },
-      repeatable: true, craft: true,
-      craftDesc: 'Convert scrap into 5 RC (better rate)' }
+    { key: 'C', name: 'Trade: 50 SCRAP → 80¢', cost: 0, costScrap: 50, action: p => { p.coins += 80; }, repeatable: true, scrapTrade: true }
 ];
 
 // Trigger an evolution-specific active ability (R key)

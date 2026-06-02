@@ -448,6 +448,9 @@
             playerName = val;
             localStorage.setItem(PLAYER_NAME_KEY, playerName);
             namePrompt.style.display = 'none';
+            // Refresh DEV button visibility now that we know who the user is
+            if (typeof applyDevVisibility === 'function') applyDevVisibility();
+            if (typeof refreshPlayerNameTag === 'function') refreshPlayerNameTag();
             // Greet the player using the float-text system if available
             if (typeof shopMessage !== 'undefined') {
                 shopMessage = {
@@ -522,10 +525,20 @@
         }
 
         if (playerName) {
-            // Already set — skip prompt entirely
-            namePrompt.style.display = 'none';
+            // We have a saved name from a previous session — pre-fill it but
+            // STILL show the prompt so the player can confirm/change it
+            // every time. This means uppercase/lowercase changes always
+            // get re-checked instead of being stuck with the old version.
+            nameInput.value = playerName;
+            playerName = '';   // require explicit submit before counting it
+            setTimeout(() => {
+                if (nameInput) {
+                    nameInput.focus();
+                    nameInput.select();    // pre-select so Enter is one key
+                }
+            }, 50);
         } else {
-            // Auto-focus the input so the player can type immediately
+            // First-ever load — auto-focus the empty input
             setTimeout(() => nameInput && nameInput.focus(), 50);
         }
         nameSubmit.addEventListener('click', dismissNamePrompt);
@@ -537,27 +550,35 @@
         });
 
         // Tiny "playing as: NAME" indicator in bottom-left so the user knows
-        // which save slot they're using. Click to re-enter your name.
-        if (playerName) {
-            const nameTag = document.createElement('div');
-            nameTag.id = 'player-nametag';
-            nameTag.style.cssText = `
-                position: absolute; left: 12px; bottom: 8px;
-                color: ${isDeveloper() ? '#ffaa44' : '#88ddaa'};
-                font-family: 'Courier New', monospace;
-                font-size: 10px;
-                opacity: 0.55;
-                cursor: pointer;
-                z-index: 50;
-                user-select: none;
-                text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
-            `;
+        // which name slot they're using. Click to clear and re-enter.
+        // Created/updated after the player submits a name.
+        function refreshPlayerNameTag() {
+            let nameTag = document.getElementById('player-nametag');
+            if (!playerName) {
+                if (nameTag) nameTag.remove();
+                return;
+            }
+            if (!nameTag) {
+                nameTag = document.createElement('div');
+                nameTag.id = 'player-nametag';
+                nameTag.style.cssText = `
+                    position: absolute; left: 12px; bottom: 8px;
+                    font-family: 'Courier New', monospace;
+                    font-size: 10px;
+                    opacity: 0.55;
+                    cursor: pointer;
+                    z-index: 50;
+                    user-select: none;
+                    text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+                `;
+                nameTag.addEventListener('click', () => {
+                    localStorage.removeItem(PLAYER_NAME_KEY);
+                    location.reload();
+                });
+                document.body.appendChild(nameTag);
+            }
+            nameTag.style.color = isDeveloper() ? '#ffaa44' : '#88ddaa';
             nameTag.textContent = `${playerName}${isDeveloper() ? ' [DEV]' : ''} (click to change)`;
-            nameTag.addEventListener('click', () => {
-                localStorage.removeItem(PLAYER_NAME_KEY);
-                location.reload();
-            });
-            document.body.appendChild(nameTag);
         }
 
         // Show a brief on-canvas message when a non-dev attempts a dev action.
@@ -580,13 +601,17 @@
 
         let godMode = false;
 
-        // Hide the 🛠 DEV button entirely for non-developers. Cleaner than
-        // letting them click and bounce off the access-denied toast.
-        if (!isDeveloper()) {
-            devToggle.style.display = 'none';
+        // Hide / show the 🛠 DEV button based on developer status. Called
+        // on script load AND right after dismissNamePrompt sets the name.
+        function applyDevVisibility() {
+            const isDev = isDeveloper();
+            if (devToggle) devToggle.style.display = isDev ? '' : 'none';
             const devHint = document.getElementById('controls-dev-hint');
-            if (devHint) devHint.style.display = 'none';
+            if (devHint) devHint.style.display = isDev ? '' : 'none';
         }
+        // Initial: hide until user submits a name (since playerName is now
+        // cleared on every load to force the prompt).
+        applyDevVisibility();
 
         devToggle.addEventListener('click', () => {
             if (!isDeveloper()) {
