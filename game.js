@@ -2014,6 +2014,451 @@ function drawAllies() {
     }
 }
 
+// ============================================================================
+// MICAH MINECRAFTER — friendly minecraft mobs + buildable blocks
+// ============================================================================
+// Each minecraft gun shot spawns a creeper-TNT bullet PLUS one of:
+//   - a friendly mob that hops toward the nearest enemy and attacks
+//   - a solid platform block the player can stand on
+// Mobs / blocks live ~10 seconds and despawn cleanly.
+//
+// Globals: minecraftMobs[], minecraftBlocks[]  (declared up top)
+const MINECRAFT_MOB_DEFS = {
+    zombie:   { color: '#3a8a3a', accent: '#5fb05f', faceCol: '#1a4a1a',
+                hp: 80,  damage: 22, hopForce: -7, walkSpeed: 1.6, lifetime: 600, range: 28 },
+    skeleton: { color: '#dddddd', accent: '#aaaaaa', faceCol: '#222',
+                hp: 60,  damage: 18, hopForce: -8, walkSpeed: 2.2, lifetime: 600, range: 320, ranged: true,
+                bulletColor: '#ffffff', bulletGlow: '#cccccc' },
+    creeper:  { color: '#3acc3a', accent: '#88ff88', faceCol: '#0a2a0a',
+                hp: 50,  damage: 80, hopForce: -8, walkSpeed: 2.4, lifetime: 360, range: 60, suicide: true },
+    wolf:     { color: '#cccccc', accent: '#888', faceCol: '#222',
+                hp: 70,  damage: 14, hopForce: -9, walkSpeed: 3.4, lifetime: 600, range: 32 }
+};
+const MINECRAFT_BLOCK_DEFS = {
+    dirt:  { color: '#7a5a3a', accent: '#5a3a1a', grass: true,  life: 360 },
+    stone: { color: '#888',    accent: '#555',    grass: false, life: 540 },
+    oak:   { color: '#a87844', accent: '#785024', grass: false, life: 360, woodGrain: true }
+};
+
+// Spawn ONE of: friendly mob, solid block. Random pick, weighted toward
+// mobs (70%) so the gun feels like a summon weapon. Called from shootBullet
+// when player.weaponTier === 25 (MICAH MINECRAFTER).
+function spawnMinecraftSummon(originX, originY, dirX, dirY) {
+    const roll = Math.random();
+    if (roll < 0.70) {
+        // Mob — pick a kind weighted by usefulness
+        const r = Math.random();
+        let kind;
+        if (r < 0.30) kind = 'zombie';
+        else if (r < 0.55) kind = 'skeleton';
+        else if (r < 0.80) kind = 'wolf';
+        else kind = 'creeper';
+        const def = MINECRAFT_MOB_DEFS[kind];
+        // Spawn slightly ahead of player in the firing direction so the
+        // mob doesn't appear inside the player's hitbox.
+        const spawnX = originX + dirX * 40;
+        const spawnY = originY - 10;
+        minecraftMobs.push({
+            kind: kind, def: def,
+            x: spawnX, y: spawnY,
+            w: kind === 'wolf' ? 28 : 24,
+            h: kind === 'wolf' ? 18 : 30,
+            vx: dirX * 3, vy: -4,
+            hp: def.hp, maxHp: def.hp,
+            facing: dirX > 0 ? 1 : -1,
+            life: def.lifetime,
+            attackTimer: 0,
+            hopTimer: 0,
+            onGround: false,
+            spawnFlash: 16,
+            angryGlow: 0
+        });
+        spawnParticles(spawnX + 12, spawnY + 12, def.color, 20, 5);
+        spawnParticles(spawnX + 12, spawnY + 12, '#ffffff', 8, 4);
+    } else {
+        // Block — drop a solid platform near the player. Uses dirX so the
+        // block lands in front of the player (or under them on aimed-down).
+        const blockKinds = ['dirt', 'stone', 'oak'];
+        const kind = blockKinds[Math.floor(Math.random() * blockKinds.length)];
+        const def = MINECRAFT_BLOCK_DEFS[kind];
+        const size = 36;
+        const bx = Math.round(originX + dirX * 80 - size / 2);
+        const by = Math.round(originY + 30);
+        // Don't stack right on top of an existing block in the same column
+        const tooClose = minecraftBlocks.some(mb =>
+            Math.abs((mb.x + mb.w / 2) - (bx + size / 2)) < 8 &&
+            Math.abs((mb.y + mb.h / 2) - (by + size / 2)) < 8);
+        if (!tooClose) {
+            minecraftBlocks.push({
+                kind: kind, def: def,
+                x: bx, y: by, w: size, h: size,
+                life: def.life,
+                shake: 0
+            });
+            spawnParticles(bx + size / 2, by + size / 2, def.color, 12, 4);
+        }
+    }
+}
+
+function updateMinecraftSummons() {
+    if (gameState !== 'playing' && gameState !== 'spaceBattle') return;
+
+    // === BLOCKS ===
+    for (let i = minecraftBlocks.length - 1; i >= 0; i--) {
+        const mb = minecraftBlocks[i];
+        mb.life--;
+        // Crumble shake when life is low
+        if (mb.life < 60) mb.shake = Math.sin(mb.life * 0.6) * 2;
+        if (mb.life <= 0) {
+            spawnParticles(mb.x + mb.w / 2, mb.y + mb.h / 2, mb.def.color, 12, 4);
+            minecraftBlocks.splice(i, 1);
+            continue;
+        }
+        // Player landing on block — treat as a platform for collision.
+        // We piggyback on the platforms[] system by checking AABB inside
+        // the player physics block (handled there via a shim — see below).
+    }
+
+    // === MOBS ===
+    const GRAV = 0.5;
+    for (let i = minecraftMobs.length - 1; i >= 0; i--) {
+        const m = minecraftMobs[i];
+        m.life--;
+        if (m.spawnFlash > 0) m.spawnFlash--;
+        if (m.attackTimer > 0) m.attackTimer--;
+        if (m.hopTimer > 0) m.hopTimer--;
+        if (m.angryGlow > 0) m.angryGlow--;
+
+        if (m.hp <= 0 || m.life <= 0) {
+            spawnParticles(m.x + m.w / 2, m.y + m.h / 2, m.def.color, 16, 5);
+            // Creeper goes BOOM if it dies (or its lifetime expires)
+            if (m.kind === 'creeper') {
+                spawnExplosion(m.x + m.w / 2, m.y + m.h / 2);
+                spawnShockwave(m.x + m.w / 2, m.y + m.h / 2, 110, '#88ff88');
+                screenShake = Math.max(screenShake, 14);
+                for (let ei = enemies.length - 1; ei >= 0; ei--) {
+                    const e = enemies[ei];
+                    const ddx = (e.x + e.w / 2) - (m.x + m.w / 2);
+                    const ddy = (e.y + e.h / 2) - (m.y + m.h / 2);
+                    if (ddx * ddx + ddy * ddy < 110 * 110) {
+                        e.hp -= Math.round(150 * (player.dmgMul || 1));
+                        if (e.hp <= 0) handleEnemyKilled(e, ei);
+                    }
+                }
+            }
+            minecraftMobs.splice(i, 1);
+            continue;
+        }
+
+        // Find nearest enemy
+        let target = null, bestDist = 99999;
+        for (const e of enemies) {
+            const ddx = (e.x + e.w / 2) - (m.x + m.w / 2);
+            const ddy = (e.y + e.h / 2) - (m.y + m.h / 2);
+            const d = ddx * ddx + ddy * ddy;
+            if (d < bestDist) { target = e; bestDist = d; }
+        }
+
+        // Movement — chase target if exists, else mill around player
+        if (target) {
+            const tdx = (target.x + target.w / 2) - (m.x + m.w / 2);
+            const tdy = (target.y + target.h / 2) - (m.y + m.h / 2);
+            m.facing = tdx > 0 ? 1 : -1;
+            m.angryGlow = 6;
+            // Skeleton stops at range and shoots; melee mobs run in
+            const stopAt = m.def.ranged ? 220 : (m.def.range || 28);
+            if (Math.abs(tdx) > stopAt || tdy > 30) {
+                m.vx = m.facing * m.def.walkSpeed;
+                // Hop occasionally so we hop over small obstacles
+                if (m.onGround && m.hopTimer <= 0 && Math.random() < 0.05) {
+                    m.vy = m.def.hopForce;
+                    m.hopTimer = 30;
+                }
+            } else {
+                m.vx *= 0.6;
+                // Attack
+                if (m.attackTimer <= 0) {
+                    if (m.def.suicide) {
+                        // Creeper detonates on contact-range
+                        m.hp = 0;          // triggers the explosion branch above next tick
+                    } else if (m.def.ranged) {
+                        // Skeleton fires a friendly arrow
+                        const ang = Math.atan2(tdy, tdx);
+                        bullets.push({
+                            x: m.x + m.w / 2 + Math.cos(ang) * 18,
+                            y: m.y + m.h / 2 + Math.sin(ang) * 18,
+                            vx: Math.cos(ang) * 14,
+                            vy: Math.sin(ang) * 14,
+                            life: 90,
+                            damage: m.def.damage,
+                            color: m.def.bulletColor || '#ffffff',
+                            glow: m.def.bulletGlow || '#cccccc',
+                            size: 4,
+                            pierce: false, hitEnemies: new Set(),
+                            fromAlly: true,
+                            mcArrow: true
+                        });
+                        m.attackTimer = 32;
+                    } else {
+                        // Melee bite/punch — direct AABB hit
+                        target.hp -= Math.round(m.def.damage * (player.dmgMul || 1));
+                        spawnParticles(target.x + target.w / 2, target.y + target.h / 2, m.def.color, 8, 4);
+                        if (target.hp <= 0) {
+                            const idx = enemies.indexOf(target);
+                            if (idx >= 0) handleEnemyKilled(target, idx);
+                        }
+                        m.attackTimer = m.kind === 'wolf' ? 18 : 28;
+                    }
+                }
+            }
+        } else {
+            // Idle near player — gentle drift
+            const pdx = player.x - m.x;
+            if (Math.abs(pdx) > 100) {
+                m.vx = Math.sign(pdx) * m.def.walkSpeed * 0.6;
+                m.facing = pdx > 0 ? 1 : -1;
+            } else m.vx *= 0.7;
+        }
+
+        // Gravity + ground collision
+        m.vy += GRAV;
+        if (m.vy > 14) m.vy = 14;
+        m.x += m.vx;
+        m.y += m.vy;
+        m.onGround = false;
+        for (const plat of platforms) {
+            if (plat.type === 'spike' || plat.type === 'laser' || plat.type === 'recovery') continue;
+            if (m.x + m.w > plat.x && m.x < plat.x + plat.w) {
+                if (m.vy >= 0 && m.y + m.h <= plat.y + 8 && m.y + m.h + m.vy >= plat.y) {
+                    m.y = plat.y - m.h;
+                    m.vy = 0;
+                    m.onGround = true;
+                }
+            }
+        }
+        // Also stand on minecraft blocks
+        for (const mb of minecraftBlocks) {
+            if (m.x + m.w > mb.x && m.x < mb.x + mb.w) {
+                if (m.vy >= 0 && m.y + m.h <= mb.y + 8 && m.y + m.h + m.vy >= mb.y) {
+                    m.y = mb.y - m.h;
+                    m.vy = 0;
+                    m.onGround = true;
+                }
+            }
+        }
+        // Off-bottom — recall to player
+        if (m.y > 800) {
+            m.x = player.x; m.y = player.y - 50; m.vx = 0; m.vy = 0;
+        }
+
+        // Take damage from enemy bullets (excludes friendly bullets)
+        for (let bi = enemyBullets.length - 1; bi >= 0; bi--) {
+            const b = enemyBullets[bi];
+            if (b.x >= m.x && b.x <= m.x + m.w && b.y >= m.y && b.y <= m.y + m.h) {
+                m.hp -= b.damage || 6;
+                spawnParticles(b.x, b.y, '#ff3333', 4, 2);
+                enemyBullets.splice(bi, 1);
+            }
+        }
+    }
+}
+
+function drawMinecraftSummons() {
+    // === BLOCKS first (behind mobs) ===
+    for (const mb of minecraftBlocks) {
+        const bx = Math.round(mb.x - camera.x + (mb.shake || 0));
+        const by = Math.round(mb.y - camera.y);
+        ctx.save();
+        // Fade as life runs out
+        const lifeAlpha = mb.life < 60 ? Math.max(0.3, mb.life / 60) : 1;
+        ctx.globalAlpha = lifeAlpha;
+        // Block body
+        ctx.fillStyle = mb.def.color;
+        ctx.fillRect(bx, by, mb.w, mb.h);
+        // Pixel speckle pattern (3x3 grid of darker dots)
+        ctx.fillStyle = mb.def.accent;
+        const cellW = mb.w / 4;
+        for (let cy = 0; cy < 4; cy++) {
+            for (let cx = 0; cx < 4; cx++) {
+                if ((cx + cy + (mb.kind.length % 2)) % 3 === 0) {
+                    ctx.fillRect(bx + cx * cellW + 2, by + cy * cellW + 2, cellW - 4, cellW - 4);
+                }
+            }
+        }
+        // Grass tuft on dirt blocks
+        if (mb.def.grass) {
+            ctx.fillStyle = '#4caf50';
+            ctx.fillRect(bx, by, mb.w, 6);
+            ctx.fillStyle = '#388e3c';
+            ctx.fillRect(bx + 2, by + 4, 3, 2);
+            ctx.fillRect(bx + mb.w - 5, by + 4, 3, 2);
+        }
+        // Wood grain on oak
+        if (mb.def.woodGrain) {
+            ctx.strokeStyle = mb.def.accent;
+            ctx.lineWidth = 1;
+            for (let y = 4; y < mb.h; y += 8) {
+                ctx.beginPath();
+                ctx.moveTo(bx + 2, by + y);
+                ctx.lineTo(bx + mb.w - 2, by + y);
+                ctx.stroke();
+            }
+        }
+        // Outline
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(bx + 1, by + 1, mb.w - 2, mb.h - 2);
+        ctx.restore();
+    }
+
+    // === MOBS ===
+    for (const m of minecraftMobs) {
+        const mx = Math.round(m.x - camera.x);
+        const my = Math.round(m.y - camera.y);
+        const fac = m.facing;
+        ctx.save();
+        // Spawn flash
+        if (m.spawnFlash > 0) {
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 14;
+        }
+        // Angry red eye glow when chasing
+        const eyeGlow = m.angryGlow > 0 ? '#ff3333' : '#ffffff';
+
+        if (m.kind === 'zombie') {
+            // Body (green torso)
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + 4, my + 12, m.w - 8, m.h - 14);
+            // Head
+            ctx.fillStyle = m.def.accent;
+            ctx.fillRect(mx + 4, my, m.w - 8, 12);
+            // Outstretched arms (zombie pose)
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + (fac > 0 ? m.w - 4 : -8), my + 14, 12, 5);
+            // Eyes
+            ctx.fillStyle = eyeGlow;
+            ctx.fillRect(mx + 7, my + 4, 3, 3);
+            ctx.fillRect(mx + m.w - 10, my + 4, 3, 3);
+            // Legs
+            ctx.fillStyle = m.def.faceCol;
+            ctx.fillRect(mx + 5, my + m.h - 6, 5, 6);
+            ctx.fillRect(mx + m.w - 10, my + m.h - 6, 5, 6);
+        } else if (m.kind === 'skeleton') {
+            // Body — bone white
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + 4, my + 12, m.w - 8, m.h - 14);
+            // Ribs
+            ctx.fillStyle = m.def.accent;
+            for (let r = 0; r < 3; r++) {
+                ctx.fillRect(mx + 5, my + 14 + r * 4, m.w - 10, 1);
+            }
+            // Skull
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + 4, my, m.w - 8, 12);
+            // Eye sockets
+            ctx.fillStyle = '#000';
+            ctx.fillRect(mx + 7, my + 3, 3, 4);
+            ctx.fillRect(mx + m.w - 10, my + 3, 3, 4);
+            // Bow (bigger when ranged)
+            ctx.strokeStyle = '#a87844';
+            ctx.lineWidth = 2;
+            const bowX = mx + (fac > 0 ? m.w - 2 : 2);
+            ctx.beginPath();
+            ctx.moveTo(bowX, my + 12);
+            ctx.quadraticCurveTo(bowX + fac * 8, my + 18, bowX, my + 24);
+            ctx.stroke();
+            // Bowstring
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(bowX, my + 12);
+            ctx.lineTo(bowX, my + 24);
+            ctx.stroke();
+            // Legs
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + 5, my + m.h - 6, 4, 6);
+            ctx.fillRect(mx + m.w - 9, my + m.h - 6, 4, 6);
+        } else if (m.kind === 'creeper') {
+            // Tall green body (slim)
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + 6, my, m.w - 12, m.h - 6);
+            // Pixelated darker green pattern
+            ctx.fillStyle = m.def.accent;
+            for (let py = 0; py < 6; py++) {
+                for (let px = 0; px < 4; px++) {
+                    if ((px + py * 3) % 5 === 0) {
+                        ctx.fillRect(mx + 7 + px * 3, my + py * 4, 2, 2);
+                    }
+                }
+            }
+            // Iconic creeper face
+            ctx.fillStyle = m.def.faceCol;
+            ctx.fillRect(mx + 8, my + 6, 3, 3);     // L eye
+            ctx.fillRect(mx + m.w - 11, my + 6, 3, 3); // R eye
+            ctx.fillRect(mx + 10, my + 12, 4, 6);   // mouth top
+            ctx.fillRect(mx + 7, my + 14, 3, 4);    // mouth L
+            ctx.fillRect(mx + m.w - 10, my + 14, 3, 4); // mouth R
+            // Legs (4 stubs)
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + 6, my + m.h - 6, 4, 6);
+            ctx.fillRect(mx + m.w - 10, my + m.h - 6, 4, 6);
+            // Pulsing white aura when about to detonate (last 1.5 sec)
+            if (m.life < 90 && Math.floor(m.life / 6) % 2 === 0) {
+                ctx.shadowColor = '#ffffff';
+                ctx.shadowBlur = 16;
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(mx + 4, my - 2, m.w - 8, m.h);
+            }
+        } else if (m.kind === 'wolf') {
+            // Body — gray / white quadruped
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + 4, my + 4, m.w - 8, m.h - 4);
+            // Snout
+            ctx.fillRect(mx + (fac > 0 ? m.w - 4 : -4), my + 6, 8, 6);
+            // Ears
+            ctx.fillStyle = m.def.accent;
+            ctx.fillRect(mx + 4, my, 3, 5);
+            ctx.fillRect(mx + m.w - 7, my, 3, 5);
+            // Eyes (red because tamed-wolf-angry vibe)
+            ctx.fillStyle = eyeGlow;
+            ctx.fillRect(mx + (fac > 0 ? m.w - 6 : 2), my + 6, 2, 2);
+            // Legs (4 stubs)
+            ctx.fillStyle = m.def.faceCol;
+            ctx.fillRect(mx + 4, my + m.h - 4, 4, 4);
+            ctx.fillRect(mx + 10, my + m.h - 4, 4, 4);
+            ctx.fillRect(mx + m.w - 14, my + m.h - 4, 4, 4);
+            ctx.fillRect(mx + m.w - 8, my + m.h - 4, 4, 4);
+            // Tail
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + (fac > 0 ? -3 : m.w - 1), my + 4, 4, 3);
+            // Red collar (signature tamed wolf)
+            ctx.fillStyle = '#ff3333';
+            ctx.fillRect(mx + 4, my + 6, m.w - 8, 2);
+        }
+
+        // HP bar above
+        if (m.hp < m.maxHp) {
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#222';
+            ctx.fillRect(mx, my - 6, m.w, 3);
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx, my - 6, (m.hp / m.maxHp) * m.w, 3);
+        }
+        // Lifetime fade ring (last 3 sec)
+        if (m.life < 180) {
+            ctx.globalAlpha = (180 - m.life) / 180;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(mx + m.w / 2, my + m.h + 6, 4, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+        }
+        ctx.restore();
+    }
+}
+
 // Melee combat - 3-hit combo with increasing damage and knockback. Final hit explodes.
 // At CONVOY tier the player wields the ENERGON AXE — much higher damage,
 // wider AOE, and every hit ends in a glowing crescent slash with a small AOE.
@@ -2336,6 +2781,22 @@ let spaceState = {
 // Takeoff/launch sequence state — bridge between stage exit and space combat
 let launchState = null;
 let allies = [];              // friendly NPCs that follow the player
+// Minecraft mobs spawned by the MICAH MINECRAFTER weapon. These are
+// friendly auto-attacking minions with simple AI (hop toward nearest
+// enemy, deal contact damage, despawn after lifetime). They live on
+// their own array so they don't interfere with the regular ally
+// rescue/respawn logic.
+//   kind: 'zombie' | 'creeper' | 'skeleton' | 'wolf'
+//   hp / maxHp / damage / lifetime / homing speed are per-kind constants
+//   Spawned by shootBullet when player.weaponTier === 25.
+let minecraftMobs = [];
+// Minecraft blocks placed by MICAH MINECRAFTER's secondary effect. Solid
+// platforms the player can stand on, last for ~6s before crumbling. Same
+// shape as `platforms` so collision code can iterate them naturally.
+//   kind: 'dirt' | 'stone' | 'oak'
+//   life: countdown to despawn (ticks)
+//   crumbleTimer: shake animation when life < 60
+let minecraftBlocks = [];
 let cages = [];               // captive cages spawned after boss kill
 let evoUnlockPopup = null;    // shown when player evolves: { evo, timer }
 let evoAbilityCooldown = 0;   // [R] ability cooldown
@@ -5607,6 +6068,36 @@ function updatePlayer() {
         }
     }
 
+    // Minecraft blocks — solid, breakable platforms placed by MICAH MINECRAFTER.
+    // Same physics as a normal platform; no spike/lava handling needed.
+    for (const mb of minecraftBlocks) {
+        if (!rectCollide(player, mb)) continue;
+        const overlapX = Math.min(player.x + player.w - mb.x, mb.x + mb.w - player.x);
+        const overlapY = Math.min(player.y + player.h - mb.y, mb.y + mb.h - player.y);
+        if (overlapX < overlapY) {
+            // Wall
+            if (player.x + player.w / 2 < mb.x + mb.w / 2) {
+                player.x = mb.x - player.w;
+                player.wallDir = 1;
+            } else {
+                player.x = mb.x + mb.w;
+                player.wallDir = -1;
+            }
+            player.vx = 0;
+            player.onWall = true;
+        } else {
+            if (player.y + player.h / 2 < mb.y + mb.h / 2) {
+                player.y = mb.y - player.h;
+                player.vy = 0;
+                player.onGround = true;
+                player.jumps = 0;
+            } else {
+                player.y = mb.y + mb.h;
+                player.vy = 0;
+            }
+        }
+    }
+
     // Door collision (closed doors act as walls)
     for (const d of doors) {
         if (d.open) continue;
@@ -5982,6 +6473,14 @@ function shootBullet() {
     // Muzzle flash
     spawnParticles(cx + baseDx * 22, cy + baseDy * 22, w.glow, 5, 3);
     screenShake = w.bullets > 1 ? 5 : 3;
+
+    // ===== MICAH MINECRAFTER side-effect: spawn a friendly mob OR a block =====
+    // The bullet itself (creeper-TNT block) does damage on impact; this
+    // additional spawn makes the gun a "summon weapon" — every shot also
+    // drops one minion or buildable platform into the world.
+    if (w.minecraftBlock) {
+        spawnMinecraftSummon(cx, cy, baseDx, baseDy);
+    }
 
     // Evolution side-arm bonus shots — Transformer-style: spawn from the
     // visible shoulder mounts on the player so it reads as the actual weapon
@@ -25737,6 +26236,7 @@ function gameLoop(timestamp) {
         cutscene = null;
         switches = []; doors = []; arenaGates = []; bossGates = []; exitPortals = []; floatTexts = [];
         cages = []; allies = [];
+        minecraftMobs = []; minecraftBlocks = [];
         laserGrids = []; terminals = []; keyPickups = []; player.keysHeld = [];
         stageHazards = []; stageHazardTimer = 240;
         healingStations = []; activeHealingStation = null;
@@ -25785,6 +26285,7 @@ function gameLoop(timestamp) {
             updateBullets();
             updateEnemies();
             updateAllies();
+            updateMinecraftSummons();
             updateCoins();
             updateHealthDrops();
             updateStageHazards();
@@ -25875,6 +26376,7 @@ function gameLoop(timestamp) {
     drawDashTrails();
     drawEnemies();
     drawAllies();
+    drawMinecraftSummons();
     drawPlayer();
     drawBullets();
     drawStageHazards();
