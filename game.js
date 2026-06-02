@@ -856,9 +856,9 @@ const WEAPONS = [
     },
     {
         name: 'SNIPER', tier: 11, shopOnly: true, cost: 500,
-        damage: 70, speed: 28, cooldown: 36, bullets: 1, spread: 0,
-        color: '#aaccff', glow: '#0088ff', size: 7, life: 130, pierce: true,
-        flavor: 'Slow, devastating, pierces.'
+        damage: 140, speed: 38, cooldown: 70, bullets: 1, spread: 0,
+        color: '#aaccff', glow: '#0088ff', size: 8, life: 220, pierce: true, big: true,
+        flavor: 'Bolt-action sniper. One shot, one kill — slow reload.'
     },
     {
         name: 'FLAME THROWER', tier: 12, shopOnly: true, cost: 420,
@@ -909,10 +909,10 @@ const WEAPONS = [
     },
     {
         name: 'ICE BLAST', tier: 19, shopOnly: true, cost: 480,
-        damage: 3, speed: 20, cooldown: 2, bullets: 1, spread: 0.04,
+        damage: 8, speed: 20, cooldown: 8, bullets: 1, spread: 0.04,
         color: '#aaeeff', glow: '#66ccff', size: 6, life: 60,
         slow: true, slowFactor: 0.35, slowDur: 90, ice: true, beam: true,
-        flavor: 'Continuous freeze ray. Locks enemies in place.'
+        flavor: 'Freeze ray. Locks enemies in place, fires steady.'
     },
     {
         name: 'RAILGUN', tier: 20, shopOnly: true, cost: 720,
@@ -1504,6 +1504,59 @@ function switchWeapon(p) {
             p.weaponTier = idx;
             return;
         }
+    }
+}
+
+// Cut the next uncut wire on a terminal. Sequential: cuts wire 0 first,
+// then 1, then 2 (red → blue → yellow). Once all wires are cut the
+// terminal disables and any laser grid in its group goes offline.
+// Triggered by player pressing E while standing next to a terminal.
+function cutNextTerminalWire(term) {
+    if (!term || term.disabled || !term.wires || !term.wires.length) return;
+    // Find first uncut wire (sequential left-to-right)
+    let target = null;
+    for (const wire of term.wires) {
+        if (!wire.cut) { target = wire; break; }
+    }
+    if (!target) return;
+    target.cut = true;
+    term.wiresCut = (term.wiresCut || 0) + 1;
+    // FX
+    spawnParticles(term.x + target.ox + 4, term.y + 4, target.color, 18, 6);
+    spawnParticles(term.x + target.ox + 4, term.y + term.h - 4, target.color, 14, 5);
+    spawnShockwave(term.x + target.ox + 4, term.y + 12, 50, target.color);
+    screenShake = Math.max(screenShake, 6);
+    floatTexts.push({
+        text: 'WIRE CUT',
+        x: term.x + term.w / 2,
+        y: term.y - 8,
+        life: 40, color: target.color
+    });
+    if (typeof audio !== 'undefined' && audio.play) audio.play('hit');
+    if (term.wiresCut >= term.wires.length) {
+        term.disabled = true;
+        spawnShockwave(term.x + term.w / 2, term.y + term.h / 2, 140, '#00ffaa');
+        spawnShockwave(term.x + term.w / 2, term.y + term.h / 2, 220, '#88ddff');
+        spawnParticles(term.x + term.w / 2, term.y + term.h / 2, '#00ffaa', 36, 7);
+        screenShake = 14;
+        // Disable any laser grid sharing this terminal's group
+        let disabledAny = false;
+        for (const lg of laserGrids) {
+            if (lg.group === term.group) {
+                lg.disabled = true;
+                disabledAny = true;
+                spawnParticles(lg.x + lg.w / 2, lg.y + lg.h / 2, '#00ffaa', 24, 6);
+            }
+        }
+        if (typeof shopMessage !== 'undefined') {
+            shopMessage = {
+                text: disabledAny
+                    ? '🛰 ALL WIRES CUT — laser grid offline'
+                    : '🛰 ALL WIRES CUT',
+                timer: 200, color: '#00ffaa'
+            };
+        }
+        if (typeof audio !== 'undefined' && audio.play) audio.play('explosion');
     }
 }
 
@@ -2116,6 +2169,7 @@ function applyCharacter(charIndex) {
 }
 
 let activeShop = null;        // shop currently in range
+let activeTerminal = null;    // wire-cut terminal currently in range
 let shopOpen = false;         // is the shop UI open
 let shopMessage = null;       // { text, timer }
 let coinPickups = [];         // floating coins to collect
@@ -4566,9 +4620,25 @@ function updateShop() {
         }
     }
 
-    // Toggle shop with E
+    // Find a hackable terminal in range (for press-E-to-cut-wire interaction).
+    // Tracked globally so the draw layer can show a "[E] CUT WIRE" prompt.
+    activeTerminal = null;
+    for (const term of terminals) {
+        if (term.disabled) continue;
+        if (player.x + player.w > term.x - 28 && player.x < term.x + term.w + 28 &&
+            player.y + player.h > term.y - 60 && player.y < term.y + term.h + 28) {
+            activeTerminal = term;
+            break;
+        }
+    }
+
+    // Toggle shop with E (or cut wire if no shop in range but a terminal is)
     if (keys['KeyE'] && !player.shopKeyHeld) {
-        if (activeShop) shopOpen = !shopOpen;
+        if (activeShop) {
+            shopOpen = !shopOpen;
+        } else if (activeTerminal && activeTerminal.wires && activeTerminal.wires.length) {
+            cutNextTerminalWire(activeTerminal);
+        }
         player.shopKeyHeld = true;
     }
     if (!keys['KeyE']) player.shopKeyHeld = false;
@@ -6059,72 +6129,26 @@ function updateBullets() {
         }
         if (hitCage) { bullets.splice(i, 1); continue; }
 
-        // Hit terminals — cut wires to disable the laser grid in their group.
-        // Each bullet cuts the wire whose x-position the bullet is closest to;
-        // requires all 3 wires cut to disable. Falls back to HP-based disable
-        // if no wires are defined (older save state).
+        // Hit terminals — bullets just SPARK off the terminal panel; they
+        // do NOT cut wires. To cut a wire, walk up and press E. (Old behavior
+        // was bullets-cut-wires, but that felt like accidental shooting; the
+        // explicit press-E reads as "I'm interacting with the panel.")
         let hitTerminal = false;
         for (const term of terminals) {
             if (term.disabled) continue;
             if (b.x >= term.x && b.x <= term.x + term.w && b.y >= term.y && b.y <= term.y + term.h) {
-                spawnParticles(b.x, b.y, '#88ddff', 8, 4);
-                let didDisable = false;
-                if (term.wires && term.wires.length) {
-                    // Find the closest uncut wire to bullet x
-                    let bestWire = null;
-                    let bestDist = Infinity;
-                    for (const wire of term.wires) {
-                        if (wire.cut) continue;
-                        const wireX = term.x + wire.ox;
-                        const d = Math.abs(b.x - wireX);
-                        if (d < bestDist) { bestDist = d; bestWire = wire; }
-                    }
-                    if (bestWire) {
-                        bestWire.cut = true;
-                        term.wiresCut = (term.wiresCut || 0) + 1;
-                        spawnParticles(term.x + bestWire.ox + 4, term.y + 4,
-                            bestWire.color, 14, 5);
-                        spawnShockwave(term.x + bestWire.ox + 4, term.y + 12,
-                            40, bestWire.color);
-                        screenShake = Math.max(screenShake, 5);
-                        floatTexts.push({
-                            text: 'WIRE CUT',
-                            x: term.x + term.w / 2,
-                            y: term.y - 8,
-                            life: 30, color: bestWire.color
-                        });
-                        if (term.wiresCut >= term.wires.length) {
-                            term.disabled = true;
-                            didDisable = true;
-                        }
-                    }
-                } else {
-                    // Legacy HP path
-                    term.hp -= b.damage;
-                    if (term.hp <= 0) {
-                        term.disabled = true;
-                        didDisable = true;
-                    }
-                }
-                if (didDisable) {
-                    spawnShockwave(term.x + term.w / 2, term.y + term.h / 2, 120, '#00ffaa');
-                    spawnParticles(term.x + term.w / 2, term.y + term.h / 2, '#00ffaa', 28, 6);
-                    screenShake = 12;
-                    // Disable any laser grid sharing this terminal's group
-                    let disabledAny = false;
-                    for (const lg of laserGrids) {
-                        if (lg.group === term.group) {
-                            lg.disabled = true;
-                            disabledAny = true;
-                            spawnParticles(lg.x + lg.w / 2, lg.y + lg.h / 2, '#00ffaa', 20, 5);
-                        }
-                    }
-                    shopMessage = {
-                        text: disabledAny
-                            ? '🛰 TERMINAL HACKED — laser grid offline'
-                            : '🛰 TERMINAL HACKED',
-                        timer: 200, color: '#00ffaa'
-                    };
+                spawnParticles(b.x, b.y, '#88ddff', 6, 3);
+                // Tiny shake to give feedback that the terminal is here
+                screenShake = Math.max(screenShake, 2);
+                // Floating prompt nudging the player to actually use the panel
+                if (!term.bulletPromptCooldown || term.bulletPromptCooldown <= 0) {
+                    floatTexts.push({
+                        text: 'PRESS E TO CUT WIRE',
+                        x: term.x + term.w / 2,
+                        y: term.y - 8,
+                        life: 50, color: '#ffdd44'
+                    });
+                    term.bulletPromptCooldown = 60;
                 }
                 hitTerminal = true;
                 break;
@@ -15777,15 +15801,21 @@ function drawTerminals() {
             ctx.fillStyle = '#00ffaa';
             ctx.fillRect(tx, ty - 8, term.w * ((term.wiresCut || 0) / term.wires.length), 4);
         }
-        // Floating "CUT WIRES" label
+        // Floating "[E] CUT WIRE" prompt — pulsing yellow when player nearby,
+        // dimmer when far. Always shows wire-cut progress (X/3).
         if (!term.disabled) {
             const blink = Math.sin(tnow * 0.005) * 0.5 + 0.5;
-            ctx.fillStyle = `rgba(255, 220, 80, ${0.7 + blink * 0.3})`;
+            const isActive = (typeof activeTerminal !== 'undefined' && activeTerminal === term);
+            ctx.fillStyle = isActive
+                ? `rgba(255, 220, 80, ${0.85 + blink * 0.15})`
+                : `rgba(180, 180, 200, ${0.55 + blink * 0.2})`;
             ctx.font = 'bold 10px Courier New';
             ctx.textAlign = 'center';
             const cutCount = term.wiresCut || 0;
             const total = (term.wires && term.wires.length) || 0;
-            const label = total > 0 ? `▼ CUT WIRES ${cutCount}/${total} ▼` : '▼ TERMINAL ▼';
+            const label = isActive
+                ? `[E] CUT WIRE  (${cutCount}/${total})`
+                : (total > 0 ? `▼ CUT WIRES ${cutCount}/${total} ▼` : '▼ TERMINAL ▼');
             ctx.fillText(label, txCenter, ty - 14);
         }
         ctx.restore();
