@@ -2025,14 +2025,14 @@ function drawAllies() {
 // Globals: minecraftMobs[], minecraftBlocks[]  (declared up top)
 const MINECRAFT_MOB_DEFS = {
     zombie:   { color: '#3a8a3a', accent: '#5fb05f', faceCol: '#1a4a1a',
-                hp: 80,  damage: 22, hopForce: -7, walkSpeed: 1.6, lifetime: 600, range: 28 },
+                hp: 220, damage: 26, hopForce: -7, walkSpeed: 1.8, lifetime: 900, range: 28 },
     skeleton: { color: '#dddddd', accent: '#aaaaaa', faceCol: '#222',
-                hp: 60,  damage: 18, hopForce: -8, walkSpeed: 2.2, lifetime: 600, range: 320, ranged: true,
+                hp: 180, damage: 22, hopForce: -8, walkSpeed: 2.4, lifetime: 900, range: 320, ranged: true,
                 bulletColor: '#ffffff', bulletGlow: '#cccccc' },
     creeper:  { color: '#3acc3a', accent: '#88ff88', faceCol: '#0a2a0a',
-                hp: 50,  damage: 80, hopForce: -8, walkSpeed: 2.4, lifetime: 360, range: 60, suicide: true },
+                hp: 140, damage: 80, hopForce: -8, walkSpeed: 2.6, lifetime: 480, range: 60, suicide: true },
     wolf:     { color: '#cccccc', accent: '#888', faceCol: '#222',
-                hp: 70,  damage: 14, hopForce: -9, walkSpeed: 3.4, lifetime: 600, range: 32 }
+                hp: 200, damage: 18, hopForce: -9, walkSpeed: 3.6, lifetime: 900, range: 32 }
 };
 const MINECRAFT_BLOCK_DEFS = {
     dirt:  { color: '#7a5a3a', accent: '#5a3a1a', grass: true,  life: 360 },
@@ -2040,63 +2040,91 @@ const MINECRAFT_BLOCK_DEFS = {
     oak:   { color: '#a87844', accent: '#785024', grass: false, life: 360, woodGrain: true }
 };
 
-// Spawn ONE of: friendly mob, solid block. Random pick, weighted toward
-// mobs (70%) so the gun feels like a summon weapon. Called from shootBullet
-// when player.weaponTier === 25 (MICAH MINECRAFTER).
-function spawnMinecraftSummon(originX, originY, dirX, dirY) {
-    const roll = Math.random();
-    if (roll < 0.70) {
-        // Mob — pick a kind weighted by usefulness
-        const r = Math.random();
-        let kind;
-        if (r < 0.30) kind = 'zombie';
-        else if (r < 0.55) kind = 'skeleton';
-        else if (r < 0.80) kind = 'wolf';
-        else kind = 'creeper';
-        const def = MINECRAFT_MOB_DEFS[kind];
-        // Spawn slightly ahead of player in the firing direction so the
-        // mob doesn't appear inside the player's hitbox.
-        const spawnX = originX + dirX * 40;
-        const spawnY = originY - 10;
-        minecraftMobs.push({
-            kind: kind, def: def,
-            x: spawnX, y: spawnY,
-            w: kind === 'wolf' ? 28 : 24,
-            h: kind === 'wolf' ? 18 : 30,
-            vx: dirX * 3, vy: -4,
-            hp: def.hp, maxHp: def.hp,
-            facing: dirX > 0 ? 1 : -1,
-            life: def.lifetime,
-            attackTimer: 0,
-            hopTimer: 0,
-            onGround: false,
-            spawnFlash: 16,
-            angryGlow: 0
-        });
-        spawnParticles(spawnX + 12, spawnY + 12, def.color, 20, 5);
-        spawnParticles(spawnX + 12, spawnY + 12, '#ffffff', 8, 4);
-    } else {
-        // Block — drop a solid platform near the player. Uses dirX so the
-        // block lands in front of the player (or under them on aimed-down).
-        const blockKinds = ['dirt', 'stone', 'oak'];
-        const kind = blockKinds[Math.floor(Math.random() * blockKinds.length)];
-        const def = MINECRAFT_BLOCK_DEFS[kind];
-        const size = 36;
-        const bx = Math.round(originX + dirX * 80 - size / 2);
-        const by = Math.round(originY + 30);
-        // Don't stack right on top of an existing block in the same column
-        const tooClose = minecraftBlocks.some(mb =>
-            Math.abs((mb.x + mb.w / 2) - (bx + size / 2)) < 8 &&
-            Math.abs((mb.y + mb.h / 2) - (by + size / 2)) < 8);
-        if (!tooClose) {
-            minecraftBlocks.push({
-                kind: kind, def: def,
-                x: bx, y: by, w: size, h: size,
-                life: def.life,
-                shake: 0
-            });
-            spawnParticles(bx + size / 2, by + size / 2, def.color, 12, 4);
+// Predictable summon queue — instead of random per shot, MICAH MINECRAFTER
+// rotates deterministically through a "playlist" so the player can plan
+// around what's coming next. The HUD preview reads from minecraftQueue[0].
+//   each entry: { type: 'mob'|'block', kind: 'zombie'|... }
+let minecraftQueue = [];
+function ensureMinecraftQueue() {
+    while (minecraftQueue.length < 6) {
+        // Fill in a balanced rotation: 3 mobs per block so the gun feels
+        // like a summon weapon. Mob order rotates through the 4 kinds plus
+        // a creeper bias every 3rd mob slot for clear "boom" beats.
+        const slot = (minecraftQueue.length + minecraftQueue.totalDealt) || 0;
+        // Use the array's current end-of-rotation index
+        const idx = minecraftQueue.length;
+        // Pattern: M, M, M, B, M, M, M, B...
+        const isBlock = (idx % 4) === 3;
+        if (isBlock) {
+            const blockKinds = ['dirt', 'stone', 'oak'];
+            const k = blockKinds[Math.floor(Math.random() * blockKinds.length)];
+            minecraftQueue.push({ type: 'block', kind: k });
+        } else {
+            const mobKinds = ['zombie', 'skeleton', 'wolf', 'creeper'];
+            const k = mobKinds[idx % mobKinds.length];
+            minecraftQueue.push({ type: 'mob', kind: k });
         }
+    }
+}
+
+// Spawn helper called from shootBullet. Pops the next 2-3 queue entries
+// (so each shot delivers a small squad), then refills.
+function spawnMinecraftSummon(originX, originY, dirX, dirY) {
+    ensureMinecraftQueue();
+    const count = 2 + (Math.random() < 0.4 ? 1 : 0);   // 2 or 3 spawns per shot
+    for (let n = 0; n < count; n++) {
+        const next = minecraftQueue.shift();
+        ensureMinecraftQueue();
+        if (!next) break;
+        // Stagger spawn position so multiple mobs don't overlap
+        const off = (n - 1) * 26;
+        if (next.type === 'mob') {
+            spawnMinecraftMob(next.kind, originX + dirX * 40 + off, originY - 10, dirX);
+        } else {
+            spawnMinecraftBlockAt(next.kind, originX + dirX * 80 + off, originY + 30);
+        }
+    }
+}
+
+function spawnMinecraftMob(kind, spawnX, spawnY, dirX) {
+    const def = MINECRAFT_MOB_DEFS[kind];
+    if (!def) return;
+    minecraftMobs.push({
+        kind: kind, def: def,
+        x: spawnX, y: spawnY,
+        w: kind === 'wolf' ? 28 : 24,
+        h: kind === 'wolf' ? 18 : 30,
+        vx: (dirX || 1) * 3, vy: -4,
+        hp: def.hp, maxHp: def.hp,
+        facing: (dirX || 1) > 0 ? 1 : -1,
+        life: def.lifetime,
+        attackTimer: 0,
+        hopTimer: 0,
+        onGround: false,
+        spawnFlash: 16,
+        angryGlow: 0
+    });
+    spawnParticles(spawnX + 12, spawnY + 12, def.color, 20, 5);
+    spawnParticles(spawnX + 12, spawnY + 12, '#ffffff', 8, 4);
+}
+
+function spawnMinecraftBlockAt(kind, bx, by) {
+    const def = MINECRAFT_BLOCK_DEFS[kind];
+    if (!def) return;
+    const size = 36;
+    bx = Math.round(bx - size / 2);
+    by = Math.round(by);
+    const tooClose = minecraftBlocks.some(mb =>
+        Math.abs((mb.x + mb.w / 2) - (bx + size / 2)) < 8 &&
+        Math.abs((mb.y + mb.h / 2) - (by + size / 2)) < 8);
+    if (!tooClose) {
+        minecraftBlocks.push({
+            kind: kind, def: def,
+            x: bx, y: by, w: size, h: size,
+            life: def.life,
+            shake: 0
+        });
+        spawnParticles(bx + size / 2, by + size / 2, def.color, 12, 4);
     }
 }
 
@@ -2212,12 +2240,35 @@ function updateMinecraftSummons() {
                 }
             }
         } else {
-            // Idle near player — gentle drift
+            // No target — return to player. The mob actively walks back
+            // and stops nearby, like a tamed pet. Distant mobs warp if
+            // they're way off camera (player ran past while they were
+            // chasing the last enemy).
             const pdx = player.x - m.x;
-            if (Math.abs(pdx) > 100) {
-                m.vx = Math.sign(pdx) * m.def.walkSpeed * 0.6;
-                m.facing = pdx > 0 ? 1 : -1;
-            } else m.vx *= 0.7;
+            const pdy = player.y - m.y;
+            const distSq = pdx * pdx + pdy * pdy;
+            if (distSq > 1100 * 1100) {
+                // Way too far — warp behind player
+                m.x = player.x - player.facing * 60;
+                m.y = player.y - 30;
+                m.vx = 0; m.vy = 0;
+                spawnParticles(m.x + m.w / 2, m.y + m.h / 2, m.def.color, 12, 4);
+            } else if (Math.abs(pdx) > 70) {
+                // Walk back to a follow trail position behind the player
+                const trailX = player.x - player.facing * (90 + (i % 3) * 24);
+                const wantDir = Math.sign(trailX - m.x);
+                m.vx = wantDir * m.def.walkSpeed * 0.85;
+                m.facing = wantDir > 0 ? 1 : -1;
+                // Hop over small terrain bumps
+                if (m.onGround && m.hopTimer <= 0 && Math.random() < 0.04) {
+                    m.vy = m.def.hopForce * 0.7;
+                    m.hopTimer = 30;
+                }
+            } else {
+                // Close enough — settle in / face same way as player
+                m.vx *= 0.7;
+                m.facing = player.facing;
+            }
         }
 
         // Gravity + ground collision
@@ -2457,6 +2508,111 @@ function drawMinecraftSummons() {
         }
         ctx.restore();
     }
+}
+
+// HUD preview — draws a small panel at the top-center of the screen
+// showing the next ~5 entries in the minecraft summon queue, so the
+// player can see what their next shots will spawn (mob portraits +
+// block icons). Called from drawHUD when MICAH MINECRAFTER is equipped.
+function drawMinecraftPreview() {
+    ensureMinecraftQueue();
+    const previewCount = 5;
+    const iconSize = 30;
+    const gap = 8;
+    const panelW = previewCount * (iconSize + gap) + gap + 16;
+    const panelH = iconSize + 26;
+    const panelX = canvas.width / 2 - panelW / 2;
+    const panelY = 50;
+
+    ctx.save();
+    // Panel background
+    ctx.fillStyle = 'rgba(10, 20, 10, 0.78)';
+    ctx.strokeStyle = '#88ff88';
+    ctx.shadowColor = '#88ff88';
+    ctx.shadowBlur = 8;
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(panelX, panelY, panelW, panelH);
+    ctx.shadowBlur = 0;
+
+    // Title
+    ctx.fillStyle = '#88ff88';
+    ctx.font = 'bold 9px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillText('⛏ NEXT SUMMONS', canvas.width / 2, panelY + 11);
+
+    // Icons
+    for (let i = 0; i < previewCount && i < minecraftQueue.length; i++) {
+        const entry = minecraftQueue[i];
+        const ix = panelX + 8 + i * (iconSize + gap) + (i === 0 ? 0 : 0);
+        const iy = panelY + 16;
+        // Highlight the next-up slot (i === 0)
+        if (i === 0) {
+            ctx.strokeStyle = '#ffdd44';
+            ctx.lineWidth = 2;
+            ctx.shadowColor = '#ffdd44';
+            ctx.shadowBlur = 8;
+            ctx.strokeRect(ix - 2, iy - 2, iconSize + 4, iconSize + 4);
+            ctx.shadowBlur = 0;
+        }
+        // Slot background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+        ctx.fillRect(ix, iy, iconSize, iconSize);
+        if (entry.type === 'block') {
+            const def = MINECRAFT_BLOCK_DEFS[entry.kind];
+            // Block icon: solid color square + speckle
+            ctx.fillStyle = def.color;
+            ctx.fillRect(ix + 4, iy + 4, iconSize - 8, iconSize - 8);
+            ctx.fillStyle = def.accent;
+            ctx.fillRect(ix + 6, iy + 6, 4, 4);
+            ctx.fillRect(ix + iconSize - 12, iy + 10, 4, 4);
+            ctx.fillRect(ix + 10, iy + iconSize - 12, 4, 4);
+            if (def.grass) {
+                ctx.fillStyle = '#4caf50';
+                ctx.fillRect(ix + 4, iy + 4, iconSize - 8, 4);
+            }
+            // Outline
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(ix + 4.5, iy + 4.5, iconSize - 9, iconSize - 9);
+        } else {
+            // Mob icon — simple silhouette per kind
+            const def = MINECRAFT_MOB_DEFS[entry.kind];
+            ctx.fillStyle = def.color;
+            if (entry.kind === 'wolf') {
+                // Wolf — short body
+                ctx.fillRect(ix + 5, iy + 14, iconSize - 10, 10);
+                ctx.fillRect(ix + 5, iy + 9, 6, 6);    // head/snout
+            } else if (entry.kind === 'creeper') {
+                // Tall slim creeper
+                ctx.fillRect(ix + 8, iy + 4, iconSize - 16, iconSize - 8);
+                ctx.fillStyle = def.faceCol;
+                ctx.fillRect(ix + 10, iy + 8, 2, 2);
+                ctx.fillRect(ix + iconSize - 12, iy + 8, 2, 2);
+                ctx.fillRect(ix + 12, iy + 14, iconSize - 24, 4);
+            } else {
+                // Zombie / skeleton — humanoid
+                ctx.fillRect(ix + 8, iy + 12, iconSize - 16, iconSize - 16);
+                ctx.fillRect(ix + 8, iy + 4, iconSize - 16, 8);    // head
+                ctx.fillStyle = entry.kind === 'skeleton' ? '#000' : '#ff3333';
+                ctx.fillRect(ix + 10, iy + 7, 2, 2);
+                ctx.fillRect(ix + iconSize - 12, iy + 7, 2, 2);
+            }
+            // Outline
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(ix + 0.5, iy + 0.5, iconSize - 1, iconSize - 1);
+        }
+        // Label below the first icon (the very next summon)
+        if (i === 0) {
+            ctx.fillStyle = '#ffdd44';
+            ctx.font = 'bold 8px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('NEXT', ix + iconSize / 2, iy + iconSize + 9);
+        }
+    }
+    ctx.textAlign = 'left';
+    ctx.restore();
 }
 
 // Melee combat - 3-hit combo with increasing damage and knockback. Final hit explodes.
@@ -17994,6 +18150,13 @@ function drawHUD() {
         ctx.textAlign = 'left';
     }
 
+    // === MICAH MINECRAFTER summon preview (only when equipped) ===
+    // Shows the next ~5 things the gun will spawn so the player can plan
+    // around upcoming blocks vs mobs.
+    if (player.weaponTier === 25) {
+        drawMinecraftPreview();
+    }
+
     // Health bar
     ctx.fillStyle = '#222';
     ctx.fillRect(20, 20, 200, 20);
@@ -26236,7 +26399,7 @@ function gameLoop(timestamp) {
         cutscene = null;
         switches = []; doors = []; arenaGates = []; bossGates = []; exitPortals = []; floatTexts = [];
         cages = []; allies = [];
-        minecraftMobs = []; minecraftBlocks = [];
+        minecraftMobs = []; minecraftBlocks = []; minecraftQueue = [];
         laserGrids = []; terminals = []; keyPickups = []; player.keysHeld = [];
         stageHazards = []; stageHazardTimer = 240;
         healingStations = []; activeHealingStation = null;
