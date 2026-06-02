@@ -5855,7 +5855,11 @@ function shootBullet() {
             ice: !!w.ice,
             beam: !!w.beam,
             acid: !!w.acid,
-            water: !!w.water
+            water: !!w.water,
+            lightning: !!w.lightning,
+            chainDmg: w.chainDmg, chainRadius: w.chainRadius, chainCount: w.chainCount,
+            lightningStrike: !!w.lightningStrike,
+            strikeDmg: w.strikeDmg, strikeRadius: w.strikeRadius
         });
     }
     // Muzzle flash
