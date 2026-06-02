@@ -948,17 +948,26 @@ const WEAPONS = [
     // overpowered "fun" weapons for the project owner + friends.
     {
         name: 'JAX BLASTER',  tier: 24, shopOnly: true, cost: 0, dev: true,
-        damage: 220, speed: 22, cooldown: 14, bullets: 3, spread: 0.18,
-        color: '#ffffff', glow: '#000000', size: 14, life: 130,
-        explosive: true, aoeRadius: 130, soccerBall: true,
-        flavor: '⚽ JAX-themed. Triple soccer ball volley, explodes on impact.'
+        damage: 320, speed: 26, cooldown: 12, bullets: 5, spread: 0.22,
+        color: '#ffffff', glow: '#000000', size: 14, life: 180,
+        explosive: true, aoeRadius: 170, soccerBall: true,
+        // Custom flags read by drawBullets + updateBullets:
+        //   bounce: ball ricochets off walls/floor up to N times
+        //   homing: mild tracking toward nearest enemy
+        //   spawnGoalSpark: on impact, fire 4 mini soccer balls in a fan
+        bounce: 4, homing: true, spawnGoalSpark: true,
+        flavor: '⚽ JAX-themed. 5-ball volley. Homing + bouncing + GOAL! split shots.'
     },
     {
         name: 'MICAH MINECRAFTER',  tier: 25, shopOnly: true, cost: 0, dev: true,
-        damage: 350, speed: 16, cooldown: 32, bullets: 1, spread: 0,
-        color: '#44dd44', glow: '#88ff88', size: 18, life: 160,
-        explosive: true, aoeRadius: 170, minecraftBlock: true, big: true,
-        flavor: '⛏ MICAH-themed. Lobs creeper-TNT that detonates with a green shockwave.'
+        damage: 520, speed: 18, cooldown: 26, bullets: 1, spread: 0,
+        color: '#44dd44', glow: '#88ff88', size: 22, life: 200,
+        explosive: true, aoeRadius: 220, minecraftBlock: true, big: true,
+        // Custom flags:
+        //   leavesLava: on impact, spawns a damaging green-acid puddle
+        //   craftBonus: on impact, free-summons one extra mob (no queue)
+        leavesLava: true, craftBonus: true,
+        flavor: '⛏ MICAH-themed. Massive TNT, leaves a green acid pool, summons squads + bonus mobs.'
     }
 ];
 
@@ -7000,7 +7009,15 @@ function shootBullet() {
             lightningStrike: !!w.lightningStrike,
             strikeDmg: w.strikeDmg, strikeRadius: w.strikeRadius,
             soccerBall: !!w.soccerBall,
-            minecraftBlock: !!w.minecraftBlock
+            minecraftBlock: !!w.minecraftBlock,
+            // JAX BLASTER extras
+            bounce: w.bounce || 0,
+            bouncesLeft: w.bounce || 0,
+            homing: !!w.homing,
+            spawnGoalSpark: !!w.spawnGoalSpark,
+            // MICAH MINECRAFTER extras
+            leavesLava: !!w.leavesLava,
+            craftBonus: !!w.craftBonus
         });
     }
     // Muzzle flash
@@ -7226,6 +7243,35 @@ function updateBullets() {
             const plat = platforms[pi];
             if (plat.type === 'recovery' || plat.type === 'spike' || plat.type === 'laser' || plat.type === 'lava') continue;
             if (b.x >= plat.x && b.x <= plat.x + plat.w && b.y >= plat.y && b.y <= plat.y + plat.h) {
+                // BOUNCING bullets (JAX BLASTER soccer balls) ricochet off
+                // surfaces instead of being blocked. Decide which axis the
+                // bullet hit by which side it overlaps the most, then flip
+                // that velocity component. Decrement bouncesLeft so we
+                // eventually still terminate.
+                if (b.bouncesLeft && b.bouncesLeft > 0) {
+                    // Pick axis to flip — whichever overlap is shallower
+                    const overL = Math.abs(b.x - plat.x);
+                    const overR = Math.abs((plat.x + plat.w) - b.x);
+                    const overT = Math.abs(b.y - plat.y);
+                    const overB = Math.abs((plat.y + plat.h) - b.y);
+                    const minH = Math.min(overL, overR);
+                    const minV = Math.min(overT, overB);
+                    if (minH < minV) {
+                        // Side hit — flip horizontal
+                        b.vx = -b.vx * 0.85;
+                        b.x += b.vx;        // nudge out of the platform
+                    } else {
+                        // Floor / ceiling — flip vertical (preserve some bounce energy)
+                        b.vy = -b.vy * 0.85;
+                        b.y += b.vy;
+                    }
+                    b.bouncesLeft--;
+                    spawnParticles(b.x, b.y, '#ffffff', 6, 4);
+                    if (typeof audio !== 'undefined' && audio.play) {
+                        audio.play('hit', { throttle: 60 });
+                    }
+                    continue;     // don't apply normal hitWall path
+                }
                 spawnParticles(b.x, b.y, '#888', 4, 2);
                 // Damage breakable cover
                 if (plat.type === 'breakable') {
@@ -7602,6 +7648,52 @@ function updateBullets() {
                             spawnDamageNumber(other.x + other.w/2, other.y, aoeDmg, 'aoe');
                         }
                     }
+                }
+
+                // ===== JAX BLASTER on-impact GOAL! split shots =====
+                // Spawns 4 mini soccer balls in a fan, dealing 60% dmg.
+                // Kid-pleasing "scored" pop on every hit.
+                if (b.spawnGoalSpark) {
+                    spawnShockwave(b.x, b.y, 80, '#ffffff');
+                    floatTexts.push({
+                        text: 'GOAL!', x: b.x, y: b.y - 30,
+                        life: 50, color: '#ffdd44'
+                    });
+                    for (let s = 0; s < 4; s++) {
+                        const sa = (s / 4) * Math.PI * 2;
+                        bullets.push({
+                            x: b.x, y: b.y,
+                            vx: Math.cos(sa) * 14,
+                            vy: Math.sin(sa) * 14,
+                            life: 80,
+                            damage: Math.round(b.damage * 0.6),
+                            color: '#ffffff', glow: '#000000', size: 8,
+                            pierce: false, hitEnemies: new Set(),
+                            soccerBall: true,
+                            explosive: true, aoeRadius: 60
+                        });
+                    }
+                }
+                // ===== MICAH MINECRAFTER on-impact green acid pool =====
+                // Adds a damaging puddle ("lava patch") under the impact.
+                if (b.leavesLava) {
+                    if (typeof stageHazards !== 'undefined') {
+                        stageHazards.push({
+                            kind: 'lava', themed: 'minecraft',
+                            x: b.x - 60, y: 540, w: 120, h: 24,
+                            life: 360, dmg: 14,
+                            color: '#44ff44', glow: '#88ff88'
+                        });
+                    }
+                    spawnShockwave(b.x, b.y, 90, '#88ff88');
+                    spawnParticles(b.x, b.y, '#44ff44', 18, 6);
+                }
+                // ===== MICAH MINECRAFTER bonus mob from impact =====
+                // Each TNT detonation summons one extra free mob (skips the queue).
+                if (b.craftBonus && typeof spawnMinecraftMob === 'function') {
+                    const bonusKinds = ['zombie', 'wolf', 'enderman', 'blaze'];
+                    const bk = bonusKinds[Math.floor(Math.random() * bonusKinds.length)];
+                    spawnMinecraftMob(bk, b.x, b.y - 40, b.vx >= 0 ? 1 : -1, false);
                 }
 
                 if (e.hp <= 0) {
