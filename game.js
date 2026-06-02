@@ -2094,7 +2094,7 @@ let floatTexts = [];          // floating text labels (CRIT!, dodges, etc)
 let spaceState = {
     active: false,
     enemiesKilled: 0,
-    enemiesRequired: 8,
+    enemiesRequired: 12,
     timer: 0,
     stars: [],   // background star field
     flyingEnemies: []   // space combat flying robots
@@ -3034,7 +3034,11 @@ function placeHazardOnGround(type, x, w, opts) {
     const rect = { x, y: groundTop - 4, w, h };
     if (hazardOverlapsExisting(rect)) return false;
     const obj = { x: rect.x, y: rect.y, w: rect.w, h: rect.h, type };
-    if (type === 'laser') obj.phase = (opts && opts.phase != null) ? opts.phase : Math.floor(Math.random() * 2);
+    if (type === 'laser') {
+        obj.phase = (opts && opts.phase != null) ? opts.phase : Math.floor(Math.random() * 2);
+        if (opts && opts.alwaysOn) obj.alwaysOn = true;
+        if (opts && opts.cycle) obj.cycle = opts.cycle;
+    }
     platforms.push(obj);
     return true;
 }
@@ -3043,7 +3047,7 @@ function placeHazardOnGround(type, x, w, opts) {
 // Density tuned DOWN — levels were getting messy with overlapping clutter.
 function addExtraHazards(stage) {
     const spikeCount = 2 + stage;                 // was 3 + stage*2
-    const laserCount = Math.max(0, stage - 1);    // was full stage
+    const laserCount = 1 + stage;                  // was max(0, stage-1) — more lasers per stage
     const lavaCount = (stage === 2 || stage === 6) ? 2 + Math.floor(stage / 2) : Math.max(0, stage - 2);
     const breakableCount = 2 + Math.floor(stage * 0.8);  // was 3 + stage*1.2
 
@@ -3060,7 +3064,12 @@ function addExtraHazards(stage) {
     for (let attempt = 0; attempt < laserCount * 4 && lasers < laserCount; attempt++) {
         const x = 600 + Math.random() * 2800;
         const w = 70 + Math.floor(Math.random() * 50);
-        if (placeHazardOnGround('laser', x, w, { phase: lasers % 2 })) lasers++;
+        // Stage-scaled: 1 in 4 lasers is "always on" from stage 4 onward (must
+        // dodge around). Lasers also cycle faster — 350ms on stages 4+, 500ms
+        // on stages 1-3 (was 700ms everywhere — too easy to time).
+        const alwaysOn = stage >= 3 && lasers % 4 === 0;
+        const cycle = stage >= 3 ? 350 : 500;
+        if (placeHazardOnGround('laser', x, w, { phase: lasers % 2, alwaysOn, cycle })) lasers++;
     }
 
     let lavas = 0;
@@ -3150,13 +3159,14 @@ function addMissionPuzzle(stage) {
         disabled: false
     });
 
-    // TERMINAL — somewhere else on the map, shoot to disable the grid
+    // TERMINAL — somewhere else on the map, shoot to disable the grid.
+    // HP doubled from previous (40 + stage*10 was easily one-shot late game).
     terminals.push({
         x: L.termX, y: L.termY,
         w: 28, h: 32,
         group: keyId,
-        hp: 40 + stage * 10,
-        maxHp: 40 + stage * 10,
+        hp: 80 + stage * 25,
+        maxHp: 80 + stage * 25,
         disabled: false
     });
 
@@ -3251,7 +3261,7 @@ function spawnEliteEnemies(stage) {
         const stg = STAGES[stage];
         const triggerX = (stg && stg.bossTriggerX) || 4000;
         const baseY = 360;
-        const hp = 320 + stage * 60;
+        const hp = 500 + stage * 100;
         // Warden sits ~700px before the boss trigger, in the antechamber
         // between the entry gate (triggerX - 940) and the exit/boss gate
         // (triggerX - 60). That gives roughly an 880px-wide arena.
@@ -3330,7 +3340,7 @@ function buildStage1() {
         { x: 2750, y: 520, w: 32, h: 30, type: 'turret', hp: 100, maxHp: 100, shootTimer: 50, angle: 0, color: '#ffaa00' },
         { x: 2950, y: 220, w: 30, h: 24, type: 'drone', hp: 70, maxHp: 70, baseY: 220, floatTimer: Math.PI, shootTimer: 50, color: '#66ddff' },
         // BOSS GUARD-1 (a bit beefier now)
-        { x: 3500, y: 380, w: 90, h: 100, type: 'boss', subtype: 'guard', hp: 500, maxHp: 500, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3500, baseY: 380, color: '#ff00ff', attackPattern: 0 }
+        { x: 3500, y: 380, w: 90, h: 100, type: 'boss', subtype: 'guard', hp: 700, maxHp: 700, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3500, baseY: 380, color: '#ff00ff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 500, triggered: false, text: '⚠ DANGER: HOSTILE BOT DETECTED ⚠' },
@@ -3413,7 +3423,7 @@ function buildStage2() {
         { x: 2900, y: 200, w: 30, h: 24, type: 'drone', hp: 90, maxHp: 90, baseY: 200, floatTimer: 0, shootTimer: 40, color: '#66ddff' },
         { x: 3100, y: 510, w: 36, h: 40, type: 'patrol', hp: 100, maxHp: 100, vx: 2, dir: 1, shootTimer: 25, patrolStart: 3050, patrolEnd: 3300, color: '#ff5555' },
         // BOSS SKYHAMMER - flies, drops bombs from above
-        { x: 3550, y: 200, w: 100, h: 80, type: 'boss', subtype: 'skyhammer', hp: 600, maxHp: 600, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3550, baseY: 200, color: '#0088ff', attackPattern: 0 }
+        { x: 3550, y: 200, w: 100, h: 80, type: 'boss', subtype: 'skyhammer', hp: 900, maxHp: 900, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3550, baseY: 200, color: '#0088ff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ DANGER: SKY DOCKS PATROL ⚠' },
@@ -3495,7 +3505,7 @@ function buildStage3() {
         { x: 2700, y: 520, w: 32, h: 30, type: 'turret', hp: 140, maxHp: 140, shootTimer: 40, angle: 0, color: '#ff5500' },
         { x: 2850, y: 220, w: 30, h: 24, type: 'drone', hp: 110, maxHp: 110, baseY: 220, floatTimer: 0, shootTimer: 38, color: '#ff8866' },
         // BOSS INFERNO-X
-        { x: 3300, y: 350, w: 100, h: 110, type: 'boss', subtype: 'inferno', hp: 850, maxHp: 850, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3300, baseY: 350, color: '#ff3300', attackPattern: 0 }
+        { x: 3300, y: 350, w: 100, h: 110, type: 'boss', subtype: 'inferno', hp: 1100, maxHp: 1100, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3300, baseY: 350, color: '#ff3300', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 350, triggered: false, text: '⚠ DANGER: REACTOR HEAT - HOSTILES ⚠' },
@@ -3581,7 +3591,7 @@ function buildStage4() {
         { x: 3000, y: 504, w: 46, h: 46, type: 'heavy', hp: 250, maxHp: 250, vx: 0.8, dir: 1, shootTimer: 30, patrolStart: 2890, patrolEnd: 3220, color: '#22aa44' },
         { x: 3200, y: 510, w: 38, h: 40, type: 'shielder', hp: 180, maxHp: 180, vx: 1.4, dir: 1, shootTimer: 30, patrolStart: 3150, patrolEnd: 3300, color: '#88ff44', shieldColor: '#88ffff' },
         // BOSS RAVAGER - charges and minigun-spreads (HP reduced for difficulty curve)
-        { x: 3500, y: 350, w: 110, h: 110, type: 'boss', subtype: 'ravager', hp: 750, maxHp: 750, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3500, baseY: 350, color: '#22ff44', attackPattern: 0 }
+        { x: 3500, y: 350, w: 110, h: 110, type: 'boss', subtype: 'ravager', hp: 1400, maxHp: 1400, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3500, baseY: 350, color: '#22ff44', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 350, triggered: false, text: '⚠ DANGER: SECURITY BOTS ⚠' },
@@ -3672,7 +3682,7 @@ function buildStage5() {
         { x: 2200, y: 510, w: 38, h: 32, type: 'jumper', hp: 150, maxHp: 150, vx: 0, vy: 0, jumpTimer: 60, color: '#aaccff', onGround: true },
         { x: 2900, y: 504, w: 38, h: 46, type: 'sniper', hp: 220, maxHp: 220, shootTimer: 50, aimTimer: 0, aimAngle: 0, color: '#88ccff' },
         // BOSS CRYO-LORD - frost shots, freezes time briefly via screen shake (HP reduced)
-        { x: 3400, y: 320, w: 100, h: 110, type: 'boss', subtype: 'cryo', hp: 700, maxHp: 700, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3400, baseY: 320, color: '#88ccff', attackPattern: 0 }
+        { x: 3400, y: 320, w: 100, h: 110, type: 'boss', subtype: 'cryo', hp: 1600, maxHp: 1600, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3400, baseY: 320, color: '#88ccff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 350, triggered: false, text: '⚠ DANGER: ARCTIC PATROL ⚠' },
@@ -3772,7 +3782,7 @@ function buildStage6() {
         { x: 2950, y: 504, w: 38, h: 46, type: 'sniper', hp: 280, maxHp: 280, shootTimer: 60, aimTimer: 0, aimAngle: 0, color: '#cc66ff' },
         { x: 3300, y: 510, w: 38, h: 32, type: 'jumper', hp: 200, maxHp: 200, vx: 0, vy: 0, jumpTimer: 50, color: '#dd44ff', onGround: true },
         // BOSS NULLIFIER - teleports, dense bullet patterns (HP reduced)
-        { x: 3600, y: 300, w: 110, h: 120, type: 'boss', subtype: 'nullifier', hp: 800, maxHp: 800, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3600, baseY: 300, color: '#aa00ff', attackPattern: 0 }
+        { x: 3600, y: 300, w: 110, h: 120, type: 'boss', subtype: 'nullifier', hp: 1900, maxHp: 1900, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3600, baseY: 300, color: '#aa00ff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ DANGER: VOID HOSTILES ⚠' },
@@ -3879,7 +3889,7 @@ function buildStage7() {
         { x: 3000, y: 504, w: 38, h: 46, type: 'sniper', hp: 320, maxHp: 320, shootTimer: 55, aimTimer: 0, aimAngle: 0, color: '#ff44ff' },
         { x: 3300, y: 510, w: 38, h: 40, type: 'shielder', hp: 320, maxHp: 320, vx: 2, dir: 1, shootTimer: 22, patrolStart: 3200, patrolEnd: 3450, color: '#ff44ff', shieldColor: '#ffaaff' },
         // FINAL BOSS OMEGA-PRIME (HP reduced for difficulty curve — still beefy)
-        { x: 3700, y: 300, w: 130, h: 140, type: 'boss', subtype: 'omega', hp: 1300, maxHp: 1300, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3700, baseY: 300, color: '#ffffff', attackPattern: 0 }
+        { x: 3700, y: 300, w: 130, h: 140, type: 'boss', subtype: 'omega', hp: 2400, maxHp: 2400, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3700, baseY: 300, color: '#ffffff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ DANGER: ELITE CITADEL GUARD ⚠' },
@@ -3940,7 +3950,7 @@ function buildStage8() {
         // Two MECHs guard the throat of the corridor — the visual gauntlet
         { x: 3720, y: 470, w: 80, h: 80, type: 'mech',    hp: 600, maxHp: 600, shootTimer: 60, attackPhase: 0, walkPhase: 0, vx: 0, vy: 0, facing: -1, onGround: false, baseY: 470, color: '#66ffff' },
         // FINAL-FINAL BOSS TITAN-LORD - mech that transforms into a battleship
-        { x: 4700, y: 280, w: 160, h: 170, type: 'boss', subtype: 'titan', hp: 1800, maxHp: 1800, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 4700, baseY: 280, color: '#66ffff', attackPattern: 0, transformTimer: 0, transformed: false }
+        { x: 4700, y: 280, w: 160, h: 170, type: 'boss', subtype: 'titan', hp: 3200, maxHp: 3200, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 4700, baseY: 280, color: '#66ffff', attackPattern: 0, transformTimer: 0, transformed: false }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ ORBITAL FORTRESS — ELITE GUARDS ⚠' },
@@ -5039,10 +5049,15 @@ function updatePlayer() {
             if (plat.type === 'spike' || plat.type === 'laser' || plat.type === 'lava') {
                 if (rectCollide(player, plat)) {
                     if (plat.type === 'laser') {
-                        const phase = (Math.floor(performance.now() / 700) + (plat.phase || 0)) % 2;
-                        if (phase !== 0) continue;
+                        // "alwaysOn" lasers stay active permanently — must dodge around.
+                        // Otherwise read the time-based on/off cycle (default 500ms).
+                        if (!plat.alwaysOn) {
+                            const cycle = plat.cycle || 500;
+                            const phase = (Math.floor(performance.now() / cycle) + (plat.phase || 0)) % 2;
+                            if (phase !== 0) continue;
+                        }
                     }
-                    const dmg = plat.type === 'lava' ? 12 : 8;
+                    const dmg = plat.type === 'lava' ? 12 : (plat.type === 'laser' ? 12 : 8);
                     player.hp -= dmg;
                     hitFlash = Math.min(1, hitFlash + 0.5);
                     player.invincible = 30;
@@ -5376,13 +5391,22 @@ function shootBullet() {
         const shoulderL = { x: cx - player.facing * 10, y: cy - 12 };
         const shoulderR = { x: cx + player.facing * (player.w / 2 - 4), y: cy - 12 };
         // Tier-specific gate: PRIME fires every 2nd shot, CONVOY every 3rd.
-        // Other tiers fire every shot (no nerf needed — they don't out-DPS bosses).
+        // Other tiers fire every shot — UNLESS the equipped weapon is FLAME-
+        // type. Flame weapons fire 30 shots/sec; if the side-arm rode along
+        // with each flame, OMEGA missile array would do ~150 DPS just from
+        // the side-arm alone (broken, unfair). Flame weapons completely
+        // disable the side-arm — flame is a "screen filler", not a launcher.
+        const isFlameWeapon = !!w.flame;
+        if (isFlameWeapon) {
+            // Flame weapons never trigger the side-arm. Skip entirely.
+            return;
+        }
         player.sideArmShotCounter = (player.sideArmShotCounter || 0) + 1;
         const gate = (evo.sideArm === 'prime') ? 2
                    : (evo.sideArm === 'convoy') ? 3
                    : 1;
         const sideArmFires = (player.sideArmShotCounter % gate) === 0;
-        if (!sideArmFires && (evo.sideArm === 'prime' || evo.sideArm === 'convoy')) {
+        if (!sideArmFires && (gate > 1)) {
             // Skip side-arm this shot — base weapon still fires from the loop above.
             return;
         }
@@ -14189,8 +14213,9 @@ function drawPlatforms() {
             }
             ctx.globalAlpha = 1;
         } else if (p.type === 'laser') {
-            // Toggling laser
-            const phase = (Math.floor(performance.now() / 700) + (p.phase || 0)) % 2;
+            // Toggling laser. "alwaysOn" stays solid; else read on/off cycle.
+            const cycle = p.cycle || 500;
+            const phase = p.alwaysOn ? 0 : (Math.floor(performance.now() / cycle) + (p.phase || 0)) % 2;
             if (phase === 0) {
                 // Active
                 ctx.fillStyle = '#ff0000';
@@ -16899,8 +16924,8 @@ function spawnFlyingEnemy() {
     const dmgBonus = Math.floor(tier * 1.5);  // +1.5 dmg per galaxy
     const speedBonus = tier * 0.18;            // faster as you progress
     const fireRateScale = Math.max(0.6, 1 - tier * 0.07);  // smaller cooldown = faster
-    const baseHp = isElite ? 70 : 35;
-    const baseDmg = isElite ? 12 : 8;
+    const baseHp = isElite ? 120 : 60;
+    const baseDmg = isElite ? 14 : 10;
     const baseColor = isElite
         ? ['#ff0066', '#ff6600', '#ff00aa', '#00ddff'][Math.floor(Math.random() * 4)]
         : ['#ff4444', '#44aaff', '#ff8844', '#aa44ff'][Math.floor(Math.random() * 4)];
@@ -17009,7 +17034,7 @@ function updateSpaceIntro() {
             const tier = spaceState.galaxyTier || 0;
             const isElite = ws.elite;
             const hpScale = 1 + tier * 0.45;
-            const baseHp = isElite ? 70 : 35;
+            const baseHp = isElite ? 120 : 60;
             spaceState.flyingEnemies.push({
                 x: ws.tx, y: ws.ty,
                 w: isElite ? 44 : 36, h: isElite ? 34 : 28,
@@ -17017,7 +17042,7 @@ function updateSpaceIntro() {
                 vy: 0,
                 hp: Math.round(baseHp * hpScale),
                 maxHp: Math.round(baseHp * hpScale),
-                damage: (isElite ? 12 : 8) + Math.floor(tier * 1.5),
+                damage: (isElite ? 14 : 10) + Math.floor(tier * 1.5),
                 bulletSpeed: 5 + tier * 0.5,
                 elite: isElite,
                 burstSize: isElite ? 3 : 1,
