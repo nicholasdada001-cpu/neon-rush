@@ -919,6 +919,20 @@ const WEAPONS = [
         damage: 130, speed: 32, cooldown: 50, bullets: 1, spread: 0,
         color: '#ddeeff', glow: '#4488ff', size: 9, life: 200, pierce: true,
         flavor: 'Magnetic coil rifle. Slow charge, devastating pierce.'
+    },
+    {
+        name: 'ACID GUN', tier: 21, shopOnly: true, cost: 540,
+        damage: 4, speed: 9, cooldown: 4, bullets: 1, spread: 0.18,
+        color: '#88ff44', glow: '#44ff00', size: 9, life: 45,
+        burn: true, burnDmg: 6, burnDur: 120, acid: true,
+        flavor: 'Corrosive globs. Eats armor, melts metal slowly.'
+    },
+    {
+        name: 'WATER GUN', tier: 22, shopOnly: true, cost: 380,
+        damage: 2, speed: 11, cooldown: 3, bullets: 1, spread: 0.14,
+        color: '#88ccff', glow: '#44aaff', size: 8, life: 50,
+        slow: true, slowFactor: 0.55, slowDur: 60, water: true,
+        flavor: 'Pressurized stream. Short-circuits enemies briefly.'
     }
 ];
 
@@ -1160,7 +1174,7 @@ const player = {
     evoLevel: 0,              // 0 = base, 1 = MK-II, 2 = MK-III, 3 = OMEGA FORM
     bulletDamage: 0,         // additive damage bonus (from "Damage +5" upgrade)
     weaponTier: 0,            // index into WEAPONS (currently equipped)
-    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
+    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
     maxJumpsBonus: 0,         // extra jumps from upgrades
     fireRateMul: 1,           // < 1 = faster
     dmgMul: 1,                // damage multiplier from character
@@ -1228,6 +1242,8 @@ const SHOP_ITEMS = [
     { key: 'B', name: 'Buy: SOUL CANNON',    cost: 950, action: p => { p.weaponsUnlocked[18] = true; p.weaponTier = 18; }, weapon: 18 },
     { key: 'Z', name: 'Buy: ICE BLAST',      cost: 480, action: p => { p.weaponsUnlocked[19] = true; p.weaponTier = 19; }, weapon: 19 },
     { key: 'Q', name: 'Buy: RAILGUN',        cost: 720, action: p => { p.weaponsUnlocked[20] = true; p.weaponTier = 20; }, weapon: 20 },
+    { key: 'W', name: 'Buy: ACID GUN',       cost: 540, action: p => { p.weaponsUnlocked[21] = true; p.weaponTier = 21; }, weapon: 21 },
+    { key: 'T', name: 'Buy: WATER GUN',      cost: 380, action: p => { p.weaponsUnlocked[22] = true; p.weaponTier = 22; }, weapon: 22 },
     { key: 'N', name: 'Buy: BFG-9000',       cost: 800, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
     { key: 'M', name: 'Switch Weapon ▶',     cost: 0,   action: p => { switchWeapon(p); }, repeatable: true, switcher: true },
     { key: 'L', name: 'EVOLVE',              cost: 0,   action: p => { evolvePlayer(p); }, evolution: true },
@@ -5795,7 +5811,9 @@ function shootBullet() {
             slow: !!w.slow, slowDur: w.slowDur, slowFactor: w.slowFactor,
             flame: !!w.flame,
             ice: !!w.ice,
-            beam: !!w.beam
+            beam: !!w.beam,
+            acid: !!w.acid,
+            water: !!w.water
         });
     }
     // Muzzle flash
@@ -6298,6 +6316,27 @@ function updateBullets() {
                     e.frozen = Math.max(e.frozen || 0, isBoss ? 8 : 30);
                     e.iceFrostTimer = Math.max(e.iceFrostTimer || 0, isBoss ? 30 : 90);
                 }
+                // ACID weapons MELT armor — apply an "acidTimer" that does
+                // % HP damage over time + extra damage from all hits while
+                // active (corrosion). Stacks worse than burn since the
+                // damage scales with maxHp instead of being flat.
+                if (b.acid) {
+                    const isBoss = e.type === 'boss' || e.type === 'miniboss';
+                    e.acidTimer = Math.max(e.acidTimer || 0, b.burnDur || 120);
+                    // Bosses melt slower (1.5% maxHp per tick) so they're not
+                    // dissolved instantly. Mobs melt fast (3% per tick).
+                    e.acidPct = isBoss ? 0.015 : 0.03;
+                }
+                // WATER weapons short-circuit — applies a brief frozen-style
+                // stun + slow. Doubly effective vs robots (basically all
+                // enemies in this game), so deals 1.5× direct damage.
+                if (b.water) {
+                    const isBoss = e.type === 'boss' || e.type === 'miniboss';
+                    e.frozen = Math.max(e.frozen || 0, isBoss ? 4 : 20);
+                    e.waterShockTimer = Math.max(e.waterShockTimer || 0, isBoss ? 24 : 60);
+                    // Water vs robot bonus
+                    dmg = Math.round(dmg * 1.5);
+                }
                 if (b.pierce) {
                     b.hitEnemies.add(e);
                 } else {
@@ -6661,6 +6700,28 @@ function updateEnemies() {
     for (const e of enemies) {
         // Tick ice-frost timer (visual + counts as "iced" state)
         if (e.iceFrostTimer > 0) e.iceFrostTimer--;
+        if (e.waterShockTimer > 0) e.waterShockTimer--;
+        // ACID melt — % HP damage every 12 frames while acid timer active.
+        // Scales with maxHp so it works on both squishy mobs and tanky bosses
+        // (without trivializing the bosses).
+        if (e.acidTimer > 0) {
+            e.acidTimer--;
+            if (e.acidTimer % 12 === 0) {
+                const meltDmg = Math.max(2, Math.round(e.maxHp * (e.acidPct || 0.02)));
+                e.hp -= meltDmg;
+                // Visible drip — green acid particles streaming down off the body
+                spawnParticles(
+                    e.x + e.w * 0.2 + Math.random() * e.w * 0.6,
+                    e.y + e.h * 0.4 + Math.random() * e.h * 0.5,
+                    ['#88ff44', '#44ff00', '#aaff66'][Math.floor(Math.random() * 3)],
+                    1, 2);
+                if (e.hp <= 0) {
+                    const idx = enemies.indexOf(e);
+                    if (idx >= 0) handleEnemyKilled(e, idx);
+                    continue;
+                }
+            }
+        }
         // Apply burn DOT (more visible flame particles, not just the small ones)
         if (e.burnTimer > 0) {
             e.burnTimer--;
@@ -14845,6 +14906,92 @@ function drawEnemies() {
             ctx.restore();
         }
 
+        // ACID MELT overlay — green tint, sizzling bubbles on top, dripping
+        // streams off the bottom edge. Reads as "this enemy is being eaten
+        // by acid right now."
+        if (e.acidTimer > 0) {
+            ctx.save();
+            ctx.shadowBlur = 0;
+            const acidFrac = Math.min(1, e.acidTimer / 60);
+            // Sickly green tint
+            ctx.globalAlpha = 0.35 * acidFrac;
+            ctx.fillStyle = '#44ff00';
+            ctx.fillRect(ex - 1, ey - 1, e.w + 2, e.h + 2);
+            // Bubbles rising on top edge
+            ctx.globalAlpha = 0.85 * acidFrac;
+            ctx.shadowColor = '#88ff44';
+            ctx.shadowBlur = 10;
+            ctx.fillStyle = '#88ff44';
+            for (let bi = 0; bi < 4; bi++) {
+                const bx = ex + e.w * (0.15 + 0.7 * (bi / 3)) + (Math.random() - 0.5) * 4;
+                const by = ey - 2 + Math.sin(performance.now() * 0.01 + bi) * 2;
+                const br = 2 + Math.random() * 2;
+                ctx.beginPath();
+                ctx.arc(bx, by, br, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            // Drip streams off bottom edge — wavy lines
+            ctx.strokeStyle = '#44ff00';
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+            for (let di = 0; di < 3; di++) {
+                const dx = ex + e.w * (0.2 + 0.3 * di) + (Math.random() - 0.5) * 3;
+                const dropLen = 6 + Math.random() * 6;
+                ctx.beginPath();
+                ctx.moveTo(dx, ey + e.h);
+                ctx.lineTo(dx + (Math.random() - 0.5) * 2, ey + e.h + dropLen);
+                ctx.stroke();
+            }
+            ctx.lineWidth = 1;
+            // MELTING label
+            ctx.globalAlpha = acidFrac;
+            ctx.fillStyle = '#88ff44';
+            ctx.font = 'bold 9px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('☣ MELTING', ex + e.w / 2, ey - 14);
+            ctx.textAlign = 'left';
+            ctx.restore();
+        }
+
+        // WATER SHOCK overlay — blue electric tint with sparking arc lines
+        // crackling around the body. Short-lived (water dries fast).
+        if (e.waterShockTimer > 0) {
+            ctx.save();
+            ctx.shadowBlur = 0;
+            const wFrac = Math.min(1, e.waterShockTimer / 30);
+            ctx.globalAlpha = 0.30 * wFrac;
+            ctx.fillStyle = '#44aaff';
+            ctx.fillRect(ex - 1, ey - 1, e.w + 2, e.h + 2);
+            // Electric arcs — random zigzag lines around the body
+            ctx.globalAlpha = 0.9 * wFrac;
+            ctx.shadowColor = '#88ddff';
+            ctx.shadowBlur = 14;
+            ctx.strokeStyle = '#aaeeff';
+            ctx.lineWidth = 1.5;
+            for (let a = 0; a < 3; a++) {
+                ctx.beginPath();
+                let lx = ex + Math.random() * e.w;
+                let ly = ey + Math.random() * e.h;
+                ctx.moveTo(lx, ly);
+                for (let seg = 0; seg < 3; seg++) {
+                    lx += (Math.random() - 0.5) * 14;
+                    ly += (Math.random() - 0.5) * 10;
+                    ctx.lineTo(lx, ly);
+                }
+                ctx.stroke();
+            }
+            ctx.lineWidth = 1;
+            // Water drops dripping
+            ctx.fillStyle = '#88ccff';
+            for (let d = 0; d < 2; d++) {
+                ctx.beginPath();
+                ctx.arc(ex + e.w * (0.3 + d * 0.4), ey + e.h - 2 + Math.random() * 4,
+                    2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+
         // Health bar
         if (e.hp < e.maxHp) {
             ctx.shadowBlur = 0;
@@ -15092,55 +15239,83 @@ function drawBullets() {
             ctx.restore();
             continue;
         }
-        // FLAME bullets render as flickering multi-layer flames instead of
-        // a static circle — gives the flamethrower a real flame stream feel.
-        if (b.flame) {
+        // FLAME / ACID / WATER bullets render as flickering multi-layer
+        // particles instead of a static circle. Same drawing structure for
+        // all three, just different palettes (orange = fire, green = acid,
+        // blue = water). Acid drips toward ground via gravity-style offset.
+        if (b.flame || b.acid || b.water) {
             const sx = b.x - camera.x;
             const sy = b.y - camera.y;
-            // Random flicker — size and offset jitter every frame so it
-            // dances like fire. Bullets near end-of-life shrink and fade.
-            // (max-life 38 matches the flamethrower's life setting; same
-            // formula scales for any flame weapon variant.)
             const lifeFrac = Math.max(0, Math.min(1, (b.life || 38) / 38));
             const baseR = (b.size || 8) * (0.7 + lifeFrac * 0.6);
             const flicker = (Math.random() - 0.5) * 3;
             const fy = sy + flicker;
-            // Outer glow — orange (largest, most transparent)
+            // Palette per type
+            let cOuter, cMid, cCore, cWhite, cTrail;
+            if (b.acid) {
+                cOuter = '#44ff00'; cMid = '#88ff44'; cCore = '#aaff66';
+                cWhite = '#ddffaa'; cTrail = '#225500';
+            } else if (b.water) {
+                cOuter = '#2266aa'; cMid = '#44aaff'; cCore = '#88ccff';
+                cWhite = '#ddeeff'; cTrail = '#003355';
+            } else {
+                // Default: flame
+                cOuter = '#ff4400'; cMid = '#ff8800'; cCore = '#ffdd44';
+                cWhite = '#ffffff'; cTrail = '#444';
+            }
+            // Outer glow
             ctx.globalAlpha = lifeFrac * 0.5;
-            ctx.fillStyle = '#ff4400';
-            ctx.shadowColor = '#ff4400';
+            ctx.fillStyle = cOuter;
+            ctx.shadowColor = cOuter;
             ctx.shadowBlur = 18;
             ctx.beginPath();
             ctx.arc(sx, fy - 2, baseR * 1.4, 0, Math.PI * 2);
             ctx.fill();
-            // Mid layer — bright orange
+            // Mid layer
             ctx.globalAlpha = lifeFrac * 0.85;
-            ctx.fillStyle = '#ff8800';
-            ctx.shadowColor = '#ff8800';
+            ctx.fillStyle = cMid;
+            ctx.shadowColor = cMid;
             ctx.shadowBlur = 14;
             ctx.beginPath();
             ctx.arc(sx + flicker * 0.4, fy, baseR, 0, Math.PI * 2);
             ctx.fill();
-            // Inner core — yellow / white-hot
+            // Inner core
             ctx.globalAlpha = lifeFrac;
-            ctx.fillStyle = '#ffdd44';
-            ctx.shadowColor = '#ffff88';
+            ctx.fillStyle = cCore;
+            ctx.shadowColor = cWhite;
             ctx.shadowBlur = 8;
             ctx.beginPath();
             ctx.arc(sx + flicker * 0.6, fy + 1, baseR * 0.55, 0, Math.PI * 2);
             ctx.fill();
-            // White core only on fresh flames (first half of life)
+            // White core only on fresh particles (first half of life)
             if (lifeFrac > 0.5) {
-                ctx.fillStyle = '#ffffff';
+                ctx.fillStyle = cWhite;
                 ctx.beginPath();
                 ctx.arc(sx, fy, baseR * 0.25, 0, Math.PI * 2);
                 ctx.fill();
             }
-            // Smoke wisps trailing — small dark puff behind
+            // ACID: drip — small downward streak under each particle
+            if (b.acid && Math.random() < 0.3) {
+                ctx.strokeStyle = cMid;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(sx, fy + baseR);
+                ctx.lineTo(sx + (Math.random() - 0.5) * 2, fy + baseR + 5 + Math.random() * 4);
+                ctx.stroke();
+            }
+            // WATER: trailing droplets
+            if (b.water && Math.random() < 0.4) {
+                ctx.fillStyle = cMid;
+                ctx.beginPath();
+                ctx.arc(sx - (b.vx || 0) * 0.3, fy - (b.vy || 0) * 0.3,
+                    1.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            // Trail wisps
             if (lifeFrac < 0.6 && Math.random() < 0.25) {
                 spawnParticles(b.x - (b.vx || 0) * 0.5,
                     b.y + (Math.random() - 0.5) * 4,
-                    '#444', 1, 1);
+                    cTrail, 1, 1);
             }
             ctx.globalAlpha = 1;
             ctx.shadowBlur = 0;
@@ -18561,7 +18736,7 @@ function restart() {
     player.scrap = 0;
     player.bulletDamage = 0;
     player.weaponTier = 0;
-    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
     player.maxJumpsBonus = 0;
     player.fireRateMul = 1;
     player.speed = 3.2;
@@ -24784,7 +24959,7 @@ function gameLoop(timestamp) {
         player.scrap = 0;
         player.bulletDamage = 0;
         player.weaponTier = 0;
-        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
         player.maxJumpsBonus = 0;
         player.fireRateMul = 1;
         player.perfectDodgeTimer = 0;
