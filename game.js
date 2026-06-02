@@ -947,14 +947,14 @@ const WEAPONS = [
     // when window.isDeveloper() returns true. Both are intentionally
     // overpowered "fun" weapons for the project owner + friends.
     {
-        name: 'JAX BLASTER',  tier: 24, shopOnly: true, cost: 1500, dev: true,
+        name: 'JAX BLASTER',  tier: 24, shopOnly: true, cost: 0, dev: true,
         damage: 220, speed: 22, cooldown: 14, bullets: 3, spread: 0.18,
         color: '#ffffff', glow: '#000000', size: 14, life: 130,
         explosive: true, aoeRadius: 130, soccerBall: true,
         flavor: '⚽ JAX-themed. Triple soccer ball volley, explodes on impact.'
     },
     {
-        name: 'MICAH MINECRAFTER',  tier: 25, shopOnly: true, cost: 1800, dev: true,
+        name: 'MICAH MINECRAFTER',  tier: 25, shopOnly: true, cost: 0, dev: true,
         damage: 350, speed: 16, cooldown: 32, bullets: 1, spread: 0,
         color: '#44dd44', glow: '#88ff88', size: 18, life: 160,
         explosive: true, aoeRadius: 170, minecraftBlock: true, big: true,
@@ -1314,8 +1314,9 @@ const SHOP_ITEMS = [
       melee: 'scythe', meleeName: 'PHANTOM SCYTHE', meleeColor: '#aa00ff' },
     { key: 'N', name: 'Buy: BFG-9000',       cost: 800, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
     // Dev-only weapons — hidden from non-developers (gated by window.isDeveloper())
-    { key: 'A', name: 'Buy: ⚽ JAX BLASTER',  cost: 1500, action: p => { p.weaponsUnlocked[24] = true; p.weaponTier = 24; }, weapon: 24, dev: true },
-    { key: 'S', name: 'Buy: ⛏ MICAH MINECRAFTER', cost: 1800, action: p => { p.weaponsUnlocked[25] = true; p.weaponTier = 25; }, weapon: 25, dev: true },
+    // Free for devs (cost 0) so the kid + friends can grab them anytime.
+    { key: 'A', name: 'Buy: ⚽ JAX BLASTER',  cost: 0, action: p => { p.weaponsUnlocked[24] = true; p.weaponTier = 24; }, weapon: 24, dev: true },
+    { key: 'S', name: 'Buy: ⛏ MICAH MINECRAFTER', cost: 0, action: p => { p.weaponsUnlocked[25] = true; p.weaponTier = 25; }, weapon: 25, dev: true },
     { key: 'M', name: 'Switch Weapon ▶',     cost: 0,   action: p => { switchWeapon(p); }, repeatable: true, switcher: true },
     { key: 'L', name: 'EVOLVE',              cost: 0,   action: p => { evolvePlayer(p); }, evolution: true },
     // Scrap-metal trades. Scrap is plentiful, so the rates are stingy on
