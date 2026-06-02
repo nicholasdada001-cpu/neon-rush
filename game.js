@@ -11321,6 +11321,122 @@ function drawPlayer() {
         // Stage 2 (cross): front arm
         // Stage 3 (uppercut/AOE): both arms slammed forward+up
 
+        // ----- BLADE swing (KNIFE / KATANA / LIGHT SABER) -----
+        // Draws a glowing blade swung in an arc when the player has a
+        // melee weapon equipped (player.activeMelee). Skips for CONVOY
+        // axe (handled by the next branch).
+        const meleeWpnDef = (typeof MELEE_WEAPONS !== 'undefined' && player.activeMelee)
+            ? MELEE_WEAPONS[player.activeMelee] : null;
+        if (meleeWpnDef && !player.meleeAxe) {
+            // Per-weapon visual settings
+            const wKind = player.activeMelee;
+            const bladeColor = meleeWpnDef.color || '#ffeecc';
+            const bladeGlow  = meleeWpnDef.glow  || '#ff6644';
+            // Blade length scales with weapon
+            const bladeLen = wKind === 'knife' ? 30
+                           : wKind === 'katana' ? 60
+                           : 80;       // saber
+            const bladeThick = wKind === 'knife' ? 3
+                             : wKind === 'katana' ? 4
+                             : 5;
+            // Arc sweep — saber gets the widest, knife the smallest
+            const arcSpread = (stage === 3 ? Math.PI * 0.7 : Math.PI * 0.5)
+                * (wKind === 'knife' ? 0.7 : wKind === 'katana' ? 1.0 : 1.1);
+            const arcStart = punchAng - arcSpread / 2;
+            const swingAng = arcStart + arcSpread * extend;
+            const cxP = torsoCx;
+            const cyP = py + player.h / 2;
+
+            // Glow trail — fading arc segments behind the blade
+            ctx.save();
+            for (let f = 0; f < (wKind === 'saber' ? 5 : 3); f++) {
+                const fE = Math.max(0, extend - f * 0.16);
+                if (fE <= 0) continue;
+                const a = arcStart + arcSpread * fE;
+                const r = bladeLen * (0.85 + 0.15 * fE);
+                ctx.globalAlpha = 0.32 / (f + 1);
+                ctx.strokeStyle = bladeGlow;
+                ctx.shadowColor = bladeGlow;
+                ctx.shadowBlur = 18;
+                ctx.lineWidth = bladeThick * 1.6;
+                ctx.beginPath();
+                ctx.arc(cxP, cyP, r, arcStart, a);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            // Solid blade rendered at swing angle
+            const tipX = cxP + Math.cos(swingAng) * bladeLen;
+            const tipY = cyP + Math.sin(swingAng) * bladeLen;
+            // Hilt (small gray rectangle near torso)
+            const hiltX = cxP + Math.cos(swingAng) * (bladeLen * 0.18);
+            const hiltY = cyP + Math.sin(swingAng) * (bladeLen * 0.18);
+            ctx.strokeStyle = '#444';
+            ctx.lineCap = 'round';
+            ctx.lineWidth = bladeThick * 1.6;
+            ctx.beginPath();
+            ctx.moveTo(cxP, cyP);
+            ctx.lineTo(hiltX, hiltY);
+            ctx.stroke();
+            // Cross-guard for katana
+            if (wKind === 'katana') {
+                ctx.strokeStyle = '#ddaa44';
+                ctx.lineWidth = 2;
+                const gAng = swingAng + Math.PI / 2;
+                ctx.beginPath();
+                ctx.moveTo(hiltX + Math.cos(gAng) * 6, hiltY + Math.sin(gAng) * 6);
+                ctx.lineTo(hiltX - Math.cos(gAng) * 6, hiltY - Math.sin(gAng) * 6);
+                ctx.stroke();
+            }
+            // Blade glow outer
+            ctx.strokeStyle = bladeGlow;
+            ctx.shadowColor = bladeGlow;
+            ctx.shadowBlur = wKind === 'saber' ? 26 : 14;
+            ctx.lineWidth = bladeThick * (wKind === 'saber' ? 2.2 : 1.4);
+            ctx.beginPath();
+            ctx.moveTo(hiltX, hiltY);
+            ctx.lineTo(tipX, tipY);
+            ctx.stroke();
+            // Inner blade core (brighter)
+            ctx.strokeStyle = bladeColor;
+            ctx.shadowBlur = wKind === 'saber' ? 16 : 8;
+            ctx.lineWidth = bladeThick;
+            ctx.beginPath();
+            ctx.moveTo(hiltX, hiltY);
+            ctx.lineTo(tipX, tipY);
+            ctx.stroke();
+            // Bright white core for saber only
+            if (wKind === 'saber') {
+                ctx.strokeStyle = '#ffffff';
+                ctx.shadowBlur = 8;
+                ctx.lineWidth = bladeThick * 0.4;
+                ctx.beginPath();
+                ctx.moveTo(hiltX, hiltY);
+                ctx.lineTo(tipX, tipY);
+                ctx.stroke();
+            }
+            // Tip flash — small flare at the blade tip
+            ctx.fillStyle = bladeColor;
+            ctx.shadowColor = bladeGlow;
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.arc(tipX, tipY, bladeThick * 0.7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // Stage 3 finisher — extra ring shockwave
+            if (stage === 3) {
+                const ringR = 30 + extend * (wKind === 'saber' ? 110 : 80);
+                ctx.save();
+                ctx.globalAlpha = (1 - t) * 0.6;
+                ctx.strokeStyle = bladeGlow;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(cxP, cyP, ringR, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+            ctx.restore();
+        } else
         // ----- ENERGON AXE swing (CONVOY only) -----
         // Replaces the fist visual at CONVOY tier. The axe swings in an arc
         // matching the punch direction, leaving a glowing crescent trail.
