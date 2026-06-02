@@ -862,10 +862,10 @@ const WEAPONS = [
     },
     {
         name: 'FLAME THROWER', tier: 12, shopOnly: true, cost: 420,
-        damage: 1, speed: 7, cooldown: 2, bullets: 2, spread: 0.34,
-        color: '#ff8800', glow: '#ff4400', size: 8, life: 22,
-        burn: true, burnDmg: 1, burnDur: 35, flame: true,
-        flavor: 'Continuous flame stream. Super fast, super weak.'
+        damage: 1, speed: 8, cooldown: 2, bullets: 2, spread: 0.34,
+        color: '#ff8800', glow: '#ff4400', size: 8, life: 38,
+        burn: true, burnDmg: 3, burnDur: 60, flame: true,
+        flavor: 'Long flame stream. Weak per hit but burns hard.'
     },
     {
         name: 'BFG-9000', tier: 13, shopOnly: true, cost: 800,
@@ -906,6 +906,13 @@ const WEAPONS = [
         color: '#ddaaff', glow: '#aa44ff', size: 8, life: 110, pierce: true,
         burn: true, burnDmg: 5, burnDur: 55,
         flavor: 'Twin piercing rounds that burn souls.'
+    },
+    {
+        name: 'ICE BLAST', tier: 19, shopOnly: true, cost: 480,
+        damage: 2, speed: 12, cooldown: 4, bullets: 2, spread: 0.18,
+        color: '#aaeeff', glow: '#66ccff', size: 7, life: 50,
+        slow: true, slowFactor: 0.35, slowDur: 90, ice: true,
+        flavor: 'Freezing crystal stream. Slows enemies hard.'
     }
 ];
 
@@ -1213,6 +1220,7 @@ const SHOP_ITEMS = [
     { key: 'P', name: 'Buy: FLAME THROWER',  cost: 420, action: p => { p.weaponsUnlocked[12] = true; p.weaponTier = 12; }, weapon: 12 },
     { key: 'V', name: 'Buy: CHAOS MORTAR',   cost: 700, action: p => { p.weaponsUnlocked[17] = true; p.weaponTier = 17; }, weapon: 17 },
     { key: 'B', name: 'Buy: SOUL CANNON',    cost: 950, action: p => { p.weaponsUnlocked[18] = true; p.weaponTier = 18; }, weapon: 18 },
+    { key: 'Z', name: 'Buy: ICE BLAST',      cost: 480, action: p => { p.weaponsUnlocked[19] = true; p.weaponTier = 19; }, weapon: 19 },
     { key: 'N', name: 'Buy: BFG-9000',       cost: 800, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
     { key: 'M', name: 'Switch Weapon ▶',     cost: 0,   action: p => { switchWeapon(p); }, repeatable: true, switcher: true },
     { key: 'L', name: 'EVOLVE',              cost: 0,   action: p => { evolvePlayer(p); }, evolution: true },
@@ -2088,6 +2096,8 @@ let exitPortals = [];         // stage exit portals after boss
 let laserGrids = [];          // mission-impossible laser walls — disabled by terminal puzzles
 let terminals = [];           // hackable terminals; shoot to disable a laser grid
 let keyPickups = [];          // glowing keys you must collect to unlock the cage
+let stageHazards = [];        // periodic stage-themed environmental hazards
+let stageHazardTimer = 0;     // countdown to next hazard spawn
 let floatTexts = [];          // floating text labels (CRIT!, dodges, etc)
 
 // Space transition state
@@ -2434,6 +2444,8 @@ function buildLevel() {
     laserGrids = [];
     terminals = [];
     keyPickups = [];
+    stageHazards = [];
+    stageHazardTimer = 240;
     player.keysHeld = [];
     populatePuzzles();
     spawnBossGate();
@@ -2507,6 +2519,14 @@ function applyStageEnemyTheme(stageIdx) {
         if (!key) continue;
         const themed = theme[key];
         if (themed) e.color = themed;
+        // Stage 5 (Arctic) — mark normal enemies as frozen variants. Slower
+        // baseline, weak to fire (×1.5), resistant to ice (×0.5). Lets the
+        // player counter-pick FLAME THROWER on this stage.
+        if (stageIdx === 4) {
+            e.frozenEnemy = true;
+            // Slower baseline movement (frozen joints feel)
+            if (typeof e.vx === 'number') e.vx *= 0.7;
+        }
     }
 }
 
@@ -3111,6 +3131,256 @@ function addExtraHazards(stage) {
     }
 }
 
+// Periodic stage-themed environmental hazards. Each world has its own
+// signature: icicles in arctic, lightning in sky docks, lava globs in
+// volcano, etc. They spawn near the player so they're noticeable but
+// random across the screen so they're avoidable. Damage is fair (single-
+// digit per hit) and i-frames protect against the chain. Read in the
+// main playing loop via updateStageHazards().
+function updateStageHazards() {
+    if (!stageHazards) stageHazards = [];
+    if (typeof stageHazardTimer !== 'number') stageHazardTimer = 0;
+    stageHazardTimer--;
+    // Spawn cadence: 2-3 seconds (120-180 frames). Skip while the player is
+    // past the boss-trigger X (boss arena — too busy already) and during
+    // shop interactions or active dialogue.
+    const stg = STAGES[currentStage];
+    const inBossArea = stg && stg.bossTriggerX && player.x >= stg.bossTriggerX - 200;
+    const blocked = inBossArea || shopOpen || cutscene;
+    if (!blocked && stageHazardTimer <= 0 && player && player.hp > 0) {
+        stageHazardTimer = 120 + Math.floor(Math.random() * 60);
+        spawnStageHazard(currentStage);
+    }
+    // Apply pull/orbit specials BEFORE position update so motion is correct
+    tickStageHazardSpecials();
+    // Tick existing hazards
+    for (let i = stageHazards.length - 1; i >= 0; i--) {
+        const h = stageHazards[i];
+        h.life--;
+        h.x += h.vx || 0;
+        h.y += h.vy || 0;
+        if (h.gravity) h.vy = (h.vy || 0) + h.gravity;
+        // Damage check vs player (skip if i-frames)
+        if (player.invincible <= 0 && h.dmg) {
+            const px = player.x + player.w / 2;
+            const py = player.y + player.h / 2;
+            if (Math.abs(px - h.x) < (h.r || 18) && Math.abs(py - h.y) < (h.r || 18)) {
+                player.hp -= h.dmg;
+                hitFlash = Math.min(1, hitFlash + 0.4);
+                player.invincible = 30;
+                screenShake = 5;
+                spawnParticles(h.x, h.y, h.color, 6, 3);
+                if (h.onHit) h.onHit(player);
+                h.life = 0;
+            }
+        }
+        // Ground/platform collision for falling hazards (icicles, debris)
+        if (h.fallStop) {
+            for (const p of platforms) {
+                if (p.type === 'spike' || p.type === 'laser' || p.type === 'lava' ||
+                    p.type === 'recovery' || p.type === 'breakable') continue;
+                if (h.x >= p.x && h.x <= p.x + p.w && h.y >= p.y && h.y <= p.y + p.h) {
+                    spawnParticles(h.x, p.y, h.color, 8, 4);
+                    h.life = 0;
+                    break;
+                }
+            }
+        }
+        if (h.life <= 0) stageHazards.splice(i, 1);
+    }
+}
+
+// Spawn a single stage-themed hazard near the player.
+function spawnStageHazard(stage) {
+    const px = player.x + player.w / 2;
+    const cx = px + (Math.random() - 0.5) * 600;     // anywhere in nearby ±300
+    if (stage === 0) {
+        // STAGE 1 (FACILITY) — acid drips from ceiling
+        stageHazards.push({
+            x: cx, y: 50, vx: 0, vy: 3, gravity: 0.15,
+            r: 16, life: 200, dmg: 6, color: '#88ff44',
+            kind: 'acid', fallStop: true
+        });
+    } else if (stage === 1) {
+        // STAGE 2 (SKY DOCKS) — lightning bolt strikes a vertical line.
+        // Telegraph 18f then strike for 25f so it stays visible.
+        stageHazards.push({
+            x: cx, y: 0, vx: 0, vy: 0,
+            r: 22, life: 60, dmg: 14, color: '#ffff44',
+            kind: 'lightning', telegraph: 18, h: 600
+        });
+    } else if (stage === 2) {
+        // STAGE 3 (REACTOR) — lava glob erupts upward, hangs longer.
+        stageHazards.push({
+            x: cx, y: 540, vx: (Math.random() - 0.5) * 4, vy: -12,
+            gravity: 0.32,
+            r: 20, life: 220, dmg: 10, color: '#ff5522',
+            kind: 'lavaGlob', fallStop: true
+        });
+    } else if (stage === 3) {
+        // STAGE 4 (LAB) — toxic gas pocket (lingers in place)
+        stageHazards.push({
+            x: cx, y: 380 + Math.random() * 120, vx: 0, vy: 0,
+            r: 36, life: 240, dmg: 4, color: '#aa44ff',
+            kind: 'gas'
+        });
+    } else if (stage === 4) {
+        // STAGE 5 (ARCTIC) — ICICLE falls from ceiling, slows on hit
+        stageHazards.push({
+            x: cx, y: 50, vx: 0, vy: 4, gravity: 0.25,
+            r: 18, life: 220, dmg: 8, color: '#aaeeff',
+            kind: 'icicle', fallStop: true,
+            onHit: p => {
+                // Slow the player movement briefly as if frozen
+                p.iceSlowTimer = 60;
+            }
+        });
+    } else if (stage === 5) {
+        // STAGE 6 (VOID) — void rift (small black hole that pulls player)
+        stageHazards.push({
+            x: cx, y: 350 + Math.random() * 100, vx: 0, vy: 0,
+            r: 28, life: 180, dmg: 0, color: '#aa00ff',
+            kind: 'rift',
+            // Custom pull applied each tick in updateStageHazards via 'pull'
+            pull: 0.4
+        });
+    } else if (stage === 6) {
+        // STAGE 7 (CITADEL) — orbiting plasma orb (circles a fixed center)
+        stageHazards.push({
+            x: cx, y: 300, vx: 0, vy: 0,
+            r: 18, life: 280, dmg: 12, color: '#ff44ff',
+            kind: 'plasmaOrb',
+            cx, cy: 300, orbAng: 0, orbR: 100
+        });
+    } else if (stage === 7) {
+        // STAGE 8 (ORBITAL FORTRESS) — falling debris meteor
+        stageHazards.push({
+            x: cx, y: 0, vx: (Math.random() - 0.5) * 3, vy: 6,
+            gravity: 0.35,
+            r: 22, life: 240, dmg: 16, color: '#ff8844',
+            kind: 'meteor', fallStop: true
+        });
+    }
+}
+
+// Apply rift pull and orbit motion mid-tick (must be after vx/vy are read).
+// Also draw stage hazards. Both call sites are wired into draw + update.
+function tickStageHazardSpecials() {
+    if (!stageHazards) return;
+    const pcx = player.x + player.w / 2;
+    const pcy = player.y + player.h / 2;
+    for (const h of stageHazards) {
+        if (h.kind === 'rift' && h.pull) {
+            const dx = h.x - pcx;
+            const dy = h.y - pcy;
+            const d = Math.hypot(dx, dy) || 1;
+            if (d < 200) {
+                player.vx += (dx / d) * h.pull;
+                player.vy += (dy / d) * h.pull * 0.5;
+            }
+        } else if (h.kind === 'plasmaOrb') {
+            h.orbAng = (h.orbAng || 0) + 0.04;
+            h.x = h.cx + Math.cos(h.orbAng) * h.orbR;
+            h.y = h.cy + Math.sin(h.orbAng) * h.orbR;
+        }
+    }
+}
+
+// Draw stage hazards in world space (called from drawGame after platforms).
+function drawStageHazards() {
+    if (!stageHazards) return;
+    for (const h of stageHazards) {
+        const sx = h.x - camera.x;
+        const sy = h.y - camera.y;
+        ctx.save();
+        ctx.shadowColor = h.color;
+        if (h.kind === 'lightning' && h.telegraph > 0) {
+            // Telegraph phase — vertical warning line
+            h.telegraph--;
+            ctx.globalAlpha = 0.4 + Math.sin(h.telegraph * 0.8) * 0.3;
+            ctx.strokeStyle = '#ffff44';
+            ctx.lineWidth = 2;
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.moveTo(sx, 0);
+            ctx.lineTo(sx, canvas.height);
+            ctx.stroke();
+        } else if (h.kind === 'lightning') {
+            // Active strike — bright vertical bolt
+            ctx.shadowBlur = 24;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.moveTo(sx + (Math.random() - 0.5) * 8, 0);
+            ctx.lineTo(sx + (Math.random() - 0.5) * 8, canvas.height);
+            ctx.stroke();
+            ctx.strokeStyle = '#ffff44';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        } else if (h.kind === 'icicle') {
+            // Triangle pointed down
+            ctx.fillStyle = h.color;
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.moveTo(sx - 7, sy - 14);
+            ctx.lineTo(sx + 7, sy - 14);
+            ctx.lineTo(sx, sy + 12);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(sx - 2, sy - 12, 4, 8);
+        } else if (h.kind === 'rift') {
+            // Black hole — concentric rings
+            ctx.fillStyle = '#000';
+            ctx.shadowColor = h.color;
+            ctx.shadowBlur = 30;
+            ctx.beginPath();
+            ctx.arc(sx, sy, h.r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = h.color;
+            ctx.lineWidth = 2;
+            for (let r = 1; r < 4; r++) {
+                ctx.globalAlpha = 0.4 / r;
+                ctx.beginPath();
+                ctx.arc(sx, sy, h.r + r * 8, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        } else if (h.kind === 'plasmaOrb') {
+            ctx.fillStyle = h.color;
+            ctx.shadowBlur = 20;
+            ctx.beginPath();
+            ctx.arc(sx, sy, h.r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(sx, sy, h.r * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (h.kind === 'gas') {
+            // Soft cloud
+            ctx.globalAlpha = 0.35 + Math.sin(h.life * 0.1) * 0.1;
+            ctx.fillStyle = h.color;
+            ctx.shadowBlur = 24;
+            ctx.beginPath();
+            ctx.arc(sx, sy, h.r, 0, Math.PI * 2);
+            ctx.fill();
+        } else {
+            // Default: glowing circle (acid drop, lava glob, meteor)
+            ctx.fillStyle = h.color;
+            ctx.shadowBlur = 14;
+            ctx.beginPath();
+            ctx.arc(sx, sy, h.r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(sx, sy, h.r * 0.35, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+}
+
 // Add the per-stage Mission-Impossible style puzzle: a key card behind a
 // laser grid that can be disabled by shooting a hidden terminal. The cage
 // later spawned by the boss refuses damage until that key is collected.
@@ -3150,6 +3420,35 @@ function addMissionPuzzle(stage) {
         bobOffset: stage * 0.6,
         collected: false
     });
+
+    // KEY BOX — small wall enclosure around the key on three sides so the
+    // player can't just walk in from the side. The only entry is the side
+    // facing the laser grid (which is locked until the terminal is destroyed).
+    // Box is sized 70w × 60h centered on the key, with the wall facing the
+    // grid REMOVED so the player can step in once the grid is down.
+    {
+        const kx = L.keyX, ky = L.keyY;
+        const boxLeft  = kx - 24;
+        const boxRight = kx + 46;
+        const boxTop   = ky - 30;
+        const boxBot   = ky + 30;
+        const wallTh = 8;
+        // Determine which side the laser grid sits on (left of key vs right).
+        // If grid is to the LEFT of the key, leave that side open.
+        const gridOnLeft = (L.gridX < kx);
+        // Top wall
+        platforms.push({ x: boxLeft, y: boxTop, w: boxRight - boxLeft, h: wallTh, type: 'wall' });
+        // Bottom wall
+        platforms.push({ x: boxLeft, y: boxBot - wallTh, w: boxRight - boxLeft, h: wallTh, type: 'wall' });
+        // Far-side wall (opposite the grid)
+        if (gridOnLeft) {
+            // Right wall closed
+            platforms.push({ x: boxRight - wallTh, y: boxTop, w: wallTh, h: boxBot - boxTop, type: 'wall' });
+        } else {
+            // Left wall closed
+            platforms.push({ x: boxLeft, y: boxTop, w: wallTh, h: boxBot - boxTop, type: 'wall' });
+        }
+    }
 
     // LASER GRID — vertical wall of beams blocking the key
     laserGrids.push({
@@ -4708,6 +5007,11 @@ function updatePlayer() {
             const speedTable = { bike: 1.7, hover: 1.5, tank: 0.85, jet: 1.6, starfighter: 1.8 };
             speedScale = speedTable[player.vehicleType] || 1.5;
         }
+        // Ice-slow effect from arctic icicle hazard hits
+        if (player.iceSlowTimer > 0) {
+            player.iceSlowTimer--;
+            speedScale *= 0.5;
+        }
         player.vx = moveX * player.speed * speedScale;
         if (moveX !== 0) player.facing = moveX;
     }
@@ -5369,7 +5673,8 @@ function shootBullet() {
             aoeRadius: w.aoeRadius || 100,
             burn: !!w.burn, burnDmg: w.burnDmg, burnDur: w.burnDur,
             slow: !!w.slow, slowDur: w.slowDur, slowFactor: w.slowFactor,
-            flame: !!w.flame
+            flame: !!w.flame,
+            ice: !!w.ice
         });
     }
     // Muzzle flash
@@ -5826,6 +6131,19 @@ function updateBullets() {
                     if (fromFront) {
                         dmg = Math.round(dmg * 0.2);
                         spawnParticles(b.x, b.y, e.shieldColor || '#44ddff', 5, 3);
+                    }
+                }
+                // FROZEN enemy variant — weak to fire, resistant to ice.
+                // Lets the player counter-pick: bring FLAME THROWER to
+                // arctic stage for ×1.5 damage, or get punished for using
+                // ice on ice-armored enemies (×0.5).
+                if (e.frozenEnemy) {
+                    if (b.burn || b.flame) {
+                        dmg = Math.round(dmg * 1.5);
+                        spawnParticles(b.x, b.y, '#ff8844', 4, 3);
+                    } else if (b.ice || b.slow) {
+                        dmg = Math.round(dmg * 0.5);
+                        spawnParticles(b.x, b.y, '#88ccff', 3, 2);
                     }
                 }
                 // BOSS weak point - hits to top 25% (head) deal 2x damage with crit visual
@@ -14103,6 +14421,28 @@ function drawEnemies() {
             // (intentionally unused — kept structure)
         }
 
+        // Frozen-enemy frost overlay — light blue tint + ice crystal accents.
+        // Visible signal that this enemy takes ×1.5 damage from FIRE weapons.
+        if (e.frozenEnemy && e.type !== 'boss' && e.type !== 'miniboss') {
+            ctx.save();
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 0.32;
+            ctx.fillStyle = '#aaeeff';
+            ctx.fillRect(ex - 1, ey - 1, e.w + 2, e.h + 2);
+            ctx.globalAlpha = 0.55;
+            ctx.fillStyle = '#ddffff';
+            // Tiny crystal triangles at the corners
+            for (const corner of [[0, 0], [e.w, 0], [0, e.h], [e.w, e.h]]) {
+                ctx.beginPath();
+                ctx.moveTo(ex + corner[0], ey + corner[1] - 3);
+                ctx.lineTo(ex + corner[0] - 3, ey + corner[1] + 2);
+                ctx.lineTo(ex + corner[0] + 3, ey + corner[1] + 2);
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+
         // Health bar
         if (e.hp < e.maxHp) {
             ctx.shadowBlur = 0;
@@ -14309,7 +14649,9 @@ function drawBullets() {
             const sy = b.y - camera.y;
             // Random flicker — size and offset jitter every frame so it
             // dances like fire. Bullets near end-of-life shrink and fade.
-            const lifeFrac = Math.max(0, Math.min(1, (b.life || 22) / 22));
+            // (max-life 38 matches the flamethrower's life setting; same
+            // formula scales for any flame weapon variant.)
+            const lifeFrac = Math.max(0, Math.min(1, (b.life || 38) / 38));
             const baseR = (b.size || 8) * (0.7 + lifeFrac * 0.6);
             const flicker = (Math.random() - 0.5) * 3;
             const fy = sy + flicker;
@@ -23899,6 +24241,7 @@ function gameLoop(timestamp) {
         switches = []; doors = []; arenaGates = []; bossGates = []; exitPortals = []; floatTexts = [];
         cages = []; allies = [];
         laserGrids = []; terminals = []; keyPickups = []; player.keysHeld = [];
+        stageHazards = []; stageHazardTimer = 240;
         healingStations = []; activeHealingStation = null;
         spaceState.active = false; spaceState.flyingEnemies = []; spaceState.completing = null;
         finale = null;   // wipe finale state if the player died/won during the giant fight
@@ -23945,6 +24288,7 @@ function gameLoop(timestamp) {
             updateAllies();
             updateCoins();
             updateHealthDrops();
+            updateStageHazards();
         }
         updateHealingStations();
         updateShop();
@@ -24034,6 +24378,7 @@ function gameLoop(timestamp) {
     drawAllies();
     drawPlayer();
     drawBullets();
+    drawStageHazards();
     drawParticles();
     drawShockwaves();
     drawDamageNumbers();
