@@ -818,10 +818,10 @@ const WEAPONS = [
     },
     {
         name: 'FROST CANNON',  tier: 5,
-        damage: 65, speed: 14, cooldown: 38, bullets: 1, spread: 0,
-        color: '#aaeeff', glow: '#66ccff', size: 11, life: 100, pierce: true,
-        slow: true, slowFactor: 0.4, slowDur: 100, ice: true,
-        flavor: 'Heavy ice slug. Slow fire rate, freezes hard.'
+        damage: 4, speed: 22, cooldown: 2, bullets: 1, spread: 0.02,
+        color: '#aaeeff', glow: '#66ccff', size: 7, life: 70, pierce: true,
+        slow: true, slowFactor: 0.4, slowDur: 100, ice: true, beam: true,
+        flavor: 'Continuous frost beam. Locks enemies in a freeze.'
     },
     {
         name: 'VOID PIERCER',  tier: 6,
@@ -1495,6 +1495,35 @@ function switchWeapon(p) {
         const idx = (p.weaponTier + i) % WEAPONS.length;
         if (p.weaponsUnlocked[idx]) {
             p.weaponTier = idx;
+            return;
+        }
+    }
+}
+
+// Direction-aware weapon cycle — direction = +1 (next) or -1 (previous).
+// Used by the in-game [,] / [.] hotkeys so the player can swap weapons
+// without going to a shop. Updates a transient on-screen banner so the
+// player sees what they swapped to.
+function cyclePlayerWeapon(direction) {
+    const p = player;
+    if (!p || !Array.isArray(p.weaponsUnlocked)) return;
+    const N = WEAPONS.length;
+    // Step through tiers in the requested direction until we hit an owned one.
+    for (let step = 1; step <= N; step++) {
+        const idx = (p.weaponTier + direction * step + N * 10) % N;
+        if (p.weaponsUnlocked[idx]) {
+            if (idx === p.weaponTier) return;       // only one owned, no-op
+            p.weaponTier = idx;
+            const wpn = WEAPONS[idx];
+            // Reuse shopMessage banner (auto-fades after `timer` frames)
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = {
+                    text: `Equipped: ${wpn.name}`,
+                    timer: 90,
+                    color: wpn.glow || wpn.color || '#ffffff'
+                };
+            }
+            if (typeof audio !== 'undefined' && audio.play) audio.play('ui');
             return;
         }
     }
@@ -24371,6 +24400,21 @@ function gameLoop(timestamp) {
         player.tabHeld = true;
     }
     if (!keys['Tab']) player.tabHeld = false;
+
+    // Quick weapon cycle with Q (next) and Comma (prev). Switches between
+    // any owned weapons without needing the shop. Edge-triggered so holding
+    // doesn't spam-cycle. Skipped while shop / dialogue / cutscene is open.
+    const canCycleWeapon = gameState === 'playing' && !shopOpen && !cutscene && !player.inHeavyAction;
+    if (canCycleWeapon && keys['Comma'] && !player.weaponPrevHeld) {
+        cyclePlayerWeapon(-1);
+        player.weaponPrevHeld = true;
+    }
+    if (!keys['Comma']) player.weaponPrevHeld = false;
+    if (canCycleWeapon && keys['Period'] && !player.weaponNextHeld) {
+        cyclePlayerWeapon(1);
+        player.weaponNextHeld = true;
+    }
+    if (!keys['Period']) player.weaponNextHeld = false;
 
     // Cutscene navigation - press ENTER to advance dialogue
     if (gameState === 'cutscene' && (keys['Enter'] || keys['NumpadEnter']) && !player.enterHeld) {
