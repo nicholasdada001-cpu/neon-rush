@@ -525,18 +525,13 @@
         }
 
         if (playerName) {
-            // We have a saved name from a previous session — pre-fill it but
-            // STILL show the prompt so the player can confirm/change it
-            // every time. This means uppercase/lowercase changes always
-            // get re-checked instead of being stuck with the old version.
-            nameInput.value = playerName;
-            playerName = '';   // require explicit submit before counting it
-            setTimeout(() => {
-                if (nameInput) {
-                    nameInput.focus();
-                    nameInput.select();    // pre-select so Enter is one key
-                }
-            }, 50);
+            // Saved name from previous session — DON'T pre-fill. Force the
+            // user to retype every time. This guarantees uppercase/lowercase
+            // changes always re-check, and you can quickly switch between
+            // testing dev vs non-dev names without clicking the change tag.
+            playerName = '';                  // require a fresh submit
+            nameInput.value = '';             // empty input box every load
+            setTimeout(() => nameInput && nameInput.focus(), 50);
         } else {
             // First-ever load — auto-focus the empty input
             setTimeout(() => nameInput && nameInput.focus(), 50);

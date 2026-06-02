@@ -909,10 +909,10 @@ const WEAPONS = [
     },
     {
         name: 'ICE BLAST', tier: 19, shopOnly: true, cost: 480,
-        damage: 8, speed: 20, cooldown: 8, bullets: 1, spread: 0.04,
-        color: '#aaeeff', glow: '#66ccff', size: 6, life: 60,
+        damage: 12, speed: 22, cooldown: 12, bullets: 1, spread: 0.02,
+        color: '#aaeeff', glow: '#66ccff', size: 7, life: 70, pierce: true,
         slow: true, slowFactor: 0.35, slowDur: 90, ice: true, beam: true,
-        flavor: 'Freeze ray. Locks enemies in place, fires steady.'
+        flavor: 'Freeze ray beam. Slow fire, hard freeze, pierces.'
     },
     {
         name: 'RAILGUN', tier: 20, shopOnly: true, cost: 720,
@@ -922,17 +922,24 @@ const WEAPONS = [
     },
     {
         name: 'ACID GUN', tier: 21, shopOnly: true, cost: 540,
-        damage: 4, speed: 9, cooldown: 4, bullets: 1, spread: 0.18,
+        damage: 5, speed: 9, cooldown: 8, bullets: 1, spread: 0.18,
         color: '#88ff44', glow: '#44ff00', size: 9, life: 45,
         burn: true, burnDmg: 6, burnDur: 120, acid: true,
         flavor: 'Corrosive globs. Eats armor, melts metal slowly.'
     },
     {
         name: 'WATER GUN', tier: 22, shopOnly: true, cost: 380,
-        damage: 2, speed: 11, cooldown: 3, bullets: 1, spread: 0.14,
+        damage: 3, speed: 11, cooldown: 6, bullets: 1, spread: 0.14,
         color: '#88ccff', glow: '#44aaff', size: 8, life: 50,
         slow: true, slowFactor: 0.55, slowDur: 60, water: true,
         flavor: 'Pressurized stream. Short-circuits enemies briefly.'
+    },
+    {
+        name: 'LIGHTNING GUN', tier: 23, shopOnly: true, cost: 620,
+        damage: 18, speed: 26, cooldown: 14, bullets: 1, spread: 0.05,
+        color: '#aaeeff', glow: '#ffff44', size: 8, life: 90, pierce: true,
+        lightning: true, chainDmg: 12, chainRadius: 200, chainCount: 3,
+        flavor: 'Chain bolt. Zaps up to 3 nearby enemies on hit.'
     }
 ];
 
@@ -1174,7 +1181,7 @@ const player = {
     evoLevel: 0,              // 0 = base, 1 = MK-II, 2 = MK-III, 3 = OMEGA FORM
     bulletDamage: 0,         // additive damage bonus (from "Damage +5" upgrade)
     weaponTier: 0,            // index into WEAPONS (currently equipped)
-    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
+    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
     maxJumpsBonus: 0,         // extra jumps from upgrades
     fireRateMul: 1,           // < 1 = faster
     dmgMul: 1,                // damage multiplier from character
@@ -1244,6 +1251,7 @@ const SHOP_ITEMS = [
     { key: 'Q', name: 'Buy: RAILGUN',        cost: 720, action: p => { p.weaponsUnlocked[20] = true; p.weaponTier = 20; }, weapon: 20 },
     { key: 'W', name: 'Buy: ACID GUN',       cost: 540, action: p => { p.weaponsUnlocked[21] = true; p.weaponTier = 21; }, weapon: 21 },
     { key: 'T', name: 'Buy: WATER GUN',      cost: 380, action: p => { p.weaponsUnlocked[22] = true; p.weaponTier = 22; }, weapon: 22 },
+    { key: 'R', name: 'Buy: LIGHTNING GUN',  cost: 620, action: p => { p.weaponsUnlocked[23] = true; p.weaponTier = 23; }, weapon: 23 },
     { key: 'N', name: 'Buy: BFG-9000',       cost: 800, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
     { key: 'M', name: 'Switch Weapon ▶',     cost: 0,   action: p => { switchWeapon(p); }, repeatable: true, switcher: true },
     { key: 'L', name: 'EVOLVE',              cost: 0,   action: p => { evolvePlayer(p); }, evolution: true },
@@ -6326,6 +6334,54 @@ function updateBullets() {
                     e.waterShockTimer = Math.max(e.waterShockTimer || 0, isBoss ? 24 : 60);
                     // Water vs robot bonus
                     dmg = Math.round(dmg * 1.5);
+                }
+                // LIGHTNING weapons chain — bolt jumps from the hit enemy
+                // to up to chainCount nearby enemies, dealing chainDmg each.
+                // Tracks already-hit set so the same enemy isn't zapped twice
+                // on one shot. Visualized as a zigzag arc particle trail.
+                if (b.lightning) {
+                    const radius = b.chainRadius || 200;
+                    const chainCount = b.chainCount || 3;
+                    const chainDmg = b.chainDmg || 12;
+                    const hit = new Set([e]);
+                    let lastE = e;
+                    for (let c = 0; c < chainCount; c++) {
+                        // Find nearest unhit enemy within radius of lastE
+                        let bestE = null;
+                        let bestD = radius * radius;
+                        for (const otherE of enemies) {
+                            if (otherE === lastE || hit.has(otherE) || otherE.hp <= 0) continue;
+                            const ddx = (otherE.x + otherE.w / 2) - (lastE.x + lastE.w / 2);
+                            const ddy = (otherE.y + otherE.h / 2) - (lastE.y + lastE.h / 2);
+                            const d2 = ddx * ddx + ddy * ddy;
+                            if (d2 < bestD) { bestD = d2; bestE = otherE; }
+                        }
+                        if (!bestE) break;
+                        // Damage chain target
+                        bestE.hp -= chainDmg;
+                        bestE.waterShockTimer = Math.max(bestE.waterShockTimer || 0, 30);
+                        // Spawn arc particles along the line — gives the
+                        // visible "lightning jumped" feel
+                        const sx = lastE.x + lastE.w / 2;
+                        const sy = lastE.y + lastE.h / 2;
+                        const ex = bestE.x + bestE.w / 2;
+                        const ey = bestE.y + bestE.h / 2;
+                        const segs = 6;
+                        for (let s = 0; s <= segs; s++) {
+                            const t = s / segs;
+                            const lx = sx + (ex - sx) * t + (Math.random() - 0.5) * 18;
+                            const ly = sy + (ey - sy) * t + (Math.random() - 0.5) * 14;
+                            spawnParticles(lx, ly, '#ffff44', 1, 1);
+                        }
+                        spawnParticles(ex, ey, '#aaeeff', 6, 4);
+                        spawnDamageNumber(ex, bestE.y, chainDmg, 'normal');
+                        if (bestE.hp <= 0) {
+                            const idx = enemies.indexOf(bestE);
+                            if (idx >= 0) handleEnemyKilled(bestE, idx);
+                        }
+                        hit.add(bestE);
+                        lastE = bestE;
+                    }
                 }
                 if (b.pierce) {
                     b.hitEnemies.add(e);
@@ -18726,7 +18782,7 @@ function restart() {
     player.scrap = 0;
     player.bulletDamage = 0;
     player.weaponTier = 0;
-    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
     player.maxJumpsBonus = 0;
     player.fireRateMul = 1;
     player.speed = 3.2;
@@ -24949,7 +25005,7 @@ function gameLoop(timestamp) {
         player.scrap = 0;
         player.bulletDamage = 0;
         player.weaponTier = 0;
-        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
         player.maxJumpsBonus = 0;
         player.fireRateMul = 1;
         player.perfectDodgeTimer = 0;
