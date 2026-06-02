@@ -10602,25 +10602,217 @@ function drawPlayer() {
         if (player.gunRecoil > 0) player.gunRecoil = Math.max(0, player.gunRecoil - 0.6);
         const recoil = player.gunRecoil;
 
-        // Main gun — anchored at the forward arm endpoint, rotated to aim
+        // Main gun — anchored at the forward arm endpoint, rotated to aim.
+        // Built as a proper sci-fi rifle silhouette: stock + grip + receiver
+        // + barrel + sight + power-core accent. The accent + barrel-tip
+        // colors come from the equipped WEAPONS entry so each weapon visibly
+        // changes the gun (red for flame, cyan for ice, gold for omega, etc.)
+        const eqWpn = WEAPONS[player.weaponTier] || {};
+        const gunAccent = eqWpn.glow || eqWpn.color || '#88ddff';
+        const gunBody = '#2a3a48';
+        const gunPlate = '#1a2230';
+        const gunHi = '#506478';
+        // Weapon-class flags drive small visual variations (extra muzzle
+        // shapes, scope vs sight, drum mag for heavy weapons, etc.) so the
+        // gun silhouette changes meaningfully when you swap weapons.
+        const isFlame = !!eqWpn.flame;
+        const isBeam = !!eqWpn.beam;
+        const isExplosive = !!eqWpn.explosive;
+        const isPiercer = !!eqWpn.pierce;
+        const isMulti = (eqWpn.bullets || 1) >= 3;
         ctx.save();
         ctx.translate(armEndX, armEndY);
         ctx.rotate(aimAng);
-        ctx.translate(-recoil, 0);   // recoil pushes gun back toward shoulder
-        ctx.fillStyle = '#00aacc';
-        ctx.shadowColor = '#00aacc';
+        ctx.translate(-recoil, 0);
+        // The gun is drawn in local space — origin at the grip / hand point,
+        // +x = forward (toward enemy). Length is now ~26px (was 14) so it
+        // reads as a real rifle, not a stub.
+        // STOCK — back portion behind the hand (slim trapezoid)
+        ctx.fillStyle = gunPlate;
+        ctx.beginPath();
+        ctx.moveTo(-10, -4);
+        ctx.lineTo(-2, -3);
+        ctx.lineTo(-2, 3);
+        ctx.lineTo(-10, 4);
+        ctx.closePath();
+        ctx.fill();
+        // Stock shoulder pad
+        ctx.fillStyle = '#0a1018';
+        ctx.fillRect(-12, -3, 3, 6);
+        // RECEIVER (main body) — wider, where the grip/trigger lives
+        ctx.fillStyle = gunBody;
+        ctx.shadowColor = gunAccent;
         ctx.shadowBlur = 4;
-        ctx.fillRect(0, -3, 14, 6);
-        ctx.fillStyle = '#88ddff';
-        ctx.fillRect(0, -3, 14, 2);
-        // Muzzle flash flash when shootCooldown is fresh
+        ctx.fillRect(-2, -5, 14, 10);
+        // Top rail highlight
+        ctx.fillStyle = gunHi;
+        ctx.fillRect(-2, -5, 14, 1);
+        // Power core / energy chamber — glowing center accent
+        ctx.fillStyle = gunAccent;
+        ctx.shadowColor = gunAccent;
+        ctx.shadowBlur = 10;
+        ctx.fillRect(2, -2, 6, 4);
+        // White-hot inner core
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(3, -1, 2, 2);
+        ctx.shadowBlur = 0;
+        // SIGHT — small post on top of the rail
+        ctx.fillStyle = gunHi;
+        ctx.fillRect(8, -8, 2, 3);
+        ctx.fillStyle = gunAccent;
+        ctx.fillRect(8, -8, 2, 1);
+        // BARREL — long forward tube, narrower than receiver
+        ctx.fillStyle = gunBody;
+        ctx.fillRect(12, -2, 12, 4);
+        // Barrel top highlight
+        ctx.fillStyle = gunHi;
+        ctx.fillRect(12, -2, 12, 1);
+        // Barrel band (raised ring near tip)
+        ctx.fillStyle = gunPlate;
+        ctx.fillRect(20, -3, 2, 6);
+        // MUZZLE — slightly flared barrel tip
+        ctx.fillStyle = gunPlate;
+        ctx.fillRect(24, -3, 2, 6);
+        ctx.fillStyle = gunAccent;
+        ctx.shadowColor = gunAccent;
+        ctx.shadowBlur = 6;
+        ctx.fillRect(25, -2, 1, 4);
+        ctx.shadowBlur = 0;
+        // WEAPON-CLASS attachment — extra silhouette tweak per weapon kind:
+        if (isFlame) {
+            // FLAME — wider conical nozzle at the tip + fuel pod under barrel
+            ctx.fillStyle = gunPlate;
+            ctx.beginPath();
+            ctx.moveTo(24, -3);
+            ctx.lineTo(28, -5);
+            ctx.lineTo(28, 5);
+            ctx.lineTo(24, 3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = gunAccent;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+            // Fuel pod (small canister attached under the barrel)
+            ctx.fillStyle = '#3a2010';
+            ctx.fillRect(13, 3, 7, 4);
+            ctx.fillStyle = gunAccent;
+            ctx.shadowColor = gunAccent;
+            ctx.shadowBlur = 6;
+            ctx.fillRect(14, 4, 5, 1);
+            ctx.shadowBlur = 0;
+        } else if (isBeam) {
+            // BEAM — emitter coils wrapped around the barrel tip
+            ctx.strokeStyle = gunAccent;
+            ctx.shadowColor = gunAccent;
+            ctx.shadowBlur = 8;
+            ctx.lineWidth = 1.5;
+            for (let c = 0; c < 3; c++) {
+                ctx.beginPath();
+                ctx.arc(15 + c * 3, 0, 3.2, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            ctx.lineWidth = 1;
+            ctx.shadowBlur = 0;
+            // Crystal lens at the tip
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = gunAccent;
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.moveTo(26, -3);
+            ctx.lineTo(28, 0);
+            ctx.lineTo(26, 3);
+            ctx.closePath();
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        } else if (isExplosive) {
+            // EXPLOSIVE — wide barrel mouth + warning-stripe band
+            ctx.fillStyle = gunPlate;
+            ctx.fillRect(23, -5, 4, 10);
+            ctx.fillStyle = gunHi;
+            ctx.fillRect(23, -5, 4, 1);
+            // Yellow warning stripes on the barrel
+            ctx.fillStyle = '#ffdd00';
+            for (let s = 0; s < 2; s++) {
+                ctx.fillRect(15 + s * 4, -3, 1.5, 6);
+            }
+        } else if (isPiercer) {
+            // SNIPER / RAILGUN — long thin barrel + scope on top
+            ctx.fillStyle = gunBody;
+            ctx.fillRect(24, -1, 5, 2);
+            // Scope cylinder
+            ctx.fillStyle = gunPlate;
+            ctx.fillRect(4, -10, 8, 4);
+            ctx.fillStyle = '#000';
+            ctx.fillRect(11, -9, 2, 2);
+            ctx.fillStyle = gunAccent;
+            ctx.shadowColor = gunAccent;
+            ctx.shadowBlur = 6;
+            ctx.fillRect(11, -9, 1, 1);
+            ctx.shadowBlur = 0;
+        } else if (isMulti) {
+            // MULTI-SHOT (shotgun / scatter) — split barrel: top + bottom
+            ctx.fillStyle = gunPlate;
+            ctx.fillRect(20, -4, 6, 2);
+            ctx.fillRect(20, 2, 6, 2);
+            ctx.fillStyle = gunAccent;
+            ctx.shadowColor = gunAccent;
+            ctx.shadowBlur = 4;
+            ctx.fillRect(25, -3, 1, 1);
+            ctx.fillRect(25, 2, 1, 1);
+            ctx.shadowBlur = 0;
+        }
+        // GRIP — small wedge under the receiver
+        ctx.fillStyle = gunPlate;
+        ctx.beginPath();
+        ctx.moveTo(0, 5);
+        ctx.lineTo(6, 5);
+        ctx.lineTo(5, 11);
+        ctx.lineTo(1, 11);
+        ctx.closePath();
+        ctx.fill();
+        // Trigger guard — small loop
+        ctx.strokeStyle = gunHi;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(3, 8, 2.5, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.lineWidth = 1;
+        // MUZZLE FLASH — fires when shootCooldown is fresh. Layered for depth.
         if (player.shootCooldown > 6) {
+            const fSize = 5 + Math.random() * 3;
+            // Outer halo
+            ctx.fillStyle = gunAccent;
+            ctx.shadowColor = gunAccent;
+            ctx.shadowBlur = 18;
+            ctx.globalAlpha = 0.6;
+            ctx.beginPath();
+            ctx.arc(28, 0, fSize + 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            // Bright yellow burst
             ctx.fillStyle = '#ffffaa';
             ctx.shadowColor = '#ffff00';
-            ctx.shadowBlur = 10;
+            ctx.shadowBlur = 14;
             ctx.beginPath();
-            ctx.arc(15, 0, 4 + Math.random() * 2, 0, Math.PI * 2);
+            ctx.arc(28, 0, fSize, 0, Math.PI * 2);
             ctx.fill();
+            // White core
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(28, 0, fSize * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+            // Forward sparks
+            for (let s = 0; s < 3; s++) {
+                const sa = (Math.random() - 0.5) * 0.7;
+                const sl = 8 + Math.random() * 6;
+                ctx.strokeStyle = '#ffdd44';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(28, 0);
+                ctx.lineTo(28 + Math.cos(sa) * sl, Math.sin(sa) * sl);
+                ctx.stroke();
+            }
         }
         ctx.shadowBlur = 0;
         ctx.restore();
