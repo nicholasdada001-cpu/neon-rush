@@ -382,6 +382,47 @@
             const n = (playerName || '').trim().toLowerCase();
             return DEV_NAMES.includes(n);
         }
+
+        // Levenshtein distance — number of single-char edits to turn a into b.
+        // Used by suggestDevName() to detect typos of dev names. Tiny iterative
+        // implementation, O(a.length × b.length) with a single rolling row.
+        function levenshtein(a, b) {
+            if (a === b) return 0;
+            if (!a.length) return b.length;
+            if (!b.length) return a.length;
+            const prev = new Array(b.length + 1);
+            for (let j = 0; j <= b.length; j++) prev[j] = j;
+            for (let i = 1; i <= a.length; i++) {
+                let curDiag = prev[0];
+                prev[0] = i;
+                for (let j = 1; j <= b.length; j++) {
+                    const tmp = prev[j];
+                    if (a[i - 1] === b[j - 1]) {
+                        prev[j] = curDiag;
+                    } else {
+                        prev[j] = 1 + Math.min(prev[j], prev[j - 1], curDiag);
+                    }
+                    curDiag = tmp;
+                }
+            }
+            return prev[b.length];
+        }
+
+        // If the typed name is suspiciously close to a dev name, return the
+        // suggested correction. Threshold: ≤ 2 char edits OR 1 missing/extra
+        // letter on a short name (≤ 5 chars). Returns null if no near-match.
+        function suggestDevName(typed) {
+            const n = (typed || '').trim().toLowerCase();
+            if (!n) return null;
+            if (DEV_NAMES.includes(n)) return null;     // already correct
+            for (const dev of DEV_NAMES) {
+                const d = levenshtein(n, dev);
+                // Tighter threshold for short names so "bob" doesn't match "jax"
+                const maxAllowed = dev.length <= 4 ? 1 : 2;
+                if (d > 0 && d <= maxAllowed) return dev;
+            }
+            return null;
+        }
         const namePrompt = document.getElementById('name-prompt');
         const nameInput = document.getElementById('name-input');
         const nameSubmit = document.getElementById('name-submit');
@@ -394,6 +435,16 @@
                 nameInput.focus();
                 return;
             }
+            // Typo guard — if the typed name is 1-2 char edits from a dev
+            // name, offer a one-shot "Did you mean X?" before locking in.
+            // The flag prevents an infinite suggest loop on the same input.
+            if (!nameInput.dataset.suggestionShown) {
+                const suggestion = suggestDevName(val);
+                if (suggestion) {
+                    showNameSuggestion(val, suggestion);
+                    return;       // wait for user choice
+                }
+            }
             playerName = val;
             localStorage.setItem(PLAYER_NAME_KEY, playerName);
             namePrompt.style.display = 'none';
@@ -405,6 +456,69 @@
                     color: isDeveloper() ? '#ffaa44' : '#88ffdd'
                 };
             }
+        }
+
+        // "Did you mean X?" UI — shown when typed name is close-but-not-exact
+        // to a dev name. Two buttons: accept the suggestion, or keep typed
+        // exactly as-is. Either way, we move on after the choice (no second
+        // suggestion loop on the same input).
+        function showNameSuggestion(typed, suggested) {
+            // Find or create the suggestion container
+            let box = document.getElementById('name-suggestion');
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'name-suggestion';
+                box.style.cssText = `
+                    margin-top: 14px;
+                    padding: 10px 14px;
+                    background: rgba(255, 170, 68, 0.08);
+                    border: 1px solid #ffaa44;
+                    border-radius: 4px;
+                    color: #ffdd88;
+                    font-size: 12px;
+                    text-align: left;
+                `;
+                nameSubmit.parentNode.insertBefore(box, nameSubmit.nextSibling);
+            }
+            box.innerHTML = `
+                <div style="margin-bottom: 8px; color: #ffdd88;">
+                    Did you mean <strong style="color:#ffaa44">${suggested}</strong>?
+                </div>
+                <button id="name-accept-suggestion" type="button" style="
+                    background: #1a3a18;
+                    color: #88ffaa;
+                    border: 1px solid #44ff66;
+                    padding: 6px 14px;
+                    margin-right: 6px;
+                    font-family: 'Courier New', monospace;
+                    font-size: 11px;
+                    cursor: pointer;
+                    border-radius: 3px;
+                ">✓ Yes, use "${suggested}"</button>
+                <button id="name-reject-suggestion" type="button" style="
+                    background: #1a1a28;
+                    color: #aaa;
+                    border: 1px solid #555;
+                    padding: 6px 14px;
+                    font-family: 'Courier New', monospace;
+                    font-size: 11px;
+                    cursor: pointer;
+                    border-radius: 3px;
+                ">✗ Keep "${typed}"</button>
+            `;
+            // Wire the buttons. After either choice, set the suggestion-shown
+            // flag so dismissNamePrompt() skips the suggestion check next time.
+            document.getElementById('name-accept-suggestion').addEventListener('click', () => {
+                nameInput.value = suggested;
+                nameInput.dataset.suggestionShown = '1';
+                box.remove();
+                dismissNamePrompt();
+            });
+            document.getElementById('name-reject-suggestion').addEventListener('click', () => {
+                nameInput.dataset.suggestionShown = '1';
+                box.remove();
+                dismissNamePrompt();
+            });
         }
 
         if (playerName) {
