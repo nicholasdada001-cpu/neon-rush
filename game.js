@@ -29,6 +29,7 @@ let critFlash = 0;        // gold overlay on crit hits
 let hitStop = 0;          // frames of hitstop (paused gameplay) for impact
 let bgStars = [];         // procedural parallax stars behind levels
 let shockwaves = [];      // expanding rings on big explosions / crits
+let lightningBolts = [];  // persistent sky-strike visuals (LIGHTNING GUN impact)
 let evoTransform = null;  // active evolution transformation cinematic { fromLevel, toLevel, timer, duration }
 let bossDefeatCutscene = null;  // post-boss victory dialogue { lines, idx, timer, nextState }
 let throneCutscene = null;  // Omega throne stand-up cinematic before final boss dialogue
@@ -6385,8 +6386,9 @@ function updateBullets() {
                 }
                 // LIGHTNING STRIKE — bullet acts as a marker. On hit, a
                 // bolt crashes down from above onto the enemy's position
-                // and damages everything in a radius. Visual: vertical
-                // zigzag line from the top of screen to ground at impact.
+                // and damages everything in a radius. The persistent bolt
+                // sprite lives in lightningBolts[] for ~14 frames so the
+                // strike is clearly visible (was particles-only — easy to miss).
                 if (b.lightningStrike) {
                     const sx = e.x + e.w / 2;
                     const sy = e.y + e.h / 2;
@@ -6404,25 +6406,27 @@ function updateBullets() {
                             if (e2.hp <= 0) handleEnemyKilled(e2, ei);
                         }
                     }
-                    // Visual: zigzag bolt from sky to impact, plus shockwave + flash
-                    const segs = 14;
-                    const topY = sy - 600;
-                    let lx = sx;
+                    // Generate a zigzag bolt path top-of-camera → impact
+                    const bolt = {
+                        impactX: sx, impactY: sy, life: 14, maxLife: 14,
+                        radius, segments: []
+                    };
+                    const segs = 12;
+                    const topY = sy - 700;
                     for (let s = 0; s <= segs; s++) {
                         const t = s / segs;
-                        const px = sx + (Math.random() - 0.5) * 24;
-                        const py = topY + (sy - topY) * t;
-                        spawnParticles(px, py, '#ffffff', 2, 1);
-                        spawnParticles(px, py, '#ffff44', 1, 1);
-                        lx = px;
+                        bolt.segments.push({
+                            x: sx + (Math.random() - 0.5) * 30 * (1 - t),
+                            y: topY + (sy - topY) * t
+                        });
                     }
+                    lightningBolts.push(bolt);
                     spawnShockwave(sx, sy, radius, '#ffff44');
                     spawnShockwave(sx, sy, radius * 1.3, '#aaeeff');
-                    // Burst at impact + screen shake/flash
-                    spawnParticles(sx, sy, '#ffff44', 24, 5);
-                    spawnParticles(sx, sy, '#ffffff', 18, 4);
-                    screenShake = Math.max(screenShake, 12);
-                    if (typeof critFlash !== 'undefined') critFlash = Math.min(1, critFlash + 0.4);
+                    spawnParticles(sx, sy, '#ffff44', 30, 6);
+                    spawnParticles(sx, sy, '#ffffff', 20, 4);
+                    screenShake = Math.max(screenShake, 14);
+                    if (typeof critFlash !== 'undefined') critFlash = Math.min(1, critFlash + 0.45);
                     if (typeof audio !== 'undefined' && audio.play) audio.play('explosion', { throttle: 80 });
                 }
                 if (b.pierce) {
@@ -15597,6 +15601,53 @@ function drawShockwaves() {
         ctx.arc(s.x - camera.x, s.y - camera.y, s.r * 0.7, 0, Math.PI * 2);
         ctx.stroke();
         ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+}
+
+// Render persistent sky-strike bolts from the LIGHTNING GUN. Each bolt is
+// a zigzag line from offscreen-top to the impact point, fading over ~14
+// frames. Drawn in world space so the camera scrolls with them.
+function drawLightningBolts() {
+    if (!lightningBolts || !lightningBolts.length) return;
+    for (let i = lightningBolts.length - 1; i >= 0; i--) {
+        const bolt = lightningBolts[i];
+        bolt.life--;
+        const a = Math.max(0, bolt.life / bolt.maxLife);
+        ctx.save();
+        // Outer glow stroke
+        ctx.globalAlpha = a;
+        ctx.strokeStyle = '#ffff44';
+        ctx.shadowColor = '#ffff88';
+        ctx.shadowBlur = 22;
+        ctx.lineWidth = 8;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        for (let s = 0; s < bolt.segments.length; s++) {
+            const seg = bolt.segments[s];
+            const sx = seg.x - camera.x;
+            const sy = seg.y - camera.y;
+            if (s === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+        }
+        ctx.stroke();
+        // Bright white core
+        ctx.shadowBlur = 12;
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (let s = 0; s < bolt.segments.length; s++) {
+            const seg = bolt.segments[s];
+            const sx = seg.x - camera.x;
+            const sy = seg.y - camera.y;
+            if (s === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+        }
+        ctx.stroke();
+        ctx.restore();
+        if (bolt.life <= 0) lightningBolts.splice(i, 1);
     }
     ctx.globalAlpha = 1;
     ctx.shadowBlur = 0;
@@ -25304,6 +25355,7 @@ function gameLoop(timestamp) {
     drawStageHazards();
     drawParticles();
     drawShockwaves();
+    drawLightningBolts();
     drawDamageNumbers();
 
     // Atmospheric fog overlay (PS-style depth)
