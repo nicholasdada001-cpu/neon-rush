@@ -909,10 +909,10 @@ const WEAPONS = [
     },
     {
         name: 'ICE BLAST', tier: 19, shopOnly: true, cost: 480,
-        damage: 12, speed: 22, cooldown: 12, bullets: 1, spread: 0.02,
+        damage: 10, speed: 22, cooldown: 8, bullets: 1, spread: 0.02,
         color: '#aaeeff', glow: '#66ccff', size: 7, life: 70, pierce: true,
         slow: true, slowFactor: 0.35, slowDur: 90, ice: true, beam: true,
-        flavor: 'Freeze ray beam. Slow fire, hard freeze, pierces.'
+        flavor: 'Freeze ray beam. Steady fire, hard freeze, pierces.'
     },
     {
         name: 'RAILGUN', tier: 20, shopOnly: true, cost: 720,
@@ -922,14 +922,14 @@ const WEAPONS = [
     },
     {
         name: 'ACID GUN', tier: 21, shopOnly: true, cost: 540,
-        damage: 5, speed: 9, cooldown: 8, bullets: 1, spread: 0.18,
+        damage: 4, speed: 9, cooldown: 5, bullets: 1, spread: 0.18,
         color: '#88ff44', glow: '#44ff00', size: 9, life: 45,
         burn: true, burnDmg: 6, burnDur: 120, acid: true,
         flavor: 'Corrosive globs. Eats armor, melts metal slowly.'
     },
     {
         name: 'WATER GUN', tier: 22, shopOnly: true, cost: 380,
-        damage: 3, speed: 11, cooldown: 6, bullets: 1, spread: 0.14,
+        damage: 2, speed: 11, cooldown: 4, bullets: 1, spread: 0.14,
         color: '#88ccff', glow: '#44aaff', size: 8, life: 50,
         slow: true, slowFactor: 0.55, slowDur: 60, water: true,
         flavor: 'Pressurized stream. Short-circuits enemies briefly.'
