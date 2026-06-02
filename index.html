@@ -342,6 +342,18 @@
             <button class="util-btn" data-util="killboss">KILL BOSS</button>
             <button class="util-btn" data-util="unlockall">UNLOCK ALL</button>
         </div>
+        <!-- New weapons quick-give buttons. UNLOCK ALL already grants tiers
+             24 + 25, but these buttons also EQUIP them so the kid can spam
+             them right away without cycling through the weapon list. -->
+        <div class="row" style="margin-top: 6px;">
+            <button class="util-btn" data-util="giveJax" style="border-color:#ffffff;color:#ffffff">⚽ JAX BLASTER</button>
+            <button class="util-btn" data-util="giveMicah" style="border-color:#88ff88;color:#88ff88">⛏ MICAH MINECRAFTER</button>
+        </div>
+        <div class="row">
+            <button class="util-btn" data-util="giveDaggers" style="font-size:9px">DAGGERS</button>
+            <button class="util-btn" data-util="giveHammer" style="font-size:9px">HAMMER</button>
+            <button class="util-btn" data-util="giveScythe" style="font-size:9px">SCYTHE</button>
+        </div>
         <div class="row">
             <button class="util-btn" data-util="resetsave" style="border-color:#ff3366;color:#ff6688">⚠ RESET SAVE</button>
         </div>
@@ -781,9 +793,63 @@
                         for (let i = 0; i < player.weaponsUnlocked.length; i++) {
                             player.weaponsUnlocked[i] = true;
                         }
+                        // Also unlock + record-but-don't-equip the new melee weapons
+                        if (player.meleeWeaponsUnlocked) {
+                            player.meleeWeaponsUnlocked.knife = true;
+                            player.meleeWeaponsUnlocked.katana = true;
+                            player.meleeWeaponsUnlocked.saber = true;
+                            player.meleeWeaponsUnlocked.daggers = true;
+                            player.meleeWeaponsUnlocked.hammer = true;
+                            player.meleeWeaponsUnlocked.scythe = true;
+                        }
                         for (const c of CHARACTERS) c.unlocked = true;
                         player.coins += 5000;
                         player.robotCoins += 100;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: 'ALL WEAPONS UNLOCKED', timer: 90, color: '#ffaa44' };
+                        }
+                        break;
+                    // ===== Quick-give buttons for the new weapons =====
+                    // Each unlocks + equips the weapon so it's immediately usable.
+                    // Closes the dev panel after so the kid can play right away.
+                    case 'giveJax':
+                        player.weaponsUnlocked[24] = true;
+                        player.weaponTier = 24;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '⚽ JAX BLASTER equipped!', timer: 120, color: '#ffffff' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'giveMicah':
+                        player.weaponsUnlocked[25] = true;
+                        player.weaponTier = 25;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '⛏ MICAH MINECRAFTER equipped!', timer: 120, color: '#88ff88' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'giveDaggers':
+                        if (player.meleeWeaponsUnlocked) player.meleeWeaponsUnlocked.daggers = true;
+                        player.activeMelee = 'daggers';
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: 'DUAL DAGGERS equipped (G to swing)', timer: 120, color: '#ff8844' };
+                        }
+                        break;
+                    case 'giveHammer':
+                        if (player.meleeWeaponsUnlocked) player.meleeWeaponsUnlocked.hammer = true;
+                        player.activeMelee = 'hammer';
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: 'WAR HAMMER equipped (G to swing)', timer: 120, color: '#ff6600' };
+                        }
+                        break;
+                    case 'giveScythe':
+                        if (player.meleeWeaponsUnlocked) player.meleeWeaponsUnlocked.scythe = true;
+                        player.activeMelee = 'scythe';
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: 'PHANTOM SCYTHE equipped (G to swing)', timer: 120, color: '#aa00ff' };
+                        }
                         break;
                     case 'resetsave':
                         // Wipe persisted save (unlocks, audio settings, meta stats)
