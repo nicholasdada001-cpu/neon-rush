@@ -913,6 +913,12 @@ const WEAPONS = [
         color: '#aaeeff', glow: '#66ccff', size: 6, life: 60,
         slow: true, slowFactor: 0.35, slowDur: 90, ice: true, beam: true,
         flavor: 'Continuous freeze ray. Locks enemies in place.'
+    },
+    {
+        name: 'RAILGUN', tier: 20, shopOnly: true, cost: 720,
+        damage: 130, speed: 32, cooldown: 50, bullets: 1, spread: 0,
+        color: '#ddeeff', glow: '#4488ff', size: 9, life: 200, pierce: true,
+        flavor: 'Magnetic coil rifle. Slow charge, devastating pierce.'
     }
 ];
 
@@ -1154,7 +1160,7 @@ const player = {
     evoLevel: 0,              // 0 = base, 1 = MK-II, 2 = MK-III, 3 = OMEGA FORM
     bulletDamage: 0,         // additive damage bonus (from "Damage +5" upgrade)
     weaponTier: 0,            // index into WEAPONS (currently equipped)
-    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
+    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
     maxJumpsBonus: 0,         // extra jumps from upgrades
     fireRateMul: 1,           // < 1 = faster
     dmgMul: 1,                // damage multiplier from character
@@ -1221,6 +1227,7 @@ const SHOP_ITEMS = [
     { key: 'V', name: 'Buy: CHAOS MORTAR',   cost: 700, action: p => { p.weaponsUnlocked[17] = true; p.weaponTier = 17; }, weapon: 17 },
     { key: 'B', name: 'Buy: SOUL CANNON',    cost: 950, action: p => { p.weaponsUnlocked[18] = true; p.weaponTier = 18; }, weapon: 18 },
     { key: 'Z', name: 'Buy: ICE BLAST',      cost: 480, action: p => { p.weaponsUnlocked[19] = true; p.weaponTier = 19; }, weapon: 19 },
+    { key: 'Q', name: 'Buy: RAILGUN',        cost: 720, action: p => { p.weaponsUnlocked[20] = true; p.weaponTier = 20; }, weapon: 20 },
     { key: 'N', name: 'Buy: BFG-9000',       cost: 800, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
     { key: 'M', name: 'Switch Weapon ▶',     cost: 0,   action: p => { switchWeapon(p); }, repeatable: true, switcher: true },
     { key: 'L', name: 'EVOLVE',              cost: 0,   action: p => { evolvePlayer(p); }, evolution: true },
@@ -18524,7 +18531,7 @@ function restart() {
     player.scrap = 0;
     player.bulletDamage = 0;
     player.weaponTier = 0;
-    player.weaponsUnlocked = [true, false, false, false, false, false];
+    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
     player.maxJumpsBonus = 0;
     player.fireRateMul = 1;
     player.speed = 3.2;
@@ -24747,7 +24754,7 @@ function gameLoop(timestamp) {
         player.scrap = 0;
         player.bulletDamage = 0;
         player.weaponTier = 0;
-        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
         player.maxJumpsBonus = 0;
         player.fireRateMul = 1;
         player.perfectDodgeTimer = 0;
