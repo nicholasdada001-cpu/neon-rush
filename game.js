@@ -936,10 +936,10 @@ const WEAPONS = [
     },
     {
         name: 'LIGHTNING GUN', tier: 23, shopOnly: true, cost: 620,
-        damage: 18, speed: 26, cooldown: 14, bullets: 1, spread: 0.05,
-        color: '#aaeeff', glow: '#ffff44', size: 8, life: 90, pierce: true,
-        lightning: true, chainDmg: 12, chainRadius: 200, chainCount: 3,
-        flavor: 'Chain bolt. Zaps up to 3 nearby enemies on hit.'
+        damage: 22, speed: 26, cooldown: 28, bullets: 1, spread: 0.04,
+        color: '#aaeeff', glow: '#ffff44', size: 8, life: 100, pierce: false,
+        lightningStrike: true, strikeDmg: 80, strikeRadius: 110,
+        flavor: 'Marker shot. On hit, a sky lightning strike crashes down.'
     }
 ];
 
@@ -6379,53 +6379,47 @@ function updateBullets() {
                     // Water vs robot bonus
                     dmg = Math.round(dmg * 1.5);
                 }
-                // LIGHTNING weapons chain — bolt jumps from the hit enemy
-                // to up to chainCount nearby enemies, dealing chainDmg each.
-                // Tracks already-hit set so the same enemy isn't zapped twice
-                // on one shot. Visualized as a zigzag arc particle trail.
-                if (b.lightning) {
-                    const radius = b.chainRadius || 200;
-                    const chainCount = b.chainCount || 3;
-                    const chainDmg = b.chainDmg || 12;
-                    const hit = new Set([e]);
-                    let lastE = e;
-                    for (let c = 0; c < chainCount; c++) {
-                        // Find nearest unhit enemy within radius of lastE
-                        let bestE = null;
-                        let bestD = radius * radius;
-                        for (const otherE of enemies) {
-                            if (otherE === lastE || hit.has(otherE) || otherE.hp <= 0) continue;
-                            const ddx = (otherE.x + otherE.w / 2) - (lastE.x + lastE.w / 2);
-                            const ddy = (otherE.y + otherE.h / 2) - (lastE.y + lastE.h / 2);
-                            const d2 = ddx * ddx + ddy * ddy;
-                            if (d2 < bestD) { bestD = d2; bestE = otherE; }
+                // LIGHTNING STRIKE — bullet acts as a marker. On hit, a
+                // bolt crashes down from above onto the enemy's position
+                // and damages everything in a radius. Visual: vertical
+                // zigzag line from the top of screen to ground at impact.
+                if (b.lightningStrike) {
+                    const sx = e.x + e.w / 2;
+                    const sy = e.y + e.h / 2;
+                    const radius = b.strikeRadius || 110;
+                    const strikeDmg = b.strikeDmg || 80;
+                    // Damage all enemies in radius (including the impact target)
+                    for (let ei = enemies.length - 1; ei >= 0; ei--) {
+                        const e2 = enemies[ei];
+                        const ddx = (e2.x + e2.w / 2) - sx;
+                        const ddy = (e2.y + e2.h / 2) - sy;
+                        if (ddx * ddx + ddy * ddy < radius * radius) {
+                            e2.hp -= strikeDmg;
+                            e2.waterShockTimer = Math.max(e2.waterShockTimer || 0, 40);
+                            spawnDamageNumber(e2.x + e2.w / 2, e2.y, strikeDmg, 'crit');
+                            if (e2.hp <= 0) handleEnemyKilled(e2, ei);
                         }
-                        if (!bestE) break;
-                        // Damage chain target
-                        bestE.hp -= chainDmg;
-                        bestE.waterShockTimer = Math.max(bestE.waterShockTimer || 0, 30);
-                        // Spawn arc particles along the line — gives the
-                        // visible "lightning jumped" feel
-                        const sx = lastE.x + lastE.w / 2;
-                        const sy = lastE.y + lastE.h / 2;
-                        const ex = bestE.x + bestE.w / 2;
-                        const ey = bestE.y + bestE.h / 2;
-                        const segs = 6;
-                        for (let s = 0; s <= segs; s++) {
-                            const t = s / segs;
-                            const lx = sx + (ex - sx) * t + (Math.random() - 0.5) * 18;
-                            const ly = sy + (ey - sy) * t + (Math.random() - 0.5) * 14;
-                            spawnParticles(lx, ly, '#ffff44', 1, 1);
-                        }
-                        spawnParticles(ex, ey, '#aaeeff', 6, 4);
-                        spawnDamageNumber(ex, bestE.y, chainDmg, 'normal');
-                        if (bestE.hp <= 0) {
-                            const idx = enemies.indexOf(bestE);
-                            if (idx >= 0) handleEnemyKilled(bestE, idx);
-                        }
-                        hit.add(bestE);
-                        lastE = bestE;
                     }
+                    // Visual: zigzag bolt from sky to impact, plus shockwave + flash
+                    const segs = 14;
+                    const topY = sy - 600;
+                    let lx = sx;
+                    for (let s = 0; s <= segs; s++) {
+                        const t = s / segs;
+                        const px = sx + (Math.random() - 0.5) * 24;
+                        const py = topY + (sy - topY) * t;
+                        spawnParticles(px, py, '#ffffff', 2, 1);
+                        spawnParticles(px, py, '#ffff44', 1, 1);
+                        lx = px;
+                    }
+                    spawnShockwave(sx, sy, radius, '#ffff44');
+                    spawnShockwave(sx, sy, radius * 1.3, '#aaeeff');
+                    // Burst at impact + screen shake/flash
+                    spawnParticles(sx, sy, '#ffff44', 24, 5);
+                    spawnParticles(sx, sy, '#ffffff', 18, 4);
+                    screenShake = Math.max(screenShake, 12);
+                    if (typeof critFlash !== 'undefined') critFlash = Math.min(1, critFlash + 0.4);
+                    if (typeof audio !== 'undefined' && audio.play) audio.play('explosion', { throttle: 80 });
                 }
                 if (b.pierce) {
                     b.hitEnemies.add(e);
