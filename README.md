@@ -31,7 +31,8 @@ start index.html       # Windows
 | `R` | Evolution ability |
 | `X` | Transform to vehicle / back to robot |
 | `TAB` | Swap character |
-| `E` | Open shop / use ⚒ craft bench / use ⚕ healing station |
+| `E` | Open shop / use ⚒ craft bench / use ⚕ healing station / **cut wire** at terminals |
+| `,` / `.` | **Cycle weapons** (previous / next) |
 | `M` | Mute / unmute audio |
 | `ENTER` | Start / advance dialogue |
 | `L` (in shop) | Evolve (costs Robot Coins) |
