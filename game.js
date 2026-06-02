@@ -820,8 +820,8 @@ const WEAPONS = [
         name: 'FROST CANNON',  tier: 5,
         damage: 36, speed: 14, cooldown: 19, bullets: 1, spread: 0,
         color: '#aaeeff', glow: '#66ccff', size: 11, life: 100, pierce: true,
-        slow: true, slowFactor: 0.5, slowDur: 70,
-        flavor: 'Pierces and slows enemies.'
+        slow: true, slowFactor: 0.5, slowDur: 70, ice: true,
+        flavor: 'Pierces, freezes, and slows enemies.'
     },
     {
         name: 'VOID PIERCER',  tier: 6,
@@ -6175,6 +6175,15 @@ function updateBullets() {
                     e.slowTimer = b.slowDur || 90;
                     e.slowFactor = b.slowFactor || 0.4;
                 }
+                // ICE weapons freeze enemies — short hard-stop (e.frozen) plus
+                // a longer slow when they unfreeze. Visible ice overlay during
+                // frozen state. Note: bosses/minibosses get a much shorter
+                // freeze so they're not trivialized.
+                if (b.ice) {
+                    const isBoss = e.type === 'boss' || e.type === 'miniboss';
+                    e.frozen = Math.max(e.frozen || 0, isBoss ? 8 : 30);
+                    e.iceFrostTimer = Math.max(e.iceFrostTimer || 0, isBoss ? 30 : 90);
+                }
                 if (b.pierce) {
                     b.hitEnemies.add(e);
                 } else {
@@ -6536,17 +6545,27 @@ function updateEnemies() {
     }
 
     for (const e of enemies) {
-        // Apply burn DOT
+        // Tick ice-frost timer (visual + counts as "iced" state)
+        if (e.iceFrostTimer > 0) e.iceFrostTimer--;
+        // Apply burn DOT (more visible flame particles, not just the small ones)
         if (e.burnTimer > 0) {
             e.burnTimer--;
+            // DOT damage tick every 15f
             if (e.burnTimer % 15 === 0) {
                 e.hp -= e.burnDamage || 4;
-                spawnParticles(e.x + e.w/2 + (Math.random() - 0.5) * e.w, e.y + e.h/2, '#ff6622', 2, 1);
                 if (e.hp <= 0) {
                     const idx = enemies.indexOf(e);
                     if (idx >= 0) handleEnemyKilled(e, idx);
                     continue;
                 }
+            }
+            // VISIBLE FIRE — emit flame particles every frame from the body
+            // so burning enemies are clearly on fire (was only on DOT ticks).
+            if (e.burnTimer % 2 === 0) {
+                const fx = e.x + e.w * 0.2 + Math.random() * e.w * 0.6;
+                const fy = e.y + e.h * 0.15 + Math.random() * e.h * 0.7;
+                const flameC = ['#ff8800', '#ffaa00', '#ff4400', '#ffdd44'][Math.floor(Math.random() * 4)];
+                spawnParticles(fx, fy, flameC, 1, 2);
             }
         }
         // Skip AI updates if frozen
@@ -14439,6 +14458,83 @@ function drawEnemies() {
                 ctx.lineTo(ex + corner[0] + 3, ey + corner[1] + 2);
                 ctx.closePath();
                 ctx.fill();
+            }
+            ctx.restore();
+        }
+
+        // BURNING overlay — visible orange tint + flame flicker on top of the
+        // enemy whenever burnTimer > 0. Applies to ALL enemies (mobs, boss,
+        // mini-boss). Reads as "this enemy is on fire right now."
+        if (e.burnTimer > 0) {
+            ctx.save();
+            ctx.shadowBlur = 0;
+            const burnFrac = Math.min(1, e.burnTimer / 60);
+            ctx.globalAlpha = 0.25 * burnFrac;
+            ctx.fillStyle = '#ff4400';
+            ctx.fillRect(ex - 1, ey - 1, e.w + 2, e.h + 2);
+            // Flame tongues licking up off the top edge (3-4 random little flames)
+            ctx.globalAlpha = 0.85 * burnFrac;
+            ctx.shadowColor = '#ff8800';
+            ctx.shadowBlur = 12;
+            for (let f = 0; f < 4; f++) {
+                const fx = ex + e.w * (0.15 + 0.7 * (f / 3)) + (Math.random() - 0.5) * 4;
+                const fy = ey - (4 + Math.random() * 8);
+                const fr = 4 + Math.random() * 3;
+                ctx.fillStyle = ['#ff8800', '#ffaa00', '#ffdd44'][Math.floor(Math.random() * 3)];
+                ctx.beginPath();
+                ctx.arc(fx, fy, fr, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            // Inner white core flicker on body
+            ctx.globalAlpha = 0.4 * burnFrac;
+            ctx.fillStyle = '#ffdd44';
+            ctx.fillRect(ex + 4, ey + e.h - 6, e.w - 8, 3);
+            ctx.restore();
+        }
+
+        // ICED / FROZEN overlay — when an ice weapon hit recently. Cyan tint
+        // + ice shard outlines around the enemy. Applies to ALL enemies.
+        // (separate from arctic frozenEnemy variant above — this is temporary.)
+        if (e.iceFrostTimer > 0) {
+            ctx.save();
+            ctx.shadowBlur = 0;
+            const iceFrac = Math.min(1, e.iceFrostTimer / 60);
+            // Cyan body tint
+            ctx.globalAlpha = 0.42 * iceFrac;
+            ctx.fillStyle = '#88ddff';
+            ctx.fillRect(ex - 1, ey - 1, e.w + 2, e.h + 2);
+            // Ice shard outline — angular crystal-like spikes at top + sides
+            ctx.globalAlpha = 0.85 * iceFrac;
+            ctx.shadowColor = '#aaeeff';
+            ctx.shadowBlur = 14;
+            ctx.fillStyle = '#ddffff';
+            const shards = [
+                [e.w * 0.3, -1, e.w * 0.5, -8, e.w * 0.4, -1],         // top-left shard
+                [e.w * 0.6, -1, e.w * 0.75, -10, e.w * 0.7, -1],        // top-right shard
+                [-1, e.h * 0.4, -7, e.h * 0.5, -1, e.h * 0.55],         // left shard
+                [e.w + 1, e.h * 0.4, e.w + 8, e.h * 0.5, e.w + 1, e.h * 0.55] // right shard
+            ];
+            for (const sh of shards) {
+                ctx.beginPath();
+                ctx.moveTo(ex + sh[0], ey + sh[1]);
+                ctx.lineTo(ex + sh[2], ey + sh[3]);
+                ctx.lineTo(ex + sh[4], ey + sh[5]);
+                ctx.closePath();
+                ctx.fill();
+            }
+            // Frost glow rim
+            ctx.globalAlpha = 0.7 * iceFrac;
+            ctx.strokeStyle = '#aaeeff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(ex - 1, ey - 1, e.w + 2, e.h + 2);
+            // FROZEN label tag if currently hard-stopped
+            if (e.frozen > 0) {
+                ctx.globalAlpha = iceFrac;
+                ctx.fillStyle = '#88ddff';
+                ctx.font = 'bold 10px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText('❄ FROZEN', ex + e.w / 2, ey - 14);
+                ctx.textAlign = 'left';
             }
             ctx.restore();
         }
