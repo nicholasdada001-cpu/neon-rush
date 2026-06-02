@@ -2079,8 +2079,12 @@ const MINECRAFT_BLOCK_DEFS = {
 // Predictable summon queue — instead of random per shot, MICAH MINECRAFTER
 // rotates deterministically through a "playlist" so the player can plan
 // around what's coming next. The HUD preview reads from minecraftQueue[0].
-//   each entry: { type: 'mob'|'block', kind: 'zombie'|... }
+//   each entry: { type: 'mob'|'block'|'spawner', kind: 'zombie'|... }
 let minecraftQueue = [];
+// Active mob spawners placed by the gun. Each spawner ticks down a
+// timer and pops a friendly mob until its budget runs out, then crumbles.
+//   { kind, x, y, w, h, timer, spawnsLeft, totalBudget, life, anim }
+let minecraftSpawners = [];
 // Monotonic counter — increments every time we push to the queue. Drives
 // the rotation pattern. Stored separately from minecraftQueue.length so
 // it doesn't reset when items are shifted off the front. (Earlier bug:
@@ -2094,22 +2098,26 @@ let minecraftQueueCursor = 0;
 // non-boss mobs + 4 blocks. Boss-tier mobs (wither/enderdragon) are
 // inserted via a separate 10% rare-roll on each shot, NOT this rotation.
 const MINECRAFT_ROTATION = [
-    { type: 'mob',   kind: 'zombie'   },
-    { type: 'mob',   kind: 'skeleton' },
-    { type: 'block', kind: 'dirt'     },
-    { type: 'mob',   kind: 'wolf'     },
-    { type: 'mob',   kind: 'creeper'  },
-    { type: 'block', kind: 'stone'    },
-    { type: 'mob',   kind: 'enderman' },
-    { type: 'mob',   kind: 'zombie'   },
-    { type: 'mob',   kind: 'blaze'    },
-    { type: 'block', kind: 'oak'      },
-    { type: 'mob',   kind: 'skeleton' },
-    { type: 'mob',   kind: 'wolf'     },
-    { type: 'mob',   kind: 'enderman' },
-    { type: 'mob',   kind: 'creeper'  },
-    { type: 'block', kind: 'stone'    },
-    { type: 'mob',   kind: 'golem'    }
+    { type: 'mob',     kind: 'zombie'   },
+    { type: 'mob',     kind: 'skeleton' },
+    { type: 'spawner', kind: 'zombie'   },     // mini-spawner pumps zombies
+    { type: 'block',   kind: 'dirt'     },
+    { type: 'mob',     kind: 'wolf'     },
+    { type: 'mob',     kind: 'creeper'  },
+    { type: 'spawner', kind: 'wolf'     },     // wolf pack spawner
+    { type: 'block',   kind: 'stone'    },
+    { type: 'mob',     kind: 'enderman' },
+    { type: 'mob',     kind: 'zombie'   },
+    { type: 'mob',     kind: 'blaze'    },
+    { type: 'spawner', kind: 'skeleton' },     // skeleton archer nest
+    { type: 'block',   kind: 'oak'      },
+    { type: 'mob',     kind: 'skeleton' },
+    { type: 'mob',     kind: 'wolf'     },
+    { type: 'mob',     kind: 'enderman' },
+    { type: 'mob',     kind: 'creeper'  },
+    { type: 'spawner', kind: 'enderman' },     // ender hive
+    { type: 'block',   kind: 'stone'    },
+    { type: 'mob',     kind: 'golem'    }
 ];
 
 function ensureMinecraftQueue() {
@@ -2156,6 +2164,8 @@ function spawnMinecraftSummon(originX, originY, dirX, dirY) {
         const off = (n - 1) * 26;
         if (next.type === 'mob') {
             spawnMinecraftMob(next.kind, originX + dirX * 40 + off, originY - 10, dirX, !!next.rare);
+        } else if (next.type === 'spawner') {
+            spawnMinecraftSpawner(next.kind, originX + dirX * 80 + off, originY + 30);
         } else {
             spawnMinecraftBlockAt(next.kind, originX + dirX * 80 + off, originY + 30);
         }
@@ -2223,8 +2233,67 @@ function spawnMinecraftBlockAt(kind, bx, by) {
     }
 }
 
+// Mob spawner — places an iron-cage block that periodically pops out a
+// mob of the given kind. Has a fuel budget (5 spawns) and a lifespan
+// (~12s); whichever runs out first kills the spawner. Emits a fire spark
+// every spawn cycle for visual feedback.
+function spawnMinecraftSpawner(kind, bx, by) {
+    const def = MINECRAFT_MOB_DEFS[kind];
+    if (!def) return;
+    const w = 44, h = 44;
+    bx = Math.round(bx - w / 2);
+    by = Math.round(by);
+    minecraftSpawners.push({
+        kind: kind, def: def,
+        x: bx, y: by, w: w, h: h,
+        spawnTimer: 90,         // first spawn delay
+        cooldown: 110,           // ticks between spawns
+        spawnsLeft: 5,
+        totalBudget: 5,
+        life: 720,               // ~12s safety cap
+        anim: 0,                 // mini-mob spin angle
+        shake: 0
+    });
+    spawnParticles(bx + w / 2, by + h / 2, def.color, 18, 6);
+    spawnParticles(bx + w / 2, by + h / 2, '#ffaa00', 14, 5);
+    spawnShockwave(bx + w / 2, by + h / 2, 80, def.accent);
+    if (typeof shopMessage !== 'undefined') {
+        shopMessage = {
+            text: `${kind.toUpperCase()} SPAWNER PLACED`,
+            timer: 90,
+            color: def.accent
+        };
+    }
+}
+
 function updateMinecraftSummons() {
     if (gameState !== 'playing' && gameState !== 'spaceBattle') return;
+
+    // === SPAWNERS ===
+    // Tick each spawner; pop a mob when its cooldown runs out, expire when
+    // budget OR life runs out, then crumble with particles.
+    for (let i = minecraftSpawners.length - 1; i >= 0; i--) {
+        const s = minecraftSpawners[i];
+        s.life--;
+        s.anim += 0.08;
+        s.spawnTimer--;
+        if (s.spawnTimer <= 0 && s.spawnsLeft > 0) {
+            // Pop a mob upward out of the cage
+            const dirX = player.x > s.x ? 1 : -1;
+            spawnMinecraftMob(s.kind, s.x + s.w / 2, s.y - 6, dirX, false);
+            spawnParticles(s.x + s.w / 2, s.y + 6, s.def.accent, 16, 6);
+            spawnParticles(s.x + s.w / 2, s.y + 6, '#ffaa00', 10, 4);
+            s.shake = 6;
+            s.spawnsLeft--;
+            s.spawnTimer = s.cooldown;
+        }
+        if (s.shake > 0) s.shake--;
+        if (s.spawnsLeft <= 0 || s.life <= 0) {
+            spawnParticles(s.x + s.w / 2, s.y + s.h / 2, '#777', 24, 7);
+            spawnParticles(s.x + s.w / 2, s.y + s.h / 2, s.def.color, 16, 5);
+            minecraftSpawners.splice(i, 1);
+        }
+    }
 
     // === BLOCKS ===
     for (let i = minecraftBlocks.length - 1; i >= 0; i--) {
@@ -2508,6 +2577,69 @@ function updateMinecraftSummons() {
 }
 
 function drawMinecraftSummons() {
+    // === SPAWNERS first (behind blocks/mobs) ===
+    for (const s of minecraftSpawners) {
+        const sx = Math.round(s.x - camera.x + (s.shake ? (Math.random() - 0.5) * s.shake : 0));
+        const sy = Math.round(s.y - camera.y);
+        ctx.save();
+        // Iron-cage block body — dark gray w/ bar grid
+        ctx.fillStyle = '#3a3a3a';
+        ctx.fillRect(sx, sy, s.w, s.h);
+        ctx.fillStyle = '#555';
+        ctx.fillRect(sx + 2, sy + 2, s.w - 4, s.h - 4);
+        // Outer iron bars
+        ctx.strokeStyle = '#222';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(sx + 0.5, sy + 0.5, s.w - 1, s.h - 1);
+        // Inner bar grid (cage feel)
+        ctx.strokeStyle = '#1a1a1a';
+        ctx.lineWidth = 1.5;
+        for (let bx = 8; bx < s.w - 4; bx += 8) {
+            ctx.beginPath();
+            ctx.moveTo(sx + bx, sy + 4);
+            ctx.lineTo(sx + bx, sy + s.h - 4);
+            ctx.stroke();
+        }
+        // Glowing fire backdrop inside the cage (orange flicker)
+        const flick = 0.7 + Math.sin(s.anim * 4) * 0.3;
+        ctx.fillStyle = `rgba(255, 120, 30, ${flick * 0.5})`;
+        ctx.shadowColor = '#ff8800';
+        ctx.shadowBlur = 14;
+        ctx.fillRect(sx + 6, sy + 6, s.w - 12, s.h - 12);
+        ctx.shadowBlur = 0;
+        // Mini spinning mob inside the cage — uses a small color block
+        // with the def's color so it reads which kind will spawn.
+        const cxc = sx + s.w / 2;
+        const cyc = sy + s.h / 2;
+        const spinR = 8 + Math.sin(s.anim * 3) * 2;
+        ctx.save();
+        ctx.translate(cxc, cyc);
+        ctx.rotate(s.anim);
+        ctx.fillStyle = s.def.color;
+        ctx.shadowColor = s.def.accent;
+        ctx.shadowBlur = 10;
+        ctx.fillRect(-spinR / 2, -spinR / 2, spinR, spinR);
+        // Eye dots so it reads as a mob, not just a square
+        ctx.fillStyle = s.def.accent;
+        ctx.fillRect(-spinR / 2 + 2, -spinR / 2 + 2, 1.5, 1.5);
+        ctx.fillRect(spinR / 2 - 3, -spinR / 2 + 2, 1.5, 1.5);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+        // HP-style remaining-spawns gauge along the bottom
+        const gauge = s.spawnsLeft / s.totalBudget;
+        ctx.fillStyle = '#222';
+        ctx.fillRect(sx, sy + s.h + 2, s.w, 4);
+        ctx.fillStyle = s.def.accent;
+        ctx.fillRect(sx, sy + s.h + 2, gauge * s.w, 4);
+        // Label above
+        ctx.fillStyle = s.def.accent;
+        ctx.font = 'bold 9px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText(s.kind.toUpperCase() + ' x' + s.spawnsLeft, cxc, sy - 4);
+        ctx.textAlign = 'left';
+        ctx.restore();
+    }
+
     // === BLOCKS first (behind mobs) ===
     for (const mb of minecraftBlocks) {
         const bx = Math.round(mb.x - camera.x + (mb.shake || 0));
@@ -2917,6 +3049,32 @@ function drawMinecraftPreview() {
             ctx.strokeStyle = '#000';
             ctx.lineWidth = 1;
             ctx.strokeRect(ix + 4.5, iy + 4.5, iconSize - 9, iconSize - 9);
+        } else if (entry.type === 'spawner') {
+            // Spawner icon — iron cage w/ tiny mob blob inside
+            const def = MINECRAFT_MOB_DEFS[entry.kind];
+            ctx.fillStyle = '#3a3a3a';
+            ctx.fillRect(ix + 4, iy + 4, iconSize - 8, iconSize - 8);
+            ctx.fillStyle = '#555';
+            ctx.fillRect(ix + 6, iy + 6, iconSize - 12, iconSize - 12);
+            // Cage bars
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 1;
+            for (let bx = 9; bx < iconSize - 6; bx += 5) {
+                ctx.beginPath();
+                ctx.moveTo(ix + bx, iy + 6);
+                ctx.lineTo(ix + bx, iy + iconSize - 6);
+                ctx.stroke();
+            }
+            // Mob blob
+            ctx.fillStyle = def.color;
+            ctx.fillRect(ix + iconSize / 2 - 3, iy + iconSize / 2 - 3, 6, 6);
+            ctx.fillStyle = def.accent;
+            ctx.fillRect(ix + iconSize / 2 - 2, iy + iconSize / 2 - 2, 1, 1);
+            ctx.fillRect(ix + iconSize / 2 + 1, iy + iconSize / 2 - 2, 1, 1);
+            // Outline
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(ix + 0.5, iy + 0.5, iconSize - 1, iconSize - 1);
         } else {
             // Mob icon — simple silhouette per kind
             const def = MINECRAFT_MOB_DEFS[entry.kind];
@@ -26868,7 +27026,7 @@ function gameLoop(timestamp) {
         cutscene = null;
         switches = []; doors = []; arenaGates = []; bossGates = []; exitPortals = []; floatTexts = [];
         cages = []; allies = [];
-        minecraftMobs = []; minecraftBlocks = []; minecraftQueue = []; minecraftQueueCursor = 0;
+        minecraftMobs = []; minecraftBlocks = []; minecraftSpawners = []; minecraftQueue = []; minecraftQueueCursor = 0;
         laserGrids = []; terminals = []; keyPickups = []; player.keysHeld = [];
         stageHazards = []; stageHazardTimer = 240;
         healingStations = []; activeHealingStation = null;
