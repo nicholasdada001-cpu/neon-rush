@@ -3268,29 +3268,36 @@ function updateStageHazards() {
 // Spawn a single stage-themed hazard near the player.
 function spawnStageHazard(stage) {
     const px = player.x + player.w / 2;
-    const cx = px + (Math.random() - 0.5) * 600;     // anywhere in nearby ±300
+    // Falling hazards spawn directly above the player and home in. Use the
+    // player's current x for the spawn so they're already overhead, plus
+    // slight horizontal random so they don't all land on the same pixel.
+    const aboveX = px + (Math.random() - 0.5) * 80;
+    const cx = px + (Math.random() - 0.5) * 600;     // for non-falling hazards
     if (stage === 0) {
-        // STAGE 1 (FACILITY) — acid drips from ceiling
+        // STAGE 1 (FACILITY) — acid drips from ceiling, homing
         stageHazards.push({
-            x: cx, y: 50, vx: 0, vy: 3, gravity: 0.15,
+            x: aboveX, y: 50, vx: 0, vy: 3, gravity: 0.15,
             r: 16, life: 200, dmg: 6, color: '#88ff44',
-            kind: 'acid', fallStop: true
+            kind: 'acid', fallStop: true,
+            homing: 0.18
         });
     } else if (stage === 1) {
-        // STAGE 2 (SKY DOCKS) — lightning bolt strikes a vertical line.
-        // Telegraph 18f then strike for 25f so it stays visible.
+        // STAGE 2 (SKY DOCKS) — lightning bolt strikes a vertical line at
+        // the player's CURRENT x so they have to dash out of the column
+        // during the 18-frame telegraph.
         stageHazards.push({
-            x: cx, y: 0, vx: 0, vy: 0,
+            x: aboveX, y: 0, vx: 0, vy: 0,
             r: 22, life: 60, dmg: 14, color: '#ffff44',
             kind: 'lightning', telegraph: 18, h: 600
         });
     } else if (stage === 2) {
-        // STAGE 3 (REACTOR) — lava glob erupts upward, hangs longer.
+        // STAGE 3 (REACTOR) — lava glob erupts upward + arcs toward player
         stageHazards.push({
-            x: cx, y: 540, vx: (Math.random() - 0.5) * 4, vy: -12,
+            x: aboveX, y: 540, vx: (player.x - aboveX) * 0.012, vy: -12,
             gravity: 0.32,
             r: 20, life: 220, dmg: 10, color: '#ff5522',
-            kind: 'lavaGlob', fallStop: true
+            kind: 'lavaGlob', fallStop: true,
+            homing: 0.10
         });
     } else if (stage === 3) {
         // STAGE 4 (LAB) — toxic gas pocket (lingers in place)
@@ -3300,11 +3307,12 @@ function spawnStageHazard(stage) {
             kind: 'gas'
         });
     } else if (stage === 4) {
-        // STAGE 5 (ARCTIC) — ICICLE falls from ceiling, slows on hit
+        // STAGE 5 (ARCTIC) — ICICLE falls from ceiling, homing, slows on hit
         stageHazards.push({
-            x: cx, y: 50, vx: 0, vy: 4, gravity: 0.25,
+            x: aboveX, y: 50, vx: 0, vy: 4, gravity: 0.25,
             r: 18, life: 220, dmg: 8, color: '#aaeeff',
             kind: 'icicle', fallStop: true,
+            homing: 0.15,
             onHit: p => {
                 // Slow the player movement briefly as if frozen
                 p.iceSlowTimer = 60;
@@ -3328,12 +3336,13 @@ function spawnStageHazard(stage) {
             cx, cy: 300, orbAng: 0, orbR: 100
         });
     } else if (stage === 7) {
-        // STAGE 8 (ORBITAL FORTRESS) — falling debris meteor
+        // STAGE 8 (ORBITAL FORTRESS) — homing falling debris meteor
         stageHazards.push({
-            x: cx, y: 0, vx: (Math.random() - 0.5) * 3, vy: 6,
+            x: aboveX, y: 0, vx: (player.x - aboveX) * 0.01, vy: 6,
             gravity: 0.35,
             r: 22, life: 240, dmg: 16, color: '#ff8844',
-            kind: 'meteor', fallStop: true
+            kind: 'meteor', fallStop: true,
+            homing: 0.22
         });
     }
 }
@@ -3357,6 +3366,18 @@ function tickStageHazardSpecials() {
             h.orbAng = (h.orbAng || 0) + 0.04;
             h.x = h.cx + Math.cos(h.orbAng) * h.orbR;
             h.y = h.cy + Math.sin(h.orbAng) * h.orbR;
+        } else if (h.homing && h.life > 0) {
+            // Homing falling hazards (icicle, meteor, acid, lava glob) —
+            // bend horizontal velocity toward the player every frame so they
+            // track the player's movement during the descent. Strength
+            // controlled by h.homing (e.g. 0.15 = subtle, 0.30 = aggressive).
+            const dx = pcx - h.x;
+            // Only nudge horizontally — vertical is gravity-driven
+            h.vx = (h.vx || 0) + Math.sign(dx) * h.homing * Math.min(1, Math.abs(dx) / 60);
+            // Cap horizontal speed so they don't fly sideways
+            const maxVx = 5;
+            if (h.vx > maxVx) h.vx = maxVx;
+            if (h.vx < -maxVx) h.vx = -maxVx;
         }
     }
 }
