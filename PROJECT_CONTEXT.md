@@ -4,6 +4,88 @@ A 2D action platformer + space dogfighter built in vanilla HTML5 Canvas + JavaSc
 
 ---
 
+## ⚡ MOST RECENT SESSION (Jun 1, 2026 — kid-led iteration spree, big arsenal expansion)
+
+Long collaborative session with the project owner (a 12-year-old) iterating live on weapon design, shop layout, and player-facing systems. ~30 commits, all pushed to `origin/main` (`github.com/nicholasdada001-cpu/neon-rush`). Game is now also live on **GitHub Pages** at `https://nicholasdada001-cpu.github.io/neon-rush/`.
+
+### Big new systems
+
+**Training mode** (`9a610ae`) — `gameState='finale'` + `phase='training'` reuses the entire EARTHBREAKER finale rig (player movement, melee combo, sword, rockets, jet, dash, hyper) against a 100k-HP indestructible-but-resetting dummy boss. Separate HUD with floating damage popups + DPS counter. R reset, T toggle dummy passive/shoot, E toggle evolved form, ESC exit. Implemented as a wrapper around `updateFinaleBattle` with post-tick state pin (boss can't actually die / phase-shift / unleash). Entry: `🎯 TRAINING MODE` button in dev panel.
+
+**Name prompt + dev gate** (`adc1bf1`, `ac7803d`, `f8e7c81`) — every game start shows a "⚡ NEON RUSH ⚡ Enter your name" overlay. Name compared case-insensitively against `DEV_NAMES = ['nicholas', 'micah', 'jax']`. Non-devs get the 🛠 DEV button + dev keyboard shortcuts (1-8/0/9/backtick) **completely hidden**, plus `[DEV]` controls hint hidden. Levenshtein-based "Did you mean X?" suggestion for typos within 1-2 edits of a dev name. **Always re-prompts** every load (input cleared) so case changes/dev-mode toggling is fast for testing. Soft gate (anyone with F12 can bypass localStorage) — that's fine for the kid-game scope.
+
+**Stage hazards** (`57496f3`, `d2f1ed0`) — periodic per-stage themed hazards via `stageHazards[]`, ticked from `updateStageHazards()` every 2-3 sec near the player. Falling hazards (acid/icicle/lava/meteor) **home toward the player** during descent (`tickStageHazardSpecials` adjusts vx each frame, capped at 5 px/f). Per-stage:
+- 1 Facility = acid drips · 2 Sky = lightning bolt with 18f telegraph · 3 Reactor = lava globs · 4 Lab = toxic gas pockets · 5 Arctic = icicles (slow-on-hit, sets `iceSlowTimer`) · 6 Void = rifts (pull player) · 7 Citadel = orbiting plasma orbs · 8 Orbital = falling debris meteors
+
+**Frozen-enemy variant** (`57496f3`) — Stage 5 mobs marked `e.frozenEnemy=true`, take ×1.5 fire damage, ×0.5 ice damage. Visible cyan tint + corner crystal triangles. Counter-pick FLAME THROWER for stage 5.
+
+**Visible elemental status overlays** (`d41acbe`) — burn (orange tint + flame tongues + body sparks), ice (cyan tint + ice shards + frost rim + "❄ FROZEN" label), acid (green tint + bubbles + drip streams + "☣ MELTING" label), water (blue tint + electric arc zigzags + droplets). All apply to ALL enemies (mobs, mini-boss, boss). Bosses get shorter freeze/water-stun (8f vs 30f, etc.) so they're not trivialized.
+
+### Combat balance (3 progressive nerfs)
+
+- **OMEGA tier**: dmgMul ×1.30 → ×1.05 over the session, missile array 4×80/100r → 2×30/50r, OMEGA BLAST 180/350r → 50/220r
+- **APEX tier**: dmgMul ×1.40 → ×1.08, cannons 4×55 → 4×22, APEX NOVA 260/520r → 80/320r
+- **Flame+evolution exploit**: with FLAME equipped, side-arm now **completely disabled** (was firing missile barrages 30×/sec). Critical fairness fix.
+- **Boss HP curve fixed** (was broken — bosses 4-5 had less HP than boss 3): 700/900/1100/1400/1600/1900/2400/3200 across stages 1-8. Warden mini-boss formula 320+stage*60 → 500+stage*100. Space-battle ships ~70% more HP, 8→12 ships per battle.
+- **Lasers harder**: 700ms cycle → 500ms (stages 1-3) / 350ms (stages 4+), 25% always-on lasers from stage 4 up, damage 8→12. Laser hazard placement scales `1+stage` (was `max(0,stage-1)`).
+
+### Massive arsenal expansion (10+ new weapons & melee)
+
+Tiers 19-23 added to `WEAPONS`, plus a separate `MELEE_WEAPONS` table for blade weapons. All in shop:
+- **ICE BLAST** (Z, 480c, tier 19) — beam-style freeze ray, slow + freeze on hit, 8f cooldown
+- **RAILGUN** (Q, 720c, tier 20) — 130 dmg / 50f cooldown / pierces, magnetic-coil aesthetic
+- **ACID GUN** (W, 540c, tier 21) — corrosive globs, burn + new `acidTimer` melt that does **% maxHp** damage every 12 frames (1.5% bosses, 3% mobs)
+- **WATER GUN** (T, 380c, tier 22) — short-circuit pressurized stream, applies `frozen` (stun) + `waterShockTimer`, ×1.5 vs robots
+- **LIGHTNING GUN** (R, 620c, tier 23) — REWORKED twice: started as chain-lightning, now a **marker shot** that triggers a sky-strike on impact (80 dmg in 110px radius, persistent zigzag bolt sprite via new `lightningBolts[]` array + `drawLightningBolts`)
+
+**Melee weapons** (`MELEE_WEAPONS` map + `player.activeMelee`):
+- **KNIFE** (D, 120c) — 1.6× dmg, 1.0× reach
+- **KATANA** (F, 320c) — 2.4× dmg, 1.4× reach, gold cross-guard
+- **LIGHT SABER** (G, 680c) — 3.5× dmg, 1.7× reach, white core + halo
+
+Each has both an **active swing visual** (arc trail + blade rendered along swing angle, `glow + color + white core for saber`) AND a **persistent off-hand idle blade** that's always visible while equipped (anchored at player's back/free hand, tilts subtly with walk cycle). Buying re-equips, pressing the shop key again toggles equipped/bare-fist.
+
+### Shop UI rework (`8cec2e8`, `3b695d1`)
+- **All 7 ⚒ craft items removed** (REPAIR KIT, ARMOR PLATE, AMMO OVERCHARGE, SERVO BOOST, KINETIC SHIELD, POWER CELL, ENERGON CORE) to make room for the new weapons.
+- Two-column layout split by **type** (left = utilities/trades/EVOLVE/SwitchWeapon, right = full ARMORY incl. melee), not by craft-vs-not.
+- **Damage +5**: 35¢ → 70¢. **Fire Rate +15%**: 60¢ → 120¢. (Stat upgrades meaningfully more expensive.)
+- New shop messages for melee: `Bought + Equipped: NAME`, `Equipped:`, `Unequipped:`.
+
+### Visual polish
+
+- **Better gun designs** (`83dee1a`) — main player gun went from a 14×6 cyan rectangle to a proper sci-fi rifle silhouette: stock + receiver + power-core + sight + barrel + grip + trigger guard + layered muzzle flash. Class-specific attachments: flame nozzle + fuel pod, beam emitter coils + crystal lens, explosive wide barrel + warning stripes, sniper long barrel + scope w/ red dot, multi-shot split barrel.
+- **In-game weapon cycle** (`1cffc34`) — `,` (prev) and `.` (next) cycle through any owned weapons without going to shop. Edge-triggered, gated against shop/cutscene/heavy-action. Updates a transient banner.
+- **Frost beam** (`1cffc34`) — FROST CANNON converted from a heavy slug to a continuous piercing beam (matches ICE BLAST's beam style; `beam: true` flag + `drawBullets` glow-stroke render).
+
+### Wire-cut puzzle rework (`23f103a`, `2b15145`)
+
+Old: shoot the terminal box, HP based.
+New: terminal has 3 colored wires (red/blue/yellow). Walk near → floating label changes from gray "▼ CUT WIRES X/3 ▼" to yellow "[E] CUT WIRE (X/3)" → press E to cut next wire (sequential). Bullets now just spark off the panel + show "PRESS E TO CUT WIRE" hint. Each cut sprays colored sparks + screen shake + "WIRE CUT" floating text. All 3 cut → laser grid disables. Plus **key-card box**: each puzzle key has 3-sided wall enclosure so you can't walk in around the laser.
+
+### Notable code pointers
+
+- `WEAPONS[19..23]` — ICE BLAST / RAILGUN / ACID GUN / WATER GUN / LIGHTNING GUN. Bullet object now carries `flame/ice/beam/acid/water/lightning/lightningStrike/chainDmg/strikeDmg/strikeRadius` flags through from weapon definition (the latest lightning bug was that these flags weren't being copied to bullets).
+- `MELEE_WEAPONS` map (knife/katana/saber) + `player.activeMelee` + `player.meleeWeaponsUnlocked` (object). `executeMelee()` reads `MELEE_WEAPONS[activeMelee]` to scale dmg/range.
+- `drawPlayer()` melee FX block: blade-swing branch (`if (meleeWpnDef && !player.meleeAxe)`) handles knife/katana/saber arc render with per-weapon glow trail count, blade length, color, white core for saber.
+- `drawPlayer()` end of front-arm/gun render: persistent off-hand blade render block — anchors at hand, idle angle tilts up-and-back per facing.
+- `lightningBolts[]` global + `drawLightningBolts()` — sky-strike sprite array. Pushed from bullet hit when `b.lightningStrike`. 14-frame life with outer yellow glow + bright white core.
+- `stageHazards[]` global + `updateStageHazards()` + `tickStageHazardSpecials()` + `spawnStageHazard()` + `drawStageHazards()`. Falling-type hazards have `homing: 0.10..0.22` strength applied each frame.
+- `STAGE_ENEMY_THEMES[stage].frozenEnemy` post-pass in `applyStageEnemyTheme` for stage 5.
+- `e.acidTimer` + `e.acidPct` + `e.iceFrostTimer` + `e.waterShockTimer` — per-enemy elemental state ticked in `updateEnemies()`. Visible overlays in `drawEnemies()`.
+- `f.training` substate object + `updateFinaleTraining` + `drawFinaleTrainingHUD` for the practice arena.
+- `player.iceSlowTimer` — drives 0.5× speed scale in `updatePlayer` after icicle hits.
+
+### Pending work
+
+1. **README controls update** for the new weapon hotkeys + melee toggle pattern (only weapon cycle + cut-wire are documented so far).
+2. **Lightning gun is shaped weird** in the gun silhouette — `isMulti` etc. branches don't account for `lightningStrike` so it falls through to default rifle. A proper lightning emitter look (Tesla coils on the barrel, arcing) would be nice.
+3. **`drawLightningBolts` is added** but the bolt life is short (14 frames) — could persist longer for clarity.
+4. **PROJECT_CONTEXT.md is now ~50 lines longer** but other older sections below have stale info (boss HP numbers, weapon counts, etc.). Could prune oldest sections (the ones from May 25 v3 era) since the gameplay has moved well past that snapshot.
+5. **itch.io upload still blocked** — the project owner's itch.io account never got verified, so the existing zip (`/Users/darrwang/Downloads/nicholas/neon-rush.zip` — outdated) is unused. GitHub Pages is the live host. A previous Netlify attempt (`robot-rush.netlify.app`) failed because that subdomain belongs to someone else and got bandwidth-paused.
+6. **Cached browser builds caused multiple "the change isn't working" reports** — the project owner needs `Cmd+Shift+R` to force-reload after every push because the GitHub Pages cache is aggressive. Worth a one-line note in the README.
+
+---
+
 ## ⚡ MOST RECENT SESSION (May 25, 2026 — late evening, post-revert restoration)
 
 Quick addendum to the v3 finale overhaul block below. This run had three real changes plus a revert/restore round-trip:
