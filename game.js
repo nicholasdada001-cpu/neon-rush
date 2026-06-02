@@ -2045,25 +2045,35 @@ const MINECRAFT_BLOCK_DEFS = {
 // around what's coming next. The HUD preview reads from minecraftQueue[0].
 //   each entry: { type: 'mob'|'block', kind: 'zombie'|... }
 let minecraftQueue = [];
+// Monotonic counter — increments every time we push to the queue. Drives
+// the rotation pattern. Stored separately from minecraftQueue.length so
+// it doesn't reset when items are shifted off the front. (Earlier bug:
+// using .length meant the rotation only ever read indices 4 and 5 once
+// the queue stabilized at 6 items, which produced skeleton-skeleton-only
+// output instead of the full rotation.)
+let minecraftQueueCursor = 0;
+// Rotation pattern — repeats. Each entry is { type, kind } and is a
+// SHALLOW template; we still copy it before pushing so the queue stays
+// independent. Pattern is hand-tuned so every 8 summons you get all
+// 4 mob kinds + 2 blocks + 2 bonus mobs (zombie + creeper).
+const MINECRAFT_ROTATION = [
+    { type: 'mob',   kind: 'zombie'   },
+    { type: 'mob',   kind: 'skeleton' },
+    { type: 'block', kind: 'dirt'     },
+    { type: 'mob',   kind: 'wolf'     },
+    { type: 'mob',   kind: 'creeper'  },
+    { type: 'block', kind: 'stone'    },
+    { type: 'mob',   kind: 'zombie'   },
+    { type: 'mob',   kind: 'skeleton' },
+    { type: 'block', kind: 'oak'      },
+    { type: 'mob',   kind: 'wolf'     }
+];
+
 function ensureMinecraftQueue() {
     while (minecraftQueue.length < 6) {
-        // Fill in a balanced rotation: 3 mobs per block so the gun feels
-        // like a summon weapon. Mob order rotates through the 4 kinds plus
-        // a creeper bias every 3rd mob slot for clear "boom" beats.
-        const slot = (minecraftQueue.length + minecraftQueue.totalDealt) || 0;
-        // Use the array's current end-of-rotation index
-        const idx = minecraftQueue.length;
-        // Pattern: M, M, M, B, M, M, M, B...
-        const isBlock = (idx % 4) === 3;
-        if (isBlock) {
-            const blockKinds = ['dirt', 'stone', 'oak'];
-            const k = blockKinds[Math.floor(Math.random() * blockKinds.length)];
-            minecraftQueue.push({ type: 'block', kind: k });
-        } else {
-            const mobKinds = ['zombie', 'skeleton', 'wolf', 'creeper'];
-            const k = mobKinds[idx % mobKinds.length];
-            minecraftQueue.push({ type: 'mob', kind: k });
-        }
+        const tpl = MINECRAFT_ROTATION[minecraftQueueCursor % MINECRAFT_ROTATION.length];
+        minecraftQueue.push({ type: tpl.type, kind: tpl.kind });
+        minecraftQueueCursor++;
     }
 }
 
@@ -26399,7 +26409,7 @@ function gameLoop(timestamp) {
         cutscene = null;
         switches = []; doors = []; arenaGates = []; bossGates = []; exitPortals = []; floatTexts = [];
         cages = []; allies = [];
-        minecraftMobs = []; minecraftBlocks = []; minecraftQueue = [];
+        minecraftMobs = []; minecraftBlocks = []; minecraftQueue = []; minecraftQueueCursor = 0;
         laserGrids = []; terminals = []; keyPickups = []; player.keysHeld = [];
         stageHazards = []; stageHazardTimer = 240;
         healingStations = []; activeHealingStation = null;
