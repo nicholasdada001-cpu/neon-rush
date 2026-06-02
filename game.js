@@ -2032,7 +2032,34 @@ const MINECRAFT_MOB_DEFS = {
     creeper:  { color: '#3acc3a', accent: '#88ff88', faceCol: '#0a2a0a',
                 hp: 140, damage: 80, hopForce: -8, walkSpeed: 2.6, lifetime: 480, range: 60, suicide: true },
     wolf:     { color: '#cccccc', accent: '#888', faceCol: '#222',
-                hp: 200, damage: 18, hopForce: -9, walkSpeed: 3.6, lifetime: 900, range: 32 }
+                hp: 200, damage: 18, hopForce: -9, walkSpeed: 3.6, lifetime: 900, range: 32 },
+    // Tier 2 — added in the 'enderman wave' update. These are STRONGER
+    // mobs that show up in the second half of the rotation (slots 10+).
+    enderman: { color: '#1a1a1a', accent: '#aa44ff', faceCol: '#cc66ff',
+                hp: 320, damage: 38, hopForce: -10, walkSpeed: 3.0, lifetime: 900, range: 36,
+                teleporter: true,    // randomly blinks toward target each engagement
+                bulletColor: '#cc66ff', bulletGlow: '#aa44ff' },
+    blaze:    { color: '#ffaa00', accent: '#ffff44', faceCol: '#000',
+                hp: 240, damage: 26, hopForce: -8, walkSpeed: 2.4, lifetime: 900, range: 380, ranged: true,
+                flying: true,        // hovers, not gravity-bound
+                fireball: true,      // fires explosive bullets instead of arrows
+                bulletColor: '#ff8800', bulletGlow: '#ffaa00' },
+    golem:    { color: '#cccccc', accent: '#dddd88', faceCol: '#222',
+                hp: 700, damage: 60, hopForce: -6, walkSpeed: 1.4, lifetime: 1200, range: 48,
+                heavy: true },       // tank — very high HP, slow, big melee
+    // Boss-tier — only appear via the 10% rare-roll on each shot. Slots
+    // are NOT in the regular rotation; they get inserted at the FRONT of
+    // the queue when triggered so the next shot summons them.
+    wither:   { color: '#1a1a1a', accent: '#444',  faceCol: '#aaaaaa',
+                hp: 1800, damage: 65, hopForce: -8, walkSpeed: 2.0, lifetime: 1500, range: 460, ranged: true,
+                flying: true, boss: true, threeHeads: true,
+                bulletColor: '#222', bulletGlow: '#ffffff',
+                fireRate: 14 },     // rapid fire skull volleys
+    enderdragon: { color: '#1a0a2a', accent: '#cc66ff', faceCol: '#ff44ff',
+                hp: 2600, damage: 95, hopForce: -10, walkSpeed: 2.6, lifetime: 1800, range: 520, ranged: true,
+                flying: true, boss: true, dragon: true,
+                bulletColor: '#cc66ff', bulletGlow: '#aa00ff',
+                fireRate: 22, breathBeam: true }   // fires a sweeping beam
 };
 const MINECRAFT_BLOCK_DEFS = {
     dirt:  { color: '#7a5a3a', accent: '#5a3a1a', grass: true,  life: 360 },
@@ -2054,8 +2081,9 @@ let minecraftQueue = [];
 let minecraftQueueCursor = 0;
 // Rotation pattern — repeats. Each entry is { type, kind } and is a
 // SHALLOW template; we still copy it before pushing so the queue stays
-// independent. Pattern is hand-tuned so every 8 summons you get all
-// 4 mob kinds + 2 blocks + 2 bonus mobs (zombie + creeper).
+// independent. Pattern is hand-tuned: every 16 summons mixes all the
+// non-boss mobs + 4 blocks. Boss-tier mobs (wither/enderdragon) are
+// inserted via a separate 10% rare-roll on each shot, NOT this rotation.
 const MINECRAFT_ROTATION = [
     { type: 'mob',   kind: 'zombie'   },
     { type: 'mob',   kind: 'skeleton' },
@@ -2063,10 +2091,16 @@ const MINECRAFT_ROTATION = [
     { type: 'mob',   kind: 'wolf'     },
     { type: 'mob',   kind: 'creeper'  },
     { type: 'block', kind: 'stone'    },
+    { type: 'mob',   kind: 'enderman' },
     { type: 'mob',   kind: 'zombie'   },
-    { type: 'mob',   kind: 'skeleton' },
+    { type: 'mob',   kind: 'blaze'    },
     { type: 'block', kind: 'oak'      },
-    { type: 'mob',   kind: 'wolf'     }
+    { type: 'mob',   kind: 'skeleton' },
+    { type: 'mob',   kind: 'wolf'     },
+    { type: 'mob',   kind: 'enderman' },
+    { type: 'mob',   kind: 'creeper'  },
+    { type: 'block', kind: 'stone'    },
+    { type: 'mob',   kind: 'golem'    }
 ];
 
 function ensureMinecraftQueue() {
@@ -2079,8 +2113,31 @@ function ensureMinecraftQueue() {
 
 // Spawn helper called from shootBullet. Pops the next 2-3 queue entries
 // (so each shot delivers a small squad), then refills.
+// Also has a 10% chance per shot to insert a BOSS mob (wither or
+// enderdragon) at the FRONT of the queue, so the next pop summons it.
 function spawnMinecraftSummon(originX, originY, dirX, dirY) {
     ensureMinecraftQueue();
+    // Rare boss roll — 10% combined (~7% wither, ~3% ender dragon since
+    // dragon is significantly stronger). Inserts at queue head so the
+    // very next pop summons it. Plays a brief screen flash + dialogue
+    // toast so the kid notices the rare drop.
+    if (Math.random() < 0.10) {
+        const isDragon = Math.random() < 0.30;     // ~3% of all shots
+        const bossKind = isDragon ? 'enderdragon' : 'wither';
+        minecraftQueue.unshift({ type: 'mob', kind: bossKind, rare: true });
+        // Visual hype: purple flash + camera shake + on-screen banner
+        screenShake = Math.max(screenShake, isDragon ? 14 : 10);
+        if (typeof shopMessage !== 'undefined') {
+            shopMessage = {
+                text: isDragon ? '★ RARE: ENDER DRAGON INCOMING! ★'
+                              : '★ RARE: WITHER INCOMING! ★',
+                timer: 180,
+                color: isDragon ? '#cc66ff' : '#ffffff'
+            };
+        }
+        spawnParticles(player.x + player.w / 2, player.y + 10,
+            isDragon ? '#cc66ff' : '#ffffff', 30, 7);
+    }
     const count = 2 + (Math.random() < 0.4 ? 1 : 0);   // 2 or 3 spawns per shot
     for (let n = 0; n < count; n++) {
         const next = minecraftQueue.shift();
@@ -2089,21 +2146,30 @@ function spawnMinecraftSummon(originX, originY, dirX, dirY) {
         // Stagger spawn position so multiple mobs don't overlap
         const off = (n - 1) * 26;
         if (next.type === 'mob') {
-            spawnMinecraftMob(next.kind, originX + dirX * 40 + off, originY - 10, dirX);
+            spawnMinecraftMob(next.kind, originX + dirX * 40 + off, originY - 10, dirX, !!next.rare);
         } else {
             spawnMinecraftBlockAt(next.kind, originX + dirX * 80 + off, originY + 30);
         }
     }
 }
 
-function spawnMinecraftMob(kind, spawnX, spawnY, dirX) {
+function spawnMinecraftMob(kind, spawnX, spawnY, dirX, isRare) {
     const def = MINECRAFT_MOB_DEFS[kind];
     if (!def) return;
-    minecraftMobs.push({
+    // Size per kind. Boss mobs are MUCH bigger so they read as a centerpiece.
+    let w, h;
+    if (kind === 'wolf')         { w = 28; h = 18; }
+    else if (kind === 'creeper') { w = 24; h = 30; }
+    else if (kind === 'enderman'){ w = 22; h = 44; }   // tall + slim
+    else if (kind === 'blaze')   { w = 28; h = 28; }   // squarish flame
+    else if (kind === 'golem')   { w = 38; h = 48; }   // chunky
+    else if (kind === 'wither')  { w = 64; h = 60; }   // boss size
+    else if (kind === 'enderdragon') { w = 110; h = 70; } // boss size (wide)
+    else                         { w = 24; h = 30; }   // zombie / skeleton default
+    const m = {
         kind: kind, def: def,
         x: spawnX, y: spawnY,
-        w: kind === 'wolf' ? 28 : 24,
-        h: kind === 'wolf' ? 18 : 30,
+        w: w, h: h,
         vx: (dirX || 1) * 3, vy: -4,
         hp: def.hp, maxHp: def.hp,
         facing: (dirX || 1) > 0 ? 1 : -1,
@@ -2112,10 +2178,20 @@ function spawnMinecraftMob(kind, spawnX, spawnY, dirX) {
         hopTimer: 0,
         onGround: false,
         spawnFlash: 16,
-        angryGlow: 0
-    });
-    spawnParticles(spawnX + 12, spawnY + 12, def.color, 20, 5);
-    spawnParticles(spawnX + 12, spawnY + 12, '#ffffff', 8, 4);
+        angryGlow: 0,
+        rare: !!isRare,
+        // Flying mobs hover at a target altitude near the player
+        hoverY: def.flying ? (spawnY - 60) : null,
+        teleportTimer: def.teleporter ? 90 : 0,
+        // Dragon breath beam state
+        beamCharge: 0
+    };
+    minecraftMobs.push(m);
+    spawnParticles(spawnX + w / 2, spawnY + h / 2, def.color, isRare ? 40 : 20, isRare ? 8 : 5);
+    spawnParticles(spawnX + w / 2, spawnY + h / 2, def.accent, isRare ? 30 : 8, isRare ? 6 : 4);
+    if (isRare) {
+        spawnShockwave(spawnX + w / 2, spawnY + h / 2, kind === 'enderdragon' ? 200 : 140, def.accent);
+    }
 }
 
 function spawnMinecraftBlockAt(kind, bx, by) {
@@ -2203,12 +2279,38 @@ function updateMinecraftSummons() {
             const tdy = (target.y + target.h / 2) - (m.y + m.h / 2);
             m.facing = tdx > 0 ? 1 : -1;
             m.angryGlow = 6;
-            // Skeleton stops at range and shoots; melee mobs run in
-            const stopAt = m.def.ranged ? 220 : (m.def.range || 28);
+
+            // ENDERMAN — periodically teleport toward target for a flank
+            if (m.def.teleporter) {
+                m.teleportTimer = (m.teleportTimer || 0) - 1;
+                if (m.teleportTimer <= 0 && Math.abs(tdx) > 60) {
+                    spawnParticles(m.x + m.w/2, m.y + m.h/2, m.def.accent, 18, 6);
+                    m.x = (target.x + target.w/2) - 80 * m.facing - m.w/2;
+                    m.y = target.y - 10;
+                    m.vx = 0; m.vy = 0;
+                    spawnParticles(m.x + m.w/2, m.y + m.h/2, m.def.accent, 18, 6);
+                    m.teleportTimer = 140 + Math.random() * 60;
+                    audio && audio.play && audio.play('warpIn');
+                }
+            }
+
+            // FLYING mobs (blaze, wither, ender dragon) ignore gravity
+            // and lerp toward an altitude near the target's head height.
+            if (m.def.flying) {
+                const desiredY = target.y - 30;
+                const yDelta = desiredY - m.y;
+                m.vy = yDelta * 0.06;
+                if (m.vy > 4) m.vy = 4;
+                if (m.vy < -4) m.vy = -4;
+            }
+
+            // Skeleton/blaze/wither/dragon stop at range and shoot;
+            // melee mobs run in
+            const stopAt = m.def.ranged ? (m.def.dragon ? 280 : 220) : (m.def.range || 28);
             if (Math.abs(tdx) > stopAt || tdy > 30) {
                 m.vx = m.facing * m.def.walkSpeed;
                 // Hop occasionally so we hop over small obstacles
-                if (m.onGround && m.hopTimer <= 0 && Math.random() < 0.05) {
+                if (!m.def.flying && m.onGround && m.hopTimer <= 0 && Math.random() < 0.05) {
                     m.vy = m.def.hopForce;
                     m.hopTimer = 30;
                 }
@@ -2219,6 +2321,75 @@ function updateMinecraftSummons() {
                     if (m.def.suicide) {
                         // Creeper detonates on contact-range
                         m.hp = 0;          // triggers the explosion branch above next tick
+                    } else if (m.def.breathBeam) {
+                        // ENDER DRAGON — sweeping breath beam. Spawns 8
+                        // pierce bullets in a fan toward the target.
+                        const baseAng = Math.atan2(tdy, tdx);
+                        for (let s = 0; s < 8; s++) {
+                            const sa = baseAng + (s - 3.5) * 0.06;
+                            bullets.push({
+                                x: m.x + m.w / 2 + Math.cos(sa) * 30,
+                                y: m.y + m.h / 2 + Math.sin(sa) * 30,
+                                vx: Math.cos(sa) * 18,
+                                vy: Math.sin(sa) * 18,
+                                life: 80,
+                                damage: Math.round(m.def.damage * 0.6),
+                                color: m.def.bulletColor,
+                                glow: m.def.bulletGlow,
+                                size: 8,
+                                pierce: true, hitEnemies: new Set(),
+                                fromAlly: true
+                            });
+                        }
+                        spawnParticles(m.x + m.w/2 + m.facing * 30, m.y + m.h/2,
+                            m.def.bulletGlow, 16, 7);
+                        m.attackTimer = m.def.fireRate || 22;
+                        screenShake = Math.max(screenShake, 6);
+                    } else if (m.def.fireball) {
+                        // BLAZE — explosive fireball
+                        const ang = Math.atan2(tdy, tdx);
+                        bullets.push({
+                            x: m.x + m.w / 2 + Math.cos(ang) * 18,
+                            y: m.y + m.h / 2 + Math.sin(ang) * 18,
+                            vx: Math.cos(ang) * 11,
+                            vy: Math.sin(ang) * 11,
+                            life: 100,
+                            damage: m.def.damage,
+                            color: m.def.bulletColor,
+                            glow: m.def.bulletGlow,
+                            size: 8,
+                            pierce: false, hitEnemies: new Set(),
+                            fromAlly: true,
+                            explosive: true,
+                            aoeRadius: 70,
+                            burn: true, burnDmg: 4, burnDur: 60,
+                            flame: true
+                        });
+                        m.attackTimer = 36;
+                    } else if (m.def.threeHeads) {
+                        // WITHER — fires 3 skull projectiles in a tight spread
+                        const ang = Math.atan2(tdy, tdx);
+                        for (let s = -1; s <= 1; s++) {
+                            const sa = ang + s * 0.18;
+                            bullets.push({
+                                x: m.x + m.w / 2 + Math.cos(sa) * 22,
+                                y: m.y + m.h / 2 + Math.sin(sa) * 22,
+                                vx: Math.cos(sa) * 12,
+                                vy: Math.sin(sa) * 12,
+                                life: 110,
+                                damage: m.def.damage,
+                                color: m.def.bulletColor,
+                                glow: m.def.bulletGlow,
+                                size: 7,
+                                pierce: false, hitEnemies: new Set(),
+                                fromAlly: true,
+                                explosive: true,
+                                aoeRadius: 50,
+                                witherSkull: true
+                            });
+                        }
+                        m.attackTimer = m.def.fireRate || 14;
+                        screenShake = Math.max(screenShake, 4);
                     } else if (m.def.ranged) {
                         // Skeleton fires a friendly arrow
                         const ang = Math.atan2(tdy, tdx);
@@ -2245,7 +2416,7 @@ function updateMinecraftSummons() {
                             const idx = enemies.indexOf(target);
                             if (idx >= 0) handleEnemyKilled(target, idx);
                         }
-                        m.attackTimer = m.kind === 'wolf' ? 18 : 28;
+                        m.attackTimer = m.kind === 'wolf' ? 18 : (m.def.heavy ? 38 : 28);
                     }
                 }
             }
@@ -2281,9 +2452,12 @@ function updateMinecraftSummons() {
             }
         }
 
-        // Gravity + ground collision
-        m.vy += GRAV;
-        if (m.vy > 14) m.vy = 14;
+        // Gravity + ground collision (skip gravity for flying mobs;
+        // their vy is steered via the hover lerp above).
+        if (!m.def.flying) {
+            m.vy += GRAV;
+            if (m.vy > 14) m.vy = 14;
+        }
         m.x += m.vx;
         m.y += m.vy;
         m.onGround = false;
@@ -2496,6 +2670,155 @@ function drawMinecraftSummons() {
             // Red collar (signature tamed wolf)
             ctx.fillStyle = '#ff3333';
             ctx.fillRect(mx + 4, my + 6, m.w - 8, 2);
+        } else if (m.kind === 'enderman') {
+            // Tall slim black silhouette
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + 6, my, m.w - 12, m.h - 6);
+            // Long arms hanging
+            ctx.fillRect(mx + 2, my + 10, 4, m.h - 18);
+            ctx.fillRect(mx + m.w - 6, my + 10, 4, m.h - 18);
+            // Glowing purple eyes
+            ctx.fillStyle = m.def.faceCol;
+            ctx.shadowColor = m.def.accent;
+            ctx.shadowBlur = 12;
+            ctx.fillRect(mx + 7, my + 5, 3, 3);
+            ctx.fillRect(mx + m.w - 10, my + 5, 3, 3);
+            // Subtle teleport sparkles
+            if (Math.random() < 0.25) {
+                spawnParticles(mx + m.w / 2 + camera.x, my + m.h / 2 + camera.y,
+                    m.def.accent, 1, 2);
+            }
+            // Legs
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + 7, my + m.h - 6, 3, 6);
+            ctx.fillRect(mx + m.w - 10, my + m.h - 6, 3, 6);
+        } else if (m.kind === 'blaze') {
+            // Floating cube of flame — orange core w/ orbiting rod sprites
+            ctx.shadowColor = m.def.accent;
+            ctx.shadowBlur = 18;
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + 6, my + 6, m.w - 12, m.h - 12);
+            // Bright yellow center face
+            ctx.fillStyle = m.def.accent;
+            ctx.fillRect(mx + 9, my + 9, m.w - 18, m.h - 18);
+            // Black eyes
+            ctx.fillStyle = m.def.faceCol;
+            ctx.fillRect(mx + 10, my + 10, 3, 3);
+            ctx.fillRect(mx + m.w - 13, my + 10, 3, 3);
+            // Orbiting rods (4 around the body)
+            const rT = performance.now() * 0.005;
+            ctx.fillStyle = '#ffaa00';
+            for (let r = 0; r < 4; r++) {
+                const ang = rT + (r * Math.PI / 2);
+                const ox = Math.cos(ang) * (m.w * 0.55);
+                const oy = Math.sin(ang) * (m.h * 0.45);
+                ctx.fillRect(mx + m.w/2 + ox - 1, my + m.h/2 + oy - 4, 2, 8);
+            }
+            // Constant flame trail under
+            spawnParticles(mx + m.w / 2 + camera.x, my + m.h + camera.y,
+                '#ff8800', 1, 3);
+            ctx.shadowBlur = 0;
+        } else if (m.kind === 'golem') {
+            // Big chunky stone body
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + 4, my + 14, m.w - 8, m.h - 18);
+            // Vine accents (tan stripes)
+            ctx.fillStyle = m.def.accent;
+            ctx.fillRect(mx + 4, my + 18, m.w - 8, 2);
+            ctx.fillRect(mx + 4, my + 30, m.w - 8, 2);
+            // Head — square w/ angry eyes
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + 8, my, m.w - 16, 14);
+            ctx.fillStyle = m.def.faceCol;
+            ctx.fillRect(mx + 12, my + 4, 4, 3);
+            ctx.fillRect(mx + m.w - 16, my + 4, 4, 3);
+            // Big arms hanging way down
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx, my + 16, 8, m.h - 22);
+            ctx.fillRect(mx + m.w - 8, my + 16, 8, m.h - 22);
+            // Stomp dust when on ground
+            if (m.onGround && Math.abs(m.vx) > 0.5 && Math.random() < 0.15) {
+                spawnParticles(mx + m.w / 2 + camera.x, my + m.h + camera.y - 2,
+                    '#aaaaaa', 1, 2);
+            }
+        } else if (m.kind === 'wither') {
+            // Three-headed boss silhouette (dark gray w/ white skulls)
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 16;
+            // Body — tall slab
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + 14, my + 18, m.w - 28, m.h - 22);
+            // Three skull heads
+            const skullW = 18;
+            ctx.fillStyle = m.def.faceCol;
+            ctx.fillRect(mx + 4,           my + 6,  skullW, 16);    // L
+            ctx.fillRect(mx + (m.w - skullW)/2, my, skullW, 18);    // C bigger
+            ctx.fillRect(mx + m.w - skullW - 4, my + 6, skullW, 16);// R
+            // Skull eye sockets — red glow
+            ctx.fillStyle = '#ff2222';
+            ctx.shadowColor = '#ff2222';
+            ctx.shadowBlur = 10;
+            ctx.fillRect(mx + 8, my + 10, 3, 3);
+            ctx.fillRect(mx + 16, my + 10, 3, 3);
+            ctx.fillRect(mx + (m.w - skullW)/2 + 4, my + 5, 3, 3);
+            ctx.fillRect(mx + (m.w - skullW)/2 + skullW - 7, my + 5, 3, 3);
+            ctx.fillRect(mx + m.w - skullW, my + 10, 3, 3);
+            ctx.fillRect(mx + m.w - 10, my + 10, 3, 3);
+            // Skull teeth (white pixels)
+            ctx.fillStyle = '#dddddd';
+            ctx.shadowBlur = 0;
+            ctx.fillRect(mx + 7, my + 16, 12, 2);
+            ctx.fillRect(mx + (m.w - skullW)/2 + 4, my + 13, 10, 2);
+            ctx.fillRect(mx + m.w - skullW + 3, my + 16, 12, 2);
+            // Persistent dark aura
+            ctx.shadowColor = '#000';
+            ctx.shadowBlur = 22;
+            ctx.strokeStyle = '#000';
+            ctx.strokeRect(mx + 2, my + 2, m.w - 4, m.h - 4);
+            ctx.shadowBlur = 0;
+        } else if (m.kind === 'enderdragon') {
+            // Sweeping wide dragon silhouette — purple-black w/ wings
+            ctx.shadowColor = m.def.accent;
+            ctx.shadowBlur = 20;
+            // Wings (drawn first so body is on top)
+            ctx.fillStyle = '#3a1a4a';
+            const flap = Math.sin(performance.now() * 0.012) * 8;
+            ctx.beginPath();
+            ctx.moveTo(mx + m.w * 0.2, my + m.h / 2);
+            ctx.lineTo(mx - 14, my + 4 + flap);
+            ctx.lineTo(mx - 4, my + m.h * 0.7);
+            ctx.lineTo(mx + m.w * 0.3, my + m.h * 0.55);
+            ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(mx + m.w * 0.8, my + m.h / 2);
+            ctx.lineTo(mx + m.w + 14, my + 4 + flap);
+            ctx.lineTo(mx + m.w + 4, my + m.h * 0.7);
+            ctx.lineTo(mx + m.w * 0.7, my + m.h * 0.55);
+            ctx.closePath();
+            ctx.fill();
+            // Body
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(mx + m.w * 0.2, my + m.h * 0.35, m.w * 0.6, m.h * 0.4);
+            // Neck + head (extends in facing direction)
+            const headX = m.facing > 0 ? mx + m.w - 22 : mx + 4;
+            ctx.fillRect(headX - (m.facing > 0 ? -2 : 18), my + m.h * 0.2, 20, 16);
+            // Glowing purple eyes + mouth
+            ctx.fillStyle = m.def.accent;
+            ctx.shadowColor = m.def.accent;
+            ctx.shadowBlur = 14;
+            ctx.fillRect(headX + (m.facing > 0 ? 8 : -6), my + m.h * 0.25, 3, 3);
+            ctx.fillRect(headX + (m.facing > 0 ? 14 : -2), my + m.h * 0.25, 3, 3);
+            // Tail trailing the other way
+            const tailX = m.facing > 0 ? mx : mx + m.w;
+            const tailDir = m.facing > 0 ? -1 : 1;
+            ctx.fillStyle = m.def.color;
+            ctx.fillRect(tailX + tailDir * 0,  my + m.h * 0.45, 10 * tailDir > 0 ? 10 : 10, 8);
+            // Continuous ember trail
+            spawnParticles(mx + m.w / 2 + camera.x, my + m.h + camera.y - 4,
+                m.def.accent, 1, 3);
+            ctx.shadowBlur = 0;
         }
 
         // HP bar above
@@ -2600,6 +2923,50 @@ function drawMinecraftPreview() {
                 ctx.fillRect(ix + 10, iy + 8, 2, 2);
                 ctx.fillRect(ix + iconSize - 12, iy + 8, 2, 2);
                 ctx.fillRect(ix + 12, iy + 14, iconSize - 24, 4);
+            } else if (entry.kind === 'enderman') {
+                // Tall thin black + purple eyes
+                ctx.fillRect(ix + 11, iy + 4, iconSize - 22, iconSize - 8);
+                ctx.fillStyle = def.accent;
+                ctx.fillRect(ix + 12, iy + 7, 2, 2);
+                ctx.fillRect(ix + iconSize - 14, iy + 7, 2, 2);
+            } else if (entry.kind === 'blaze') {
+                // Fire cube
+                ctx.fillRect(ix + 7, iy + 7, iconSize - 14, iconSize - 14);
+                ctx.fillStyle = def.accent;
+                ctx.fillRect(ix + 11, iy + 11, iconSize - 22, iconSize - 22);
+            } else if (entry.kind === 'golem') {
+                // Big chunky body + small head
+                ctx.fillRect(ix + 5, iy + 12, iconSize - 10, iconSize - 14);
+                ctx.fillRect(ix + 9, iy + 4, iconSize - 18, 8);
+                ctx.fillStyle = def.accent;
+                ctx.fillRect(ix + 11, iy + 7, 2, 2);
+                ctx.fillRect(ix + iconSize - 13, iy + 7, 2, 2);
+            } else if (entry.kind === 'wither') {
+                // Three skulls in a row
+                ctx.fillStyle = def.faceCol;
+                ctx.fillRect(ix + 4, iy + 6, 6, 7);
+                ctx.fillRect(ix + iconSize/2 - 3, iy + 4, 6, 8);
+                ctx.fillRect(ix + iconSize - 10, iy + 6, 6, 7);
+                // Body slab
+                ctx.fillStyle = def.color;
+                ctx.fillRect(ix + 9, iy + 14, iconSize - 18, iconSize - 16);
+                ctx.fillStyle = '#ff2222';
+                ctx.fillRect(ix + 5, iy + 8, 1, 1);
+                ctx.fillRect(ix + 8, iy + 8, 1, 1);
+                ctx.fillRect(ix + iconSize - 9, iy + 8, 1, 1);
+                ctx.fillRect(ix + iconSize - 6, iy + 8, 1, 1);
+            } else if (entry.kind === 'enderdragon') {
+                // Wide silhouette w/ wings
+                ctx.fillStyle = def.color;
+                ctx.fillRect(ix + 9, iy + 11, iconSize - 18, iconSize - 18);
+                // Wings
+                ctx.fillStyle = '#3a1a4a';
+                ctx.fillRect(ix + 2, iy + 8, 8, 12);
+                ctx.fillRect(ix + iconSize - 10, iy + 8, 8, 12);
+                // Glowing eyes
+                ctx.fillStyle = def.accent;
+                ctx.fillRect(ix + 12, iy + 14, 2, 2);
+                ctx.fillRect(ix + iconSize - 14, iy + 14, 2, 2);
             } else {
                 // Zombie / skeleton — humanoid
                 ctx.fillRect(ix + 8, iy + 12, iconSize - 16, iconSize - 16);
