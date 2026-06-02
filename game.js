@@ -943,6 +943,21 @@ const WEAPONS = [
     }
 ];
 
+// Melee weapons — equippable from the shop. Boost the player's punch/melee
+// damage and reach. Render handled in drawPlayer's melee swing FX block.
+// Indexed by ID string; player.activeMelee holds the active ID.
+const MELEE_WEAPONS = {
+    'knife':  { name: 'KNIFE',       cost: 120, dmgMul: 1.6, rangeMul: 1.0,
+                color: '#ddddff', glow: '#88aaff',
+                flavor: 'Quick blade. Light damage boost, same reach.' },
+    'katana': { name: 'KATANA',      cost: 320, dmgMul: 2.4, rangeMul: 1.4,
+                color: '#ffeecc', glow: '#ff6644',
+                flavor: 'Long blade. Strong damage and extended reach.' },
+    'saber':  { name: 'LIGHT SABER', cost: 680, dmgMul: 3.5, rangeMul: 1.7,
+                color: '#88ffaa', glow: '#00ff88',
+                flavor: 'Energy blade. Massive damage, longest reach.' }
+};
+
 // Characters - playable archetypes with different stats and special abilities
 const CHARACTERS = [
     {
@@ -1182,6 +1197,8 @@ const player = {
     bulletDamage: 0,         // additive damage bonus (from "Damage +5" upgrade)
     weaponTier: 0,            // index into WEAPONS (currently equipped)
     weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
+    meleeWeaponsUnlocked: {},  // { knife:true, katana:true, ... } — bought from shop
+    activeMelee: null,         // 'knife' | 'katana' | 'saber' | null = bare-fist
     maxJumpsBonus: 0,         // extra jumps from upgrades
     fireRateMul: 1,           // < 1 = faster
     dmgMul: 1,                // damage multiplier from character
@@ -1252,6 +1269,13 @@ const SHOP_ITEMS = [
     { key: 'W', name: 'Buy: ACID GUN',       cost: 540, action: p => { p.weaponsUnlocked[21] = true; p.weaponTier = 21; }, weapon: 21 },
     { key: 'T', name: 'Buy: WATER GUN',      cost: 380, action: p => { p.weaponsUnlocked[22] = true; p.weaponTier = 22; }, weapon: 22 },
     { key: 'R', name: 'Buy: LIGHTNING GUN',  cost: 620, action: p => { p.weaponsUnlocked[23] = true; p.weaponTier = 23; }, weapon: 23 },
+    // Melee weapons — equip via shop. Damage scales the punch/axe combo.
+    { key: 'D', name: 'Buy: KNIFE',          cost: 120, action: p => { p.meleeWeaponsUnlocked.knife = true; p.activeMelee = 'knife'; },
+      melee: 'knife',  meleeName: 'KNIFE',       meleeColor: '#88aaff' },
+    { key: 'F', name: 'Buy: KATANA',         cost: 320, action: p => { p.meleeWeaponsUnlocked.katana = true; p.activeMelee = 'katana'; },
+      melee: 'katana', meleeName: 'KATANA',      meleeColor: '#ff6644' },
+    { key: 'G', name: 'Buy: LIGHT SABER',    cost: 680, action: p => { p.meleeWeaponsUnlocked.saber = true; p.activeMelee = 'saber'; },
+      melee: 'saber',  meleeName: 'LIGHT SABER', meleeColor: '#00ff88' },
     { key: 'N', name: 'Buy: BFG-9000',       cost: 800, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
     { key: 'M', name: 'Switch Weapon ▶',     cost: 0,   action: p => { switchWeapon(p); }, repeatable: true, switcher: true },
     { key: 'L', name: 'EVOLVE',              cost: 0,   action: p => { evolvePlayer(p); }, evolution: true },
@@ -1985,6 +2009,15 @@ function executeMelee() {
     // Tag the swing so the renderer can draw an axe slash arc instead of fists
     player.meleeAxe = isAxe;
     if (stage === 3) player.meleeCombo = 0;  // reset after final
+
+    // Melee weapon multiplier — set when player equips a knife/katana/saber
+    // from the shop. Multiplicative on top of base punch/axe damage and the
+    // player.dmgMul stat scaling. Reach also extends with longer weapons.
+    const meleeWpn = MELEE_WEAPONS[player.activeMelee];
+    if (meleeWpn) {
+        dmg = Math.round(dmg * meleeWpn.dmgMul);
+        range = Math.round(range * (meleeWpn.rangeMul || 1));
+    }
 
     const cx = player.x + player.w / 2 + player.facing * 25;
     const cy = player.y + player.h / 2;
@@ -4676,6 +4709,15 @@ function updateShop() {
                 if (item.weapon && player.weaponsUnlocked[item.weapon]) {
                     player.weaponTier = item.weapon;
                     shopMessage = { text: `Equipped: ${WEAPONS[item.weapon].name}`, timer: 60, color: WEAPONS[item.weapon].color };
+                } else if (item.melee && player.meleeWeaponsUnlocked && player.meleeWeaponsUnlocked[item.melee]) {
+                    // Melee weapon already owned — toggle equip / unequip back to bare-fist
+                    if (player.activeMelee === item.melee) {
+                        player.activeMelee = null;
+                        shopMessage = { text: `Unequipped: ${item.meleeName}`, timer: 60, color: '#aaa' };
+                    } else {
+                        player.activeMelee = item.melee;
+                        shopMessage = { text: `Equipped: ${item.meleeName}`, timer: 60, color: item.meleeColor || '#ffdd44' };
+                    }
                 } else {
                     const canAffordCoins = player.coins >= coinCost;
                     const canAffordScrap = player.scrap >= scrapCost;
@@ -4691,6 +4733,8 @@ function updateShop() {
                         } else if (item.weapon) {
                             const wpn = WEAPONS[item.weapon];
                             shopMessage = { text: `Bought: ${wpn.name}`, timer: 90, color: wpn.color };
+                        } else if (item.melee) {
+                            shopMessage = { text: `Bought + Equipped: ${item.meleeName}`, timer: 90, color: item.meleeColor || '#ffdd44' };
                         } else {
                             shopMessage = { text: `Bought: ${item.name}`, timer: 60, color: '#00ff66' };
                         }
@@ -16595,9 +16639,9 @@ function drawShopUI() {
     ctx.fillText(`Equipped: ${cur.name}  /  Unlocked: ${player.weaponsUnlocked.filter(Boolean).length}/${WEAPONS.length}`, x + w / 2, y + 80);
     ctx.shadowBlur = 0;
 
-    // Items — split into two columns:
-    //   LEFT column: shop purchases, evolution, weapons, trades
-    //   RIGHT column: crafting recipes
+    // Items — single combined list, split into 2 columns by index so we
+    // make use of both halves of the shop UI without relying on the old
+    // "craft vs everything else" split (the craft items are gone now).
     ctx.textAlign = 'left';
     ctx.font = '13px Courier New';
     const colLeftX = x + 16;
@@ -16611,15 +16655,25 @@ function drawShopUI() {
     ctx.shadowBlur = 6;
     ctx.font = 'bold 13px Courier New';
     ctx.fillText('— SHOP —', colLeftX, headerY);
-    ctx.fillStyle = '#ff8844';
-    ctx.shadowColor = '#ff6622';
-    ctx.fillText('— ⚒ CRAFTING (SCRAP) —', colRightX, headerY);
+    ctx.fillText('— ARMORY —', colRightX, headerY);
     ctx.shadowBlur = 0;
     ctx.font = '13px Courier New';
 
+    // Pre-split into two columns based on item type:
+    //   LEFT: utility (heal/stat/jump/firerate/trades/EVOLVE/SwitchWeapon)
+    //   RIGHT: weapons + melee
+    const leftCol = [];
+    const rightCol = [];
+    for (const it of SHOP_ITEMS) {
+        if (it.weapon || it.melee) rightCol.push(it);
+        else leftCol.push(it);
+    }
     let lyL = headerY + 22;
     let lyR = headerY + 22;
-    for (const item of SHOP_ITEMS) {
+    for (let pass = 0; pass < 2; pass++) {
+        const list = pass === 0 ? leftCol : rightCol;
+        const isRight = pass === 1;
+        for (const item of list) {
         const scrapCost = item.costScrap || 0;
         const rcCost = item.costRC || 0;
         const coinCost = item.cost || 0;
@@ -16637,11 +16691,6 @@ function drawShopUI() {
         // Scrap-trade items get a bronze tint to distinguish them
         if (item.scrapTrade) {
             color2 = canAfford ? '#ffaa66' : '#886644';
-            color3 = canAfford ? '#ff8844' : '#774422';
-        }
-        // Craft items get a copper-orange tint
-        if (item.craft) {
-            color2 = canAfford ? '#ffcc88' : '#886644';
             color3 = canAfford ? '#ff8844' : '#774422';
         }
 
@@ -16682,10 +16731,22 @@ function drawShopUI() {
                 label = `Buy: ${wpn.name}`;
                 color2 = canAfford ? wpn.color : '#888';
             }
+        } else if (item.melee) {
+            // Melee weapon — show owned/equipped state similar to ranged
+            const owned = player.meleeWeaponsUnlocked && player.meleeWeaponsUnlocked[item.melee];
+            if (owned) {
+                label = (player.activeMelee === item.melee ? 'Equipped: ' : 'Equip: ') + item.meleeName;
+                costLabel = player.activeMelee === item.melee ? 'ACTIVE' : 'OWNED';
+                color1 = '#00ffaa';
+                color2 = item.meleeColor || '#ffdd44';
+                color3 = '#88ffaa';
+                canAfford = true;
+            } else {
+                label = `Buy: ${item.meleeName}`;
+                color2 = canAfford ? (item.meleeColor || '#ffdd44') : '#888';
+            }
         }
 
-        // Choose which column this item goes in
-        const isRight = !!item.craft;
         const colX = isRight ? colRightX : colLeftX;
         const ly = isRight ? lyR : lyL;
 
@@ -16707,7 +16768,8 @@ function drawShopUI() {
         ctx.fillText(costLabel, colX + colW - 6, ly);
         ctx.textAlign = 'left';
         if (isRight) lyR += 22; else lyL += 22;
-    }
+        }   // end inner for
+    }       // end pass loop
     // Hint
     ctx.fillStyle = '#aaa';
     ctx.font = '11px Courier New';
@@ -18783,6 +18845,8 @@ function restart() {
     player.bulletDamage = 0;
     player.weaponTier = 0;
     player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+    player.meleeWeaponsUnlocked = {};
+    player.activeMelee = null;
     player.maxJumpsBonus = 0;
     player.fireRateMul = 1;
     player.speed = 3.2;
@@ -25006,6 +25070,8 @@ function gameLoop(timestamp) {
         player.bulletDamage = 0;
         player.weaponTier = 0;
         player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+    player.meleeWeaponsUnlocked = {};
+    player.activeMelee = null;
         player.maxJumpsBonus = 0;
         player.fireRateMul = 1;
         player.perfectDodgeTimer = 0;
