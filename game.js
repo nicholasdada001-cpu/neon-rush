@@ -11001,6 +11001,85 @@ function drawPlayer() {
         ctx.shadowBlur = 0;
         ctx.restore();
 
+        // PERSISTENT MELEE BLADE — when the player has a knife/katana/saber
+        // equipped, draw the blade in their off-hand (back arm side) at all
+        // times so they can see it. During an active melee swing the arc
+        // visual takes over; this is the "idle holding" pose.
+        if (player.activeMelee && !player.meleeAnimTimer) {
+            const wpn = MELEE_WEAPONS[player.activeMelee];
+            if (wpn) {
+                const wKind = player.activeMelee;
+                const bladeColor = wpn.color || '#ffeecc';
+                const bladeGlow  = wpn.glow  || '#ff6644';
+                const bladeLen   = wKind === 'knife' ? 26
+                                 : wKind === 'katana' ? 50 : 70;
+                const bladeThick = wKind === 'knife' ? 3
+                                 : wKind === 'katana' ? 4 : 5;
+                // Anchor point — back/free hand, slightly behind torso so it
+                // reads as "held in the off-hand". Tilts slightly during walk.
+                const handX = px + (player.facing > 0 ? -4 : player.w + 4);
+                const handY = py + player.h / 2 + 4 + Math.sin(player.legPhase) * 1.5;
+                // Idle blade angle — points up-and-back so it doesn't clip
+                // through the body. Slight bob with movement.
+                const baseAng = player.facing > 0
+                    ? -Math.PI * 0.55 + Math.sin(player.legPhase * 0.5) * 0.05
+                    : -Math.PI * 0.45 + Math.sin(player.legPhase * 0.5) * 0.05;
+                const tipX = handX + Math.cos(baseAng) * bladeLen;
+                const tipY = handY + Math.sin(baseAng) * bladeLen;
+                ctx.save();
+                // Glow halo (saber gets a thicker constant aura)
+                ctx.strokeStyle = bladeGlow;
+                ctx.shadowColor = bladeGlow;
+                ctx.shadowBlur = wKind === 'saber' ? 22 : 12;
+                ctx.lineCap = 'round';
+                ctx.lineWidth = bladeThick * (wKind === 'saber' ? 2.4 : 1.6);
+                ctx.beginPath();
+                ctx.moveTo(handX, handY);
+                ctx.lineTo(tipX, tipY);
+                ctx.stroke();
+                // Inner bright blade
+                ctx.strokeStyle = bladeColor;
+                ctx.shadowBlur = wKind === 'saber' ? 14 : 6;
+                ctx.lineWidth = bladeThick;
+                ctx.beginPath();
+                ctx.moveTo(handX, handY);
+                ctx.lineTo(tipX, tipY);
+                ctx.stroke();
+                // Saber-only white core
+                if (wKind === 'saber') {
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.shadowBlur = 8;
+                    ctx.lineWidth = bladeThick * 0.4;
+                    ctx.beginPath();
+                    ctx.moveTo(handX, handY);
+                    ctx.lineTo(tipX, tipY);
+                    ctx.stroke();
+                }
+                // Hilt — small dark stub at the hand
+                ctx.strokeStyle = '#222';
+                ctx.lineWidth = bladeThick * 1.4;
+                ctx.shadowBlur = 0;
+                const hiltBackX = handX - Math.cos(baseAng) * 5;
+                const hiltBackY = handY - Math.sin(baseAng) * 5;
+                ctx.beginPath();
+                ctx.moveTo(hiltBackX, hiltBackY);
+                ctx.lineTo(handX, handY);
+                ctx.stroke();
+                // Katana cross-guard
+                if (wKind === 'katana') {
+                    ctx.strokeStyle = '#ddaa44';
+                    ctx.lineWidth = 2;
+                    const gAng = baseAng + Math.PI / 2;
+                    ctx.beginPath();
+                    ctx.moveTo(handX + Math.cos(gAng) * 5, handY + Math.sin(gAng) * 5);
+                    ctx.lineTo(handX - Math.cos(gAng) * 5, handY - Math.sin(gAng) * 5);
+                    ctx.stroke();
+                }
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            }
+        }
+
         // Back arm — swings during run, hangs neutral when still / firing pose when shooting
         const backSwing = player.onGround ? Math.sin(player.legPhase + Math.PI) * 6 : 4;
         const backArmStartX = shoulderX - 4;
