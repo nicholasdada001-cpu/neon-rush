@@ -3,6 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Cache-control: force the browser to always check for the latest
+         game.js / index.html. The kid had repeated "I don't see my changes"
+         issues because GitHub Pages + browser caching was serving stale
+         builds. These three tags + the ?v= cache-buster on the script tag
+         below tell every layer of the cache stack to re-fetch on each load. -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>NEON RUSH - Parkour Shooter</title>
     <style>
         * {
@@ -377,7 +385,19 @@
         </div>
     </div>
 
-    <script src="game.js"></script>
+    <!-- game.js loaded with a cache-busting query string. The Date.now()
+         appended below means the browser sees a different URL on every
+         single page load, so it can never serve a stale cached copy. -->
+    <script>
+        (function() {
+            const s = document.createElement('script');
+            s.src = 'game.js?v=' + Date.now();
+            // Synchronous loading so all the inline <script> blocks below
+            // (name gate, dev panel wiring, audio panel) still see the
+            // globals defined in game.js the same way they did before.
+            document.write('<scr' + 'ipt src="' + s.src + '"></scr' + 'ipt>');
+        })();
+    </script>
     <script>
         // ===== NAME GATE =====
         // First-load name prompt + developer detection. Stored in localStorage
