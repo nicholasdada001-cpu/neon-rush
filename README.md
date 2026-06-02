@@ -65,12 +65,13 @@ The 🛠 DEV button (top-right) opens a panel with full heal, give RC/coins, for
 ## Features
 
 - **8 main stages** with cinematic boss intros and per-stage themes
-- **9 unique bosses** with 3-phase fights (rage mode at 25% HP) + giant-robot **EARTHBREAKER** finale (2 lives, city → space)
+- **9 unique bosses** with 3-phase fights (rage mode at 25% HP) + giant-robot **EARTHBREAKER** finale (2 lives, city → space) — all bosses now beefier (+50% HP per stage)
 - **7 evolution tiers** BASE → MK-II → MK-III → OMEGA → APEX → PRIME → CONVOY
 - **5 vehicle forms** including the Optimus-style hovertank with Matrix Ion Blast
 - **Energon Axe** melee at the CONVOY tier — massive damage with crescent slash AOE finisher
 - **8 playable characters** with unique Q abilities (TIME SLOW, PHASE DASH, SHOCKWAVE, etc.)
-- **19 weapons** (8 boss-themed + 11 shop weapons)
+- **24 weapons** (8 boss-themed + 14 shop weapons + 2 dev-only weapons)
+- **6 melee weapons** (KNIFE, KATANA, LIGHT SABER, DUAL DAGGERS, WAR HAMMER, PHANTOM SCYTHE) each with unique swing animation, blade silhouette, and special on-hit effect
 - **15 enemy types** (14 mobs + the WARDEN-K mini-boss)
 - **WARDEN-K mini-boss antechamber** between the level and the boss arena on stages 3-8 — three-claw sentinel that drops spike eruptions and orbital sentry orbs
 - Mission-impossible key/laser/terminal puzzle every stage

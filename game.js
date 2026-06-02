@@ -941,6 +941,24 @@ const WEAPONS = [
         color: '#aaeeff', glow: '#ffff44', size: 8, life: 100, pierce: false,
         lightningStrike: true, strikeDmg: 80, strikeRadius: 110,
         flavor: 'Marker shot. On hit, a sky lightning strike crashes down.'
+    },
+    // ===== DEV-ONLY WEAPONS =====
+    // Hidden from non-developers. The shop only renders / accepts these
+    // when window.isDeveloper() returns true. Both are intentionally
+    // overpowered "fun" weapons for the project owner + friends.
+    {
+        name: 'JAX BLASTER',  tier: 24, shopOnly: true, cost: 1500, dev: true,
+        damage: 220, speed: 22, cooldown: 14, bullets: 3, spread: 0.18,
+        color: '#ffffff', glow: '#000000', size: 14, life: 130,
+        explosive: true, aoeRadius: 130, soccerBall: true,
+        flavor: '⚽ JAX-themed. Triple soccer ball volley, explodes on impact.'
+    },
+    {
+        name: 'MICAH MINECRAFTER',  tier: 25, shopOnly: true, cost: 1800, dev: true,
+        damage: 350, speed: 16, cooldown: 32, bullets: 1, spread: 0,
+        color: '#44dd44', glow: '#88ff88', size: 18, life: 160,
+        explosive: true, aoeRadius: 170, minecraftBlock: true, big: true,
+        flavor: '⛏ MICAH-themed. Lobs creeper-TNT that detonates with a green shockwave.'
     }
 ];
 
@@ -956,7 +974,18 @@ const MELEE_WEAPONS = {
                 flavor: 'Long blade. Strong damage and extended reach.' },
     'saber':  { name: 'LIGHT SABER', cost: 680, dmgMul: 3.5, rangeMul: 1.7,
                 color: '#88ffaa', glow: '#00ff88',
-                flavor: 'Energy blade. Massive damage, longest reach.' }
+                flavor: 'Energy blade. Massive damage, longest reach.' },
+    // New blades — each gets a distinct visual style in drawPlayer's
+    // swing block (handled by per-weapon rendering branches).
+    'daggers': { name: 'DUAL DAGGERS', cost: 220, dmgMul: 2.0, rangeMul: 0.9,
+                 color: '#ffddaa', glow: '#ff8844', dual: true,
+                 flavor: 'Twin daggers. Two-arm flurry, slightly shorter reach.' },
+    'hammer':  { name: 'WAR HAMMER',  cost: 480, dmgMul: 3.0, rangeMul: 1.2,
+                 color: '#ffcc44', glow: '#ff6600', heavy: true, shockwave: true,
+                 flavor: 'Heavy hammer. Slow but mighty, slam shockwave on every swing.' },
+    'scythe':  { name: 'PHANTOM SCYTHE', cost: 880, dmgMul: 4.2, rangeMul: 1.9,
+                 color: '#dd44ff', glow: '#aa00ff', curved: true, lifesteal: true,
+                 flavor: 'Curved phantom blade. Massive arc, leeches HP on hit.' }
 };
 
 // Characters - playable archetypes with different stats and special abilities
@@ -1197,7 +1226,7 @@ const player = {
     evoLevel: 0,              // 0 = base, 1 = MK-II, 2 = MK-III, 3 = OMEGA FORM
     bulletDamage: 0,         // additive damage bonus (from "Damage +5" upgrade)
     weaponTier: 0,            // index into WEAPONS (currently equipped)
-    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
+    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
     meleeWeaponsUnlocked: {},  // { knife:true, katana:true, ... } — bought from shop
     activeMelee: null,         // 'knife' | 'katana' | 'saber' | null = bare-fist
     maxJumpsBonus: 0,         // extra jumps from upgrades
@@ -1277,7 +1306,16 @@ const SHOP_ITEMS = [
       melee: 'katana', meleeName: 'KATANA',      meleeColor: '#ff6644' },
     { key: 'G', name: 'Buy: LIGHT SABER',    cost: 680, action: p => { p.meleeWeaponsUnlocked.saber = true; p.activeMelee = 'saber'; },
       melee: 'saber',  meleeName: 'LIGHT SABER', meleeColor: '#00ff88' },
+    { key: 'H', name: 'Buy: DUAL DAGGERS',   cost: 220, action: p => { p.meleeWeaponsUnlocked.daggers = true; p.activeMelee = 'daggers'; },
+      melee: 'daggers',meleeName: 'DUAL DAGGERS',meleeColor: '#ff8844' },
+    { key: 'J', name: 'Buy: WAR HAMMER',     cost: 480, action: p => { p.meleeWeaponsUnlocked.hammer = true; p.activeMelee = 'hammer'; },
+      melee: 'hammer', meleeName: 'WAR HAMMER',  meleeColor: '#ff6600' },
+    { key: 'K', name: 'Buy: PHANTOM SCYTHE', cost: 880, action: p => { p.meleeWeaponsUnlocked.scythe = true; p.activeMelee = 'scythe'; },
+      melee: 'scythe', meleeName: 'PHANTOM SCYTHE', meleeColor: '#aa00ff' },
     { key: 'N', name: 'Buy: BFG-9000',       cost: 800, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
+    // Dev-only weapons — hidden from non-developers (gated by window.isDeveloper())
+    { key: 'A', name: 'Buy: ⚽ JAX BLASTER',  cost: 1500, action: p => { p.weaponsUnlocked[24] = true; p.weaponTier = 24; }, weapon: 24, dev: true },
+    { key: 'S', name: 'Buy: ⛏ MICAH MINECRAFTER', cost: 1800, action: p => { p.weaponsUnlocked[25] = true; p.weaponTier = 25; }, weapon: 25, dev: true },
     { key: 'M', name: 'Switch Weapon ▶',     cost: 0,   action: p => { switchWeapon(p); }, repeatable: true, switcher: true },
     { key: 'L', name: 'EVOLVE',              cost: 0,   action: p => { evolvePlayer(p); }, evolution: true },
     // Scrap-metal trades. Scrap is plentiful, so the rates are stingy on
@@ -1999,10 +2037,25 @@ function executeMelee() {
 
     player.meleeCooldown = stage === 3 ? 35 : 18;
     player.meleeComboTimer = stage === 3 ? 0 : 35;  // 35-frame chain window
-    player.meleeAnimTimer = 14;
+    // Animation length scales with the active melee weapon's "feel":
+    //   - bare-fist / knife / daggers: snappy 14f
+    //   - katana / saber: 18f for a smoother, more flowing arc
+    //   - hammer: 24f heavy windup-into-slam
+    //   - scythe: 22f sweeping arc
+    //   - axe (CONVOY): 16f
+    let animLen = 14;
+    const meleeWpnLookup = MELEE_WEAPONS[player.activeMelee];
+    if (isAxe) animLen = 16;
+    else if (meleeWpnLookup) {
+        if (player.activeMelee === 'hammer') animLen = 24;
+        else if (player.activeMelee === 'scythe') animLen = 22;
+        else if (player.activeMelee === 'saber' || player.activeMelee === 'katana') animLen = 18;
+    }
+    if (stage === 3) animLen += 4;        // finisher gets extra time to read
+    player.meleeAnimTimer = animLen;
     // Track which punch is firing so the renderer knows which arm thrusts
     // and what shape (jab, cross, uppercut).
-    player.meleeAnimMax = 14;
+    player.meleeAnimMax = animLen;
     player.meleeAnimStage = stage;     // 1 = jab, 2 = cross, 3 = uppercut/AOE
     // Alternate arms: jab uses the back arm, cross uses the front arm,
     // uppercut is a two-handed slam from the front.
@@ -2048,10 +2101,63 @@ function executeMelee() {
                 // Secondary energon trail
                 spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#ffffff', 6, 5);
             }
+            // Per-weapon hit FX for the new melee weapons.
+            if (meleeWpn) {
+                const sparkCol = meleeWpn.glow || '#ff6644';
+                spawnParticles(e.x + e.w/2, e.y + e.h/2, sparkCol, 6, 4);
+                // PHANTOM SCYTHE — leech 8% of damage dealt as HP, capped per swing.
+                if (meleeWpn.lifesteal) {
+                    const leech = Math.min(60, Math.round(actualDmg * 0.08));
+                    if (leech > 0 && player.hp < player.maxHp) {
+                        player.hp = Math.min(player.maxHp, player.hp + leech);
+                        floatTexts.push({
+                            x: player.x + player.w / 2, y: player.y - 6,
+                            vy: -1.5, life: 30, color: '#dd44ff', text: `+${leech}`
+                        });
+                    }
+                    spawnParticles(e.x + e.w/2, e.y + e.h/2, '#dd44ff', 8, 5);
+                }
+            }
             hitCount++;
             if (e.hp <= 0) {
                 handleEnemyKilled(e, i);
             }
+        }
+    }
+
+    // WAR HAMMER — every swing emits a small ground shockwave that hits a
+    // wider radius for a fraction of the damage. Slam-feel without making
+    // it spam-friendly. Visible white-orange shockwave + screen shake.
+    if (meleeWpn && meleeWpn.shockwave) {
+        const swR = stage === 3 ? 180 : 130;
+        spawnShockwave(cx, cy + 10, swR, meleeWpn.glow || '#ff6600');
+        spawnShockwave(cx, cy + 10, swR * 0.7, '#ffffff');
+        screenShake = Math.max(screenShake, stage === 3 ? 18 : 10);
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            const e = enemies[i];
+            const dx2 = (e.x + e.w/2) - cx;
+            const dy2 = (e.y + e.h/2) - cy;
+            if (dx2*dx2 + dy2*dy2 < swR*swR) {
+                e.hp -= Math.round(dmg * 0.35 * player.dmgMul);
+                if (e.hp <= 0) handleEnemyKilled(e, i);
+            }
+        }
+        spawnParticles(cx, cy + 16, '#ff6600', 18, 6);
+        spawnParticles(cx, cy + 16, '#ffffff', 12, 5);
+    }
+    // PHANTOM SCYTHE — finisher emits a purple wide arc shockwave.
+    if (meleeWpn && meleeWpn.curved && stage === 3) {
+        spawnShockwave(cx, cy, 200, '#aa00ff');
+        spawnShockwave(cx, cy, 280, '#dd44ff');
+        spawnParticles(cx, cy, '#dd44ff', 30, 9);
+    }
+    // DUAL DAGGERS — extra mini-flurry: each stage adds 1-2 follow-up jabs
+    // for a flurry feel (visual particles only; main damage already applied).
+    if (meleeWpn && meleeWpn.dual) {
+        for (let f = 0; f < (stage === 3 ? 4 : 2); f++) {
+            spawnParticles(cx + (Math.random() - 0.5) * 30,
+                cy + (Math.random() - 0.5) * 20,
+                meleeWpn.glow || '#ff8844', 3, 3);
         }
     }
 
@@ -3712,7 +3818,7 @@ function spawnEliteEnemies(stage) {
         const stg = STAGES[stage];
         const triggerX = (stg && stg.bossTriggerX) || 4000;
         const baseY = 360;
-        const hp = 500 + stage * 100;
+        const hp = 700 + stage * 130;
         // Warden sits ~700px before the boss trigger, in the antechamber
         // between the entry gate (triggerX - 940) and the exit/boss gate
         // (triggerX - 60). That gives roughly an 880px-wide arena.
@@ -3791,7 +3897,7 @@ function buildStage1() {
         { x: 2750, y: 520, w: 32, h: 30, type: 'turret', hp: 100, maxHp: 100, shootTimer: 50, angle: 0, color: '#ffaa00' },
         { x: 2950, y: 220, w: 30, h: 24, type: 'drone', hp: 70, maxHp: 70, baseY: 220, floatTimer: Math.PI, shootTimer: 50, color: '#66ddff' },
         // BOSS GUARD-1 (a bit beefier now)
-        { x: 3500, y: 380, w: 90, h: 100, type: 'boss', subtype: 'guard', hp: 700, maxHp: 700, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3500, baseY: 380, color: '#ff00ff', attackPattern: 0 }
+        { x: 3500, y: 380, w: 90, h: 100, type: 'boss', subtype: 'guard', hp: 1100, maxHp: 1100, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3500, baseY: 380, color: '#ff00ff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 500, triggered: false, text: '⚠ DANGER: HOSTILE BOT DETECTED ⚠' },
@@ -3874,7 +3980,7 @@ function buildStage2() {
         { x: 2900, y: 200, w: 30, h: 24, type: 'drone', hp: 90, maxHp: 90, baseY: 200, floatTimer: 0, shootTimer: 40, color: '#66ddff' },
         { x: 3100, y: 510, w: 36, h: 40, type: 'patrol', hp: 100, maxHp: 100, vx: 2, dir: 1, shootTimer: 25, patrolStart: 3050, patrolEnd: 3300, color: '#ff5555' },
         // BOSS SKYHAMMER - flies, drops bombs from above
-        { x: 3550, y: 200, w: 100, h: 80, type: 'boss', subtype: 'skyhammer', hp: 900, maxHp: 900, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3550, baseY: 200, color: '#0088ff', attackPattern: 0 }
+        { x: 3550, y: 200, w: 100, h: 80, type: 'boss', subtype: 'skyhammer', hp: 1400, maxHp: 1400, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3550, baseY: 200, color: '#0088ff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ DANGER: SKY DOCKS PATROL ⚠' },
@@ -3956,7 +4062,7 @@ function buildStage3() {
         { x: 2700, y: 520, w: 32, h: 30, type: 'turret', hp: 140, maxHp: 140, shootTimer: 40, angle: 0, color: '#ff5500' },
         { x: 2850, y: 220, w: 30, h: 24, type: 'drone', hp: 110, maxHp: 110, baseY: 220, floatTimer: 0, shootTimer: 38, color: '#ff8866' },
         // BOSS INFERNO-X
-        { x: 3300, y: 350, w: 100, h: 110, type: 'boss', subtype: 'inferno', hp: 1100, maxHp: 1100, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3300, baseY: 350, color: '#ff3300', attackPattern: 0 }
+        { x: 3300, y: 350, w: 100, h: 110, type: 'boss', subtype: 'inferno', hp: 1700, maxHp: 1700, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3300, baseY: 350, color: '#ff3300', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 350, triggered: false, text: '⚠ DANGER: REACTOR HEAT - HOSTILES ⚠' },
@@ -4042,7 +4148,7 @@ function buildStage4() {
         { x: 3000, y: 504, w: 46, h: 46, type: 'heavy', hp: 250, maxHp: 250, vx: 0.8, dir: 1, shootTimer: 30, patrolStart: 2890, patrolEnd: 3220, color: '#22aa44' },
         { x: 3200, y: 510, w: 38, h: 40, type: 'shielder', hp: 180, maxHp: 180, vx: 1.4, dir: 1, shootTimer: 30, patrolStart: 3150, patrolEnd: 3300, color: '#88ff44', shieldColor: '#88ffff' },
         // BOSS RAVAGER - charges and minigun-spreads (HP reduced for difficulty curve)
-        { x: 3500, y: 350, w: 110, h: 110, type: 'boss', subtype: 'ravager', hp: 1400, maxHp: 1400, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3500, baseY: 350, color: '#22ff44', attackPattern: 0 }
+        { x: 3500, y: 350, w: 110, h: 110, type: 'boss', subtype: 'ravager', hp: 2100, maxHp: 2100, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3500, baseY: 350, color: '#22ff44', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 350, triggered: false, text: '⚠ DANGER: SECURITY BOTS ⚠' },
@@ -4133,7 +4239,7 @@ function buildStage5() {
         { x: 2200, y: 510, w: 38, h: 32, type: 'jumper', hp: 150, maxHp: 150, vx: 0, vy: 0, jumpTimer: 60, color: '#aaccff', onGround: true },
         { x: 2900, y: 504, w: 38, h: 46, type: 'sniper', hp: 220, maxHp: 220, shootTimer: 50, aimTimer: 0, aimAngle: 0, color: '#88ccff' },
         // BOSS CRYO-LORD - frost shots, freezes time briefly via screen shake (HP reduced)
-        { x: 3400, y: 320, w: 100, h: 110, type: 'boss', subtype: 'cryo', hp: 1600, maxHp: 1600, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3400, baseY: 320, color: '#88ccff', attackPattern: 0 }
+        { x: 3400, y: 320, w: 100, h: 110, type: 'boss', subtype: 'cryo', hp: 2400, maxHp: 2400, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3400, baseY: 320, color: '#88ccff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 350, triggered: false, text: '⚠ DANGER: ARCTIC PATROL ⚠' },
@@ -4233,7 +4339,7 @@ function buildStage6() {
         { x: 2950, y: 504, w: 38, h: 46, type: 'sniper', hp: 280, maxHp: 280, shootTimer: 60, aimTimer: 0, aimAngle: 0, color: '#cc66ff' },
         { x: 3300, y: 510, w: 38, h: 32, type: 'jumper', hp: 200, maxHp: 200, vx: 0, vy: 0, jumpTimer: 50, color: '#dd44ff', onGround: true },
         // BOSS NULLIFIER - teleports, dense bullet patterns (HP reduced)
-        { x: 3600, y: 300, w: 110, h: 120, type: 'boss', subtype: 'nullifier', hp: 1900, maxHp: 1900, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3600, baseY: 300, color: '#aa00ff', attackPattern: 0 }
+        { x: 3600, y: 300, w: 110, h: 120, type: 'boss', subtype: 'nullifier', hp: 2900, maxHp: 2900, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3600, baseY: 300, color: '#aa00ff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ DANGER: VOID HOSTILES ⚠' },
@@ -4340,7 +4446,7 @@ function buildStage7() {
         { x: 3000, y: 504, w: 38, h: 46, type: 'sniper', hp: 320, maxHp: 320, shootTimer: 55, aimTimer: 0, aimAngle: 0, color: '#ff44ff' },
         { x: 3300, y: 510, w: 38, h: 40, type: 'shielder', hp: 320, maxHp: 320, vx: 2, dir: 1, shootTimer: 22, patrolStart: 3200, patrolEnd: 3450, color: '#ff44ff', shieldColor: '#ffaaff' },
         // FINAL BOSS OMEGA-PRIME (HP reduced for difficulty curve — still beefy)
-        { x: 3700, y: 300, w: 130, h: 140, type: 'boss', subtype: 'omega', hp: 2400, maxHp: 2400, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3700, baseY: 300, color: '#ffffff', attackPattern: 0 }
+        { x: 3700, y: 300, w: 130, h: 140, type: 'boss', subtype: 'omega', hp: 3600, maxHp: 3600, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3700, baseY: 300, color: '#ffffff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ DANGER: ELITE CITADEL GUARD ⚠' },
@@ -4401,7 +4507,7 @@ function buildStage8() {
         // Two MECHs guard the throat of the corridor — the visual gauntlet
         { x: 3720, y: 470, w: 80, h: 80, type: 'mech',    hp: 600, maxHp: 600, shootTimer: 60, attackPhase: 0, walkPhase: 0, vx: 0, vy: 0, facing: -1, onGround: false, baseY: 470, color: '#66ffff' },
         // FINAL-FINAL BOSS TITAN-LORD - mech that transforms into a battleship
-        { x: 4700, y: 280, w: 160, h: 170, type: 'boss', subtype: 'titan', hp: 3200, maxHp: 3200, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 4700, baseY: 280, color: '#66ffff', attackPattern: 0, transformTimer: 0, transformed: false }
+        { x: 4700, y: 280, w: 160, h: 170, type: 'boss', subtype: 'titan', hp: 4800, maxHp: 4800, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 4700, baseY: 280, color: '#66ffff', attackPattern: 0, transformTimer: 0, transformed: false }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ ORBITAL FORTRESS — ELITE GUARDS ⚠' },
@@ -4696,7 +4802,13 @@ function updateShop() {
 
     // Buy items with number keys / letter keys
     if (shopOpen) {
+        // Only developers can see/buy items marked dev:true. Bound at call
+        // time via window.isDeveloper() (defined in index.html); fallback to
+        // false if the page wrapper isn't available (running game.js standalone).
+        const devAllowed = (typeof window !== 'undefined' && typeof window.isDeveloper === 'function')
+            ? window.isDeveloper() : false;
         for (const item of SHOP_ITEMS) {
+            if (item.dev && !devAllowed) continue;   // hide dev items from non-devs
             let code;
             if (item.key === '0') code = 'Digit0';
             else if (/^[0-9]$/.test(item.key)) code = 'Digit' + item.key;
@@ -4753,6 +4865,7 @@ function updateShop() {
         }
         let anyBuy = false;
         for (const item of SHOP_ITEMS) {
+            if (item.dev && !devAllowed) continue;
             let code;
             if (item.key === '0') code = 'Digit0';
             else if (/^[0-9]$/.test(item.key)) code = 'Digit' + item.key;
@@ -5860,7 +5973,9 @@ function shootBullet() {
             lightning: !!w.lightning,
             chainDmg: w.chainDmg, chainRadius: w.chainRadius, chainCount: w.chainCount,
             lightningStrike: !!w.lightningStrike,
-            strikeDmg: w.strikeDmg, strikeRadius: w.strikeRadius
+            strikeDmg: w.strikeDmg, strikeRadius: w.strikeRadius,
+            soccerBall: !!w.soccerBall,
+            minecraftBlock: !!w.minecraftBlock
         });
     }
     // Muzzle flash
@@ -11012,9 +11127,19 @@ function drawPlayer() {
                 const bladeColor = wpn.color || '#ffeecc';
                 const bladeGlow  = wpn.glow  || '#ff6644';
                 const bladeLen   = wKind === 'knife' ? 26
-                                 : wKind === 'katana' ? 50 : 70;
+                                 : wKind === 'katana' ? 50
+                                 : wKind === 'saber' ? 70
+                                 : wKind === 'daggers' ? 24
+                                 : wKind === 'hammer' ? 56
+                                 : wKind === 'scythe' ? 78
+                                 : 50;
                 const bladeThick = wKind === 'knife' ? 3
-                                 : wKind === 'katana' ? 4 : 5;
+                                 : wKind === 'katana' ? 4
+                                 : wKind === 'saber' ? 5
+                                 : wKind === 'daggers' ? 3
+                                 : wKind === 'hammer' ? 7
+                                 : wKind === 'scythe' ? 4
+                                 : 4;
                 // Anchor point — back/free hand, slightly behind torso so it
                 // reads as "held in the off-hand". Tilts slightly during walk.
                 const handX = px + (player.facing > 0 ? -4 : player.w + 4);
@@ -11074,6 +11199,61 @@ function drawPlayer() {
                     ctx.moveTo(handX + Math.cos(gAng) * 5, handY + Math.sin(gAng) * 5);
                     ctx.lineTo(handX - Math.cos(gAng) * 5, handY - Math.sin(gAng) * 5);
                     ctx.stroke();
+                }
+                // HAMMER — block head at the tip
+                if (wKind === 'hammer') {
+                    ctx.save();
+                    ctx.translate(tipX, tipY);
+                    ctx.rotate(baseAng);
+                    ctx.shadowColor = bladeGlow;
+                    ctx.shadowBlur = 14;
+                    ctx.fillStyle = '#aa6600';
+                    ctx.fillRect(-10, -12, 24, 24);
+                    ctx.fillStyle = bladeColor;
+                    ctx.fillRect(-8, -10, 20, 20);
+                    ctx.fillStyle = '#222';
+                    ctx.fillRect(-2, -3, 4, 6);
+                    ctx.shadowBlur = 0;
+                    ctx.restore();
+                }
+                // SCYTHE — curved blade off the tip (purple sweep)
+                if (wKind === 'scythe') {
+                    ctx.save();
+                    ctx.translate(tipX, tipY);
+                    ctx.rotate(baseAng + Math.PI / 2);
+                    ctx.fillStyle = bladeColor;
+                    ctx.shadowColor = bladeGlow;
+                    ctx.shadowBlur = 16;
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.bezierCurveTo(16, -8, 40, -8, 50, 4);
+                    ctx.bezierCurveTo(38, -2, 22, 0, 0, 4);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.restore();
+                }
+                // DAGGERS — second smaller blade sheathed at the same hand
+                if (wKind === 'daggers') {
+                    const offAng = baseAng + 0.32;
+                    const oTipX = handX + Math.cos(offAng) * (bladeLen * 0.85);
+                    const oTipY = handY + Math.sin(offAng) * (bladeLen * 0.85);
+                    ctx.strokeStyle = bladeGlow;
+                    ctx.shadowColor = bladeGlow;
+                    ctx.shadowBlur = 8;
+                    ctx.lineWidth = bladeThick * 1.4;
+                    ctx.beginPath();
+                    ctx.moveTo(handX, handY);
+                    ctx.lineTo(oTipX, oTipY);
+                    ctx.stroke();
+                    ctx.strokeStyle = bladeColor;
+                    ctx.shadowBlur = 4;
+                    ctx.lineWidth = bladeThick;
+                    ctx.beginPath();
+                    ctx.moveTo(handX, handY);
+                    ctx.lineTo(oTipX, oTipY);
+                    ctx.stroke();
+                    ctx.shadowBlur = 0;
                 }
                 ctx.shadowBlur = 0;
                 ctx.restore();
@@ -11268,11 +11448,38 @@ function drawPlayer() {
     if (player.meleeAnimTimer > 0) {
         const animMax = player.meleeAnimMax || 14;
         const t = (animMax - player.meleeAnimTimer) / animMax;   // 0 → 1
-        // Punch curve: fast extend (0..0.35), brief hold (0.35..0.55), retract (0.55..1)
-        let extend;
-        if (t < 0.35)      extend = (t / 0.35);                 // 0 → 1 fast
-        else if (t < 0.55) extend = 1;                          // hold
-        else               extend = 1 - (t - 0.55) / 0.45;       // 1 → 0 retract
+        // Punch curve with proper anticipation (windup → snap → follow-through):
+        //   0.00..0.18  WINDUP — brief draw-back (clamped to 0 visually)
+        //   0.18..0.45  SNAP   — fast extend with overshoot ( 0 → 1.03 )
+        //   0.45..0.65  HOLD   — peak extension lingers
+        //   0.65..1.00  RECOVER — eased retract ( 1 → 0 )
+        // Uses easeOutCubic on the snap so the arc accelerates and lands hard.
+        // Windup itself is reflected by the dedicated `windup` variable below
+        // (used by some weapon branches for a backswing visual).
+        let extend, windup;
+        if (t < 0.18) {
+            // Windup — pull back ~15% of reach. Visual extend stays at 0 so
+            // the blade/fist sits at neutral; weapons that want a true draw-
+            // back can read `windup` (0..1) and flip the angle.
+            extend = 0;
+            windup = t / 0.18;
+        } else if (t < 0.45) {
+            const p = (t - 0.18) / 0.27;
+            // easeOutCubic + small overshoot so it lands like a real strike
+            const ease = 1 - Math.pow(1 - p, 3);
+            extend = ease * 1.03;
+            windup = 0;
+        } else if (t < 0.65) {
+            // Hold near peak (slight settle from overshoot)
+            const p = (t - 0.45) / 0.20;
+            extend = 1.03 - 0.03 * p;
+            windup = 0;
+        } else {
+            // Recover — eased retract
+            const p = (t - 0.65) / 0.35;
+            extend = 1 - p * p;
+            windup = 0;
+        }
 
         const stage = player.meleeAnimStage || 1;
         const arm = player.meleeAnimArm || 'front';
@@ -11415,33 +11622,60 @@ function drawPlayer() {
             const wKind = player.activeMelee;
             const bladeColor = meleeWpnDef.color || '#ffeecc';
             const bladeGlow  = meleeWpnDef.glow  || '#ff6644';
-            // Blade length scales with weapon
+            // Blade length scales with weapon. Hammer/scythe override default.
             const bladeLen = wKind === 'knife' ? 30
                            : wKind === 'katana' ? 60
-                           : 80;       // saber
+                           : wKind === 'saber' ? 80
+                           : wKind === 'daggers' ? 28
+                           : wKind === 'hammer' ? 70
+                           : wKind === 'scythe' ? 95
+                           : 50;
             const bladeThick = wKind === 'knife' ? 3
                              : wKind === 'katana' ? 4
-                             : 5;
-            // Arc sweep — saber gets the widest, knife the smallest
-            const arcSpread = (stage === 3 ? Math.PI * 0.7 : Math.PI * 0.5)
-                * (wKind === 'knife' ? 0.7 : wKind === 'katana' ? 1.0 : 1.1);
+                             : wKind === 'saber' ? 5
+                             : wKind === 'daggers' ? 3
+                             : wKind === 'hammer' ? 8
+                             : wKind === 'scythe' ? 4
+                             : 4;
+            // Arc sweep — saber/scythe widest, knife/daggers tightest
+            const arcMul = wKind === 'knife' ? 0.7
+                         : wKind === 'daggers' ? 0.6
+                         : wKind === 'katana' ? 1.0
+                         : wKind === 'saber' ? 1.1
+                         : wKind === 'hammer' ? 1.2
+                         : wKind === 'scythe' ? 1.4
+                         : 1.0;
+            const arcSpread = (stage === 3 ? Math.PI * 0.7 : Math.PI * 0.5) * arcMul;
             const arcStart = punchAng - arcSpread / 2;
-            const swingAng = arcStart + arcSpread * extend;
+            // During WINDUP, draw the blade backwards (charging up). During
+            // SNAP/HOLD/RECOVER use the normal extend-driven angle.
+            let swingAng;
+            if (windup > 0) {
+                swingAng = arcStart - 0.45 * windup;       // pulled back
+            } else {
+                swingAng = arcStart + arcSpread * extend;
+            }
             const cxP = torsoCx;
             const cyP = py + player.h / 2;
 
-            // Glow trail — fading arc segments behind the blade
+            // Glow trail — fading arc segments behind the blade. Heavier
+            // weapons get a longer trail for a satisfying motion-blur read.
+            const trailCount = wKind === 'saber' ? 6
+                             : wKind === 'scythe' ? 7
+                             : wKind === 'hammer' ? 4
+                             : wKind === 'katana' ? 4
+                             : 3;
             ctx.save();
-            for (let f = 0; f < (wKind === 'saber' ? 5 : 3); f++) {
-                const fE = Math.max(0, extend - f * 0.16);
+            for (let f = 0; f < trailCount; f++) {
+                const fE = Math.max(0, extend - f * (wKind === 'scythe' ? 0.12 : 0.16));
                 if (fE <= 0) continue;
                 const a = arcStart + arcSpread * fE;
                 const r = bladeLen * (0.85 + 0.15 * fE);
-                ctx.globalAlpha = 0.32 / (f + 1);
+                ctx.globalAlpha = 0.34 / (f + 1);
                 ctx.strokeStyle = bladeGlow;
                 ctx.shadowColor = bladeGlow;
-                ctx.shadowBlur = 18;
-                ctx.lineWidth = bladeThick * 1.6;
+                ctx.shadowBlur = wKind === 'saber' || wKind === 'scythe' ? 22 : 16;
+                ctx.lineWidth = bladeThick * (wKind === 'hammer' ? 1.2 : 1.6);
                 ctx.beginPath();
                 ctx.arc(cxP, cyP, r, arcStart, a);
                 ctx.stroke();
@@ -11506,6 +11740,78 @@ function drawPlayer() {
             ctx.arc(tipX, tipY, bladeThick * 0.7, 0, Math.PI * 2);
             ctx.fill();
             ctx.shadowBlur = 0;
+
+            // ===== Weapon-specific end caps =====
+            // HAMMER — heavy block head at the tip
+            if (wKind === 'hammer') {
+                ctx.save();
+                ctx.translate(tipX, tipY);
+                ctx.rotate(swingAng);
+                ctx.shadowColor = bladeGlow;
+                ctx.shadowBlur = 20;
+                ctx.fillStyle = '#aa6600';
+                ctx.fillRect(-12, -14, 28, 28);          // head body
+                ctx.fillStyle = bladeColor;
+                ctx.fillRect(-10, -12, 24, 24);          // bright top
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(-8, -10, 4, 20);             // accent stripe
+                ctx.fillRect(8, -10, 4, 20);              // accent stripe
+                ctx.fillStyle = '#222';
+                ctx.fillRect(-2, -3, 4, 6);               // bolt center
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            }
+            // SCYTHE — curved blade swept off the tip
+            if (wKind === 'scythe') {
+                ctx.save();
+                ctx.translate(tipX, tipY);
+                ctx.rotate(swingAng + Math.PI / 2);
+                ctx.fillStyle = bladeColor;
+                ctx.shadowColor = bladeGlow;
+                ctx.shadowBlur = 22;
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.bezierCurveTo(20, -10, 50, -10, 60, 6);
+                ctx.bezierCurveTo(45, -2, 25, 0, 0, 6);
+                ctx.closePath();
+                ctx.fill();
+                // Inner highlight
+                ctx.fillStyle = '#ffffff';
+                ctx.globalAlpha = 0.6;
+                ctx.beginPath();
+                ctx.moveTo(2, 0);
+                ctx.bezierCurveTo(20, -7, 40, -7, 52, 3);
+                ctx.bezierCurveTo(38, -1, 22, 1, 2, 3);
+                ctx.closePath();
+                ctx.fill();
+                ctx.globalAlpha = 1;
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            }
+            // DAGGERS — render a SECOND blade slightly offset (off-hand jab)
+            if (wKind === 'daggers') {
+                const offAng = swingAng + 0.18;
+                const oTipX = cxP + Math.cos(offAng) * bladeLen * 0.85;
+                const oTipY = cyP + Math.sin(offAng) * bladeLen * 0.85;
+                const oHiltX = cxP + Math.cos(offAng) * (bladeLen * 0.2);
+                const oHiltY = cyP + Math.sin(offAng) * (bladeLen * 0.2);
+                ctx.strokeStyle = bladeGlow;
+                ctx.shadowColor = bladeGlow;
+                ctx.shadowBlur = 12;
+                ctx.lineWidth = bladeThick * 1.4;
+                ctx.beginPath();
+                ctx.moveTo(oHiltX, oHiltY);
+                ctx.lineTo(oTipX, oTipY);
+                ctx.stroke();
+                ctx.strokeStyle = bladeColor;
+                ctx.shadowBlur = 6;
+                ctx.lineWidth = bladeThick;
+                ctx.beginPath();
+                ctx.moveTo(oHiltX, oHiltY);
+                ctx.lineTo(oTipX, oTipY);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
             // Stage 3 finisher — extra ring shockwave
             if (stage === 3) {
                 const ringR = 30 + extend * (wKind === 'saber' ? 110 : 80);
@@ -15608,6 +15914,141 @@ function drawBullets() {
             ctx.shadowBlur = 0;
             continue;
         }
+        // ===== SOCCER BALL bullet (JAX BLASTER, dev) =====
+        // Black-and-white pentagon-stitched soccer ball that spins as it
+        // travels. Spin angle = bullet life * speed for a tumbling effect.
+        if (b.soccerBall) {
+            const sx = b.x - camera.x;
+            const sy = b.y - camera.y;
+            const r = b.size || 14;
+            const spin = (b.life || 0) * 0.18;
+            ctx.save();
+            ctx.translate(sx, sy);
+            ctx.rotate(spin);
+            // Outer glow halo
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 22;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(0, 0, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // Black pentagon center
+            ctx.fillStyle = '#000000';
+            const pent = (cx0, cy0, pr) => {
+                ctx.beginPath();
+                for (let i = 0; i < 5; i++) {
+                    const a = -Math.PI / 2 + i * (Math.PI * 2 / 5);
+                    const x = cx0 + Math.cos(a) * pr;
+                    const y = cy0 + Math.sin(a) * pr;
+                    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                }
+                ctx.closePath();
+                ctx.fill();
+            };
+            pent(0, 0, r * 0.42);
+            // Three smaller pentagons around the rim
+            for (let k = 0; k < 5; k++) {
+                const a = k * (Math.PI * 2 / 5);
+                const cx0 = Math.cos(a) * r * 0.66;
+                const cy0 = Math.sin(a) * r * 0.66;
+                pent(cx0, cy0, r * 0.22);
+            }
+            // Stitch lines connecting pentagons
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1.2;
+            for (let k = 0; k < 5; k++) {
+                const a = k * (Math.PI * 2 / 5);
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(Math.cos(a) * r * 0.85, Math.sin(a) * r * 0.85);
+                ctx.stroke();
+            }
+            // Highlight crescent
+            ctx.fillStyle = 'rgba(255,255,255,0.6)';
+            ctx.beginPath();
+            ctx.arc(-r * 0.4, -r * 0.4, r * 0.25, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+            // Streaking motion trail behind
+            const trailX = sx - (b.vx || 0) * 0.6;
+            const trailY = sy - (b.vy || 0) * 0.6;
+            ctx.save();
+            ctx.globalAlpha = 0.4;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 14;
+            ctx.beginPath();
+            ctx.moveTo(trailX, trailY);
+            ctx.lineTo(sx, sy);
+            ctx.stroke();
+            ctx.restore();
+            ctx.shadowBlur = 0;
+            continue;
+        }
+        // ===== MINECRAFT BLOCK bullet (MICAH MINECRAFTER, dev) =====
+        // Blocky pixel-art TNT/creeper hybrid. Square outline, green pixel
+        // pattern, slight rotation and pixel-noise flicker for energy feel.
+        if (b.minecraftBlock) {
+            const sx = b.x - camera.x;
+            const sy = b.y - camera.y;
+            const r = b.size || 18;
+            const spin = (b.life || 0) * 0.04;   // gentle wobble
+            ctx.save();
+            ctx.translate(sx, sy);
+            ctx.rotate(Math.sin(spin) * 0.15);
+            // Outer glow
+            ctx.shadowColor = '#88ff88';
+            ctx.shadowBlur = 22;
+            // Block body — dark green base
+            ctx.fillStyle = '#2a6a2a';
+            ctx.fillRect(-r, -r, r * 2, r * 2);
+            ctx.shadowBlur = 0;
+            // Pixelated lighter green pattern (creeper face vibes)
+            ctx.fillStyle = '#44aa44';
+            const px = r * 2 / 6;     // 6x6 pixel grid inside the block
+            // Random-ish creeper pixel pattern
+            const pattern = [
+                0,1,0,0,1,0,
+                1,1,1,1,1,1,
+                0,1,0,0,1,0,
+                1,1,1,1,1,1,
+                1,0,1,1,0,1,
+                0,1,1,1,1,0
+            ];
+            for (let i = 0; i < 36; i++) {
+                if (pattern[i]) {
+                    const cx0 = -r + (i % 6) * px;
+                    const cy0 = -r + Math.floor(i / 6) * px;
+                    ctx.fillRect(cx0 + 1, cy0 + 1, px - 2, px - 2);
+                }
+            }
+            // Creeper face (eyes + mouth) — black squares
+            ctx.fillStyle = '#000';
+            ctx.fillRect(-r * 0.45, -r * 0.25, r * 0.3, r * 0.3);    // left eye
+            ctx.fillRect(r * 0.15, -r * 0.25, r * 0.3, r * 0.3);     // right eye
+            ctx.fillRect(-r * 0.18, r * 0.05, r * 0.36, r * 0.5);    // mouth top
+            ctx.fillRect(-r * 0.4, r * 0.25, r * 0.18, r * 0.2);     // mouth corner L
+            ctx.fillRect(r * 0.22, r * 0.25, r * 0.18, r * 0.2);     // mouth corner R
+            // Bright outline (TNT vibes)
+            ctx.strokeStyle = '#ddffdd';
+            ctx.lineWidth = 2;
+            ctx.shadowColor = '#88ff88';
+            ctx.shadowBlur = 14;
+            ctx.strokeRect(-r, -r, r * 2, r * 2);
+            ctx.restore();
+            // Sparking fuse trail
+            if (Math.random() < 0.6) {
+                const trailX = sx - (b.vx || 0) * 0.5;
+                const trailY = sy - (b.vy || 0) * 0.5;
+                spawnParticles(trailX, trailY, '#ffaa00', 1, 3);
+                spawnParticles(trailX, trailY, '#ffff44', 1, 2);
+            }
+            ctx.shadowBlur = 0;
+            continue;
+        }
         ctx.fillStyle = b.color || '#ffff66';
         ctx.shadowColor = b.glow || '#ffff00';
         ctx.shadowBlur = 12;
@@ -16906,9 +17347,13 @@ function drawShopUI() {
     // Pre-split into two columns based on item type:
     //   LEFT: utility (heal/stat/jump/firerate/trades/EVOLVE/SwitchWeapon)
     //   RIGHT: weapons + melee
+    // Dev-only items are filtered out for non-developer players.
+    const devAllowed = (typeof window !== 'undefined' && typeof window.isDeveloper === 'function')
+        ? window.isDeveloper() : false;
     const leftCol = [];
     const rightCol = [];
     for (const it of SHOP_ITEMS) {
+        if (it.dev && !devAllowed) continue;   // hide dev items from non-devs
         if (it.weapon || it.melee) rightCol.push(it);
         else leftCol.push(it);
     }
@@ -19088,7 +19533,7 @@ function restart() {
     player.scrap = 0;
     player.bulletDamage = 0;
     player.weaponTier = 0;
-    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
     player.meleeWeaponsUnlocked = {};
     player.activeMelee = null;
     player.maxJumpsBonus = 0;
@@ -19211,7 +19656,7 @@ function startFinale() {
         boss: {
             x: 760, y: 320,
             w: 130, h: 220,
-            hp: 4000, maxHp: 4000,
+            hp: 6500, maxHp: 6500,
             life: 1,                // 1 = city form, 2 = space form
             phase: 1,
             attackTimer: 200,      // first attack delay
@@ -21063,7 +21508,7 @@ function updateFinaleBattle() {
     // Boss stays vulnerable — player must keep fighting and survive the
     // overwhelming barrage. The kill-cinematic only fires when PLAYER drops
     // to ≤100 HP.
-    if (!inSpace && !b.unleashed && b.hp <= 2000) {
+    if (!inSpace && !b.unleashed && b.hp <= 3200) {
         b.unleashed = true;
         b.damageMul = 10;     // 10× damage on all attacks until cinematic
         // Big "☠ UNLEASHED ☠" entrance flash
@@ -21850,7 +22295,7 @@ function updateFinaleCityToSpace() {
         p.knockedDownAng = 0;
         p.knockedDownLift = 0;
         b.life = 2;
-        b.maxHp = 12000;       // boss massively stronger in evolved sky form
+        b.maxHp = 18000;       // boss massively stronger in evolved sky form
         b.hp = b.maxHp;
         b.phase = 2;
         b.phase2Triggered = true;
@@ -25313,7 +25758,7 @@ function gameLoop(timestamp) {
         player.scrap = 0;
         player.bulletDamage = 0;
         player.weaponTier = 0;
-        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
     player.meleeWeaponsUnlocked = {};
     player.activeMelee = null;
         player.maxJumpsBonus = 0;
