@@ -818,10 +818,10 @@ const WEAPONS = [
     },
     {
         name: 'FROST CANNON',  tier: 5,
-        damage: 36, speed: 14, cooldown: 19, bullets: 1, spread: 0,
+        damage: 65, speed: 14, cooldown: 38, bullets: 1, spread: 0,
         color: '#aaeeff', glow: '#66ccff', size: 11, life: 100, pierce: true,
-        slow: true, slowFactor: 0.5, slowDur: 70, ice: true,
-        flavor: 'Pierces, freezes, and slows enemies.'
+        slow: true, slowFactor: 0.4, slowDur: 100, ice: true,
+        flavor: 'Heavy ice slug. Slow fire rate, freezes hard.'
     },
     {
         name: 'VOID PIERCER',  tier: 6,
@@ -864,8 +864,8 @@ const WEAPONS = [
         name: 'FLAME THROWER', tier: 12, shopOnly: true, cost: 420,
         damage: 1, speed: 8, cooldown: 2, bullets: 2, spread: 0.34,
         color: '#ff8800', glow: '#ff4400', size: 8, life: 38,
-        burn: true, burnDmg: 3, burnDur: 60, flame: true,
-        flavor: 'Long flame stream. Weak per hit but burns hard.'
+        burn: true, burnDmg: 5, burnDur: 75, flame: true,
+        flavor: 'Long flame stream. Strong burn, weak per hit.'
     },
     {
         name: 'BFG-9000', tier: 13, shopOnly: true, cost: 800,
@@ -909,10 +909,10 @@ const WEAPONS = [
     },
     {
         name: 'ICE BLAST', tier: 19, shopOnly: true, cost: 480,
-        damage: 2, speed: 12, cooldown: 4, bullets: 2, spread: 0.18,
-        color: '#aaeeff', glow: '#66ccff', size: 7, life: 50,
-        slow: true, slowFactor: 0.35, slowDur: 90, ice: true,
-        flavor: 'Freezing crystal stream. Slows enemies hard.'
+        damage: 3, speed: 20, cooldown: 2, bullets: 1, spread: 0.04,
+        color: '#aaeeff', glow: '#66ccff', size: 6, life: 60,
+        slow: true, slowFactor: 0.35, slowDur: 90, ice: true, beam: true,
+        flavor: 'Continuous freeze ray. Locks enemies in place.'
     }
 ];
 
@@ -3458,15 +3458,29 @@ function addMissionPuzzle(stage) {
         disabled: false
     });
 
-    // TERMINAL — somewhere else on the map, shoot to disable the grid.
-    // HP doubled from previous (40 + stage*10 was easily one-shot late game).
+    // TERMINAL — somewhere else on the map. NEW: cut 3 wires (each one bullet
+    // to sever) instead of just shoot the box. Each wire is a small target on
+    // the panel; sever all three to disable the laser grid.
+    const wireColors = ['#ff4444', '#44aaff', '#ffdd44'];
+    const wires = [];
+    for (let wi = 0; wi < 3; wi++) {
+        wires.push({
+            // Wire endpoint slot, relative to terminal box (lays them across
+            // the panel face — the player aims at each colored wire to cut it)
+            ox: 6 + wi * 8,        // x offset inside terminal box
+            color: wireColors[wi],
+            cut: false
+        });
+    }
     terminals.push({
         x: L.termX, y: L.termY,
-        w: 28, h: 32,
+        w: 32, h: 38,
         group: keyId,
         hp: 80 + stage * 25,
         maxHp: 80 + stage * 25,
-        disabled: false
+        disabled: false,
+        wires: wires,
+        wiresCut: 0
     });
 
     // Tag the boss-stage cage to require this key. The cage is spawned later
@@ -5674,7 +5688,8 @@ function shootBullet() {
             burn: !!w.burn, burnDmg: w.burnDmg, burnDur: w.burnDur,
             slow: !!w.slow, slowDur: w.slowDur, slowFactor: w.slowFactor,
             flame: !!w.flame,
-            ice: !!w.ice
+            ice: !!w.ice,
+            beam: !!w.beam
         });
     }
     // Muzzle flash
@@ -6008,15 +6023,54 @@ function updateBullets() {
         }
         if (hitCage) { bullets.splice(i, 1); continue; }
 
-        // Hit terminals — disable the laser grids in their group when shot enough.
+        // Hit terminals — cut wires to disable the laser grid in their group.
+        // Each bullet cuts the wire whose x-position the bullet is closest to;
+        // requires all 3 wires cut to disable. Falls back to HP-based disable
+        // if no wires are defined (older save state).
         let hitTerminal = false;
         for (const term of terminals) {
             if (term.disabled) continue;
             if (b.x >= term.x && b.x <= term.x + term.w && b.y >= term.y && b.y <= term.y + term.h) {
-                term.hp -= b.damage;
                 spawnParticles(b.x, b.y, '#88ddff', 8, 4);
-                if (term.hp <= 0) {
-                    term.disabled = true;
+                let didDisable = false;
+                if (term.wires && term.wires.length) {
+                    // Find the closest uncut wire to bullet x
+                    let bestWire = null;
+                    let bestDist = Infinity;
+                    for (const wire of term.wires) {
+                        if (wire.cut) continue;
+                        const wireX = term.x + wire.ox;
+                        const d = Math.abs(b.x - wireX);
+                        if (d < bestDist) { bestDist = d; bestWire = wire; }
+                    }
+                    if (bestWire) {
+                        bestWire.cut = true;
+                        term.wiresCut = (term.wiresCut || 0) + 1;
+                        spawnParticles(term.x + bestWire.ox + 4, term.y + 4,
+                            bestWire.color, 14, 5);
+                        spawnShockwave(term.x + bestWire.ox + 4, term.y + 12,
+                            40, bestWire.color);
+                        screenShake = Math.max(screenShake, 5);
+                        floatTexts.push({
+                            text: 'WIRE CUT',
+                            x: term.x + term.w / 2,
+                            y: term.y - 8,
+                            life: 30, color: bestWire.color
+                        });
+                        if (term.wiresCut >= term.wires.length) {
+                            term.disabled = true;
+                            didDisable = true;
+                        }
+                    }
+                } else {
+                    // Legacy HP path
+                    term.hp -= b.damage;
+                    if (term.hp <= 0) {
+                        term.disabled = true;
+                        didDisable = true;
+                    }
+                }
+                if (didDisable) {
                     spawnShockwave(term.x + term.w / 2, term.y + term.h / 2, 120, '#00ffaa');
                     spawnParticles(term.x + term.w / 2, term.y + term.h / 2, '#00ffaa', 28, 6);
                     screenShake = 12;
@@ -14738,6 +14792,54 @@ function drawPlatforms() {
 function drawBullets() {
     // Player bullets - color and size from weapon
     for (const b of bullets) {
+        // BEAM bullets — render as a glowing line segment instead of a dot.
+        // Uses the bullet's velocity to project a tail. Reads as a
+        // continuous beam when many of them are fired in close succession.
+        if (b.beam) {
+            const sx = b.x - camera.x;
+            const sy = b.y - camera.y;
+            // Project tail back along velocity direction
+            const speed = Math.hypot(b.vx, b.vy) || 1;
+            const tailLen = 24;
+            const tx = sx - (b.vx / speed) * tailLen;
+            const ty = sy - (b.vy / speed) * tailLen;
+            ctx.save();
+            // Outer glow
+            ctx.globalAlpha = 0.5;
+            ctx.strokeStyle = b.glow || '#66ccff';
+            ctx.shadowColor = b.glow || '#66ccff';
+            ctx.shadowBlur = 18;
+            ctx.lineWidth = (b.size || 6) * 2;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(tx, ty);
+            ctx.lineTo(sx, sy);
+            ctx.stroke();
+            // Mid layer
+            ctx.globalAlpha = 0.85;
+            ctx.strokeStyle = b.color || '#aaeeff';
+            ctx.lineWidth = (b.size || 6) * 1.2;
+            ctx.beginPath();
+            ctx.moveTo(tx, ty);
+            ctx.lineTo(sx, sy);
+            ctx.stroke();
+            // Bright white core
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = (b.size || 6) * 0.45;
+            ctx.beginPath();
+            ctx.moveTo(tx, ty);
+            ctx.lineTo(sx, sy);
+            ctx.stroke();
+            // Tip flare
+            ctx.shadowBlur = 14;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(sx, sy, b.size * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+            continue;
+        }
         // FLAME bullets render as flickering multi-layer flames instead of
         // a static circle — gives the flamethrower a real flame stream feel.
         if (b.flame) {
@@ -15373,39 +15475,90 @@ function drawTerminals() {
         ctx.strokeStyle = term.disabled ? '#446677' : '#88aacc';
         ctx.lineWidth = 2;
         ctx.strokeRect(tx, ty, term.w, term.h);
-        // Screen
-        const screenX = tx + 4;
-        const screenY = ty + 4;
-        const screenW = term.w - 8;
-        const screenH = term.h - 8;
-        ctx.fillStyle = term.disabled ? '#003322' : '#220000';
-        ctx.fillRect(screenX, screenY, screenW, screenH);
-        // Text glyphs
+        // Inner panel — colored wires running across the panel face. Each
+        // wire renders as a vertical line; if cut, render as a shorter
+        // jagged stub with sparks. Cut all wires to disable the terminal.
+        const innerX = tx + 3;
+        const innerY = ty + 4;
+        const innerW = term.w - 6;
+        const innerH = term.h - 8;
+        ctx.fillStyle = term.disabled ? '#001a14' : '#0a1a26';
+        ctx.fillRect(innerX, innerY, innerW, innerH);
         const tnow = performance.now();
-        const flicker = term.disabled ? 0.6 : 0.8 + Math.sin(tnow * 0.012) * 0.2;
+        if (term.wires && term.wires.length) {
+            for (const wire of term.wires) {
+                const wx = tx + wire.ox + 4;
+                const wTop = innerY + 2;
+                const wBot = innerY + innerH - 2;
+                if (wire.cut) {
+                    // Cut wire — short stubs at top and bottom + sparks
+                    ctx.strokeStyle = wire.color;
+                    ctx.shadowColor = wire.color;
+                    ctx.shadowBlur = 6;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(wx, wTop);
+                    ctx.lineTo(wx + (Math.sin(tnow * 0.01 + wire.ox) * 1.2), wTop + 6);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(wx, wBot);
+                    ctx.lineTo(wx + (Math.sin(tnow * 0.011 + wire.ox) * 1.2), wBot - 6);
+                    ctx.stroke();
+                    // Sparks at the cut points
+                    if (Math.random() < 0.3) {
+                        spawnParticles(term.x + wire.ox + 4, term.y + 12,
+                            ['#ffff44', wire.color, '#ffffff'][Math.floor(Math.random() * 3)],
+                            1, 2);
+                    }
+                } else {
+                    // Intact wire — full vertical line, glowing + animated
+                    const pulse = 0.7 + Math.sin(tnow * 0.008 + wire.ox * 0.3) * 0.3;
+                    ctx.strokeStyle = wire.color;
+                    ctx.shadowColor = wire.color;
+                    ctx.shadowBlur = 10;
+                    ctx.globalAlpha = pulse;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(wx, wTop);
+                    ctx.lineTo(wx, wBot);
+                    ctx.stroke();
+                    // Connector dots top + bottom
+                    ctx.globalAlpha = 1;
+                    ctx.fillStyle = '#ddd';
+                    ctx.fillRect(wx - 2, wTop - 1, 4, 2);
+                    ctx.fillRect(wx - 2, wBot - 1, 4, 2);
+                }
+            }
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1;
+        }
+        // Status text on the panel
+        const flicker = term.disabled ? 0.85 : 0.7 + Math.sin(tnow * 0.012) * 0.3;
         ctx.fillStyle = term.disabled ? `rgba(0, 255, 170, ${flicker})` : `rgba(255, 80, 80, ${flicker})`;
         ctx.shadowColor = term.disabled ? '#00ffaa' : '#ff2244';
-        ctx.shadowBlur = 10;
-        ctx.font = 'bold 9px Courier New';
+        ctx.shadowBlur = 8;
+        ctx.font = 'bold 8px Courier New';
         ctx.textAlign = 'center';
         const txCenter = tx + term.w / 2;
-        const tyCenter = ty + term.h / 2 + 3;
-        ctx.fillText(term.disabled ? 'OFFLINE' : 'ARMED', txCenter, tyCenter);
+        ctx.fillText(term.disabled ? 'OFFLINE' : 'ARMED', txCenter, ty + term.h - 2);
         ctx.shadowBlur = 0;
-        // HP bar (for active terminals)
-        if (!term.disabled && term.hp < term.maxHp) {
+        // Wire-cut progress bar at top
+        if (!term.disabled && term.wires && term.wires.length) {
             ctx.fillStyle = '#222';
             ctx.fillRect(tx, ty - 8, term.w, 4);
-            ctx.fillStyle = '#ff8844';
-            ctx.fillRect(tx, ty - 8, term.w * (term.hp / term.maxHp), 4);
+            ctx.fillStyle = '#00ffaa';
+            ctx.fillRect(tx, ty - 8, term.w * ((term.wiresCut || 0) / term.wires.length), 4);
         }
-        // Floating "TERMINAL" label
+        // Floating "CUT WIRES" label
         if (!term.disabled) {
             const blink = Math.sin(tnow * 0.005) * 0.5 + 0.5;
             ctx.fillStyle = `rgba(255, 220, 80, ${0.7 + blink * 0.3})`;
             ctx.font = 'bold 10px Courier New';
             ctx.textAlign = 'center';
-            ctx.fillText('▼ TERMINAL ▼', txCenter, ty - 14);
+            const cutCount = term.wiresCut || 0;
+            const total = (term.wires && term.wires.length) || 0;
+            const label = total > 0 ? `▼ CUT WIRES ${cutCount}/${total} ▼` : '▼ TERMINAL ▼';
+            ctx.fillText(label, txCenter, ty - 14);
         }
         ctx.restore();
         ctx.textAlign = 'left';
