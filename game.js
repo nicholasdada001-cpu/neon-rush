@@ -979,6 +979,17 @@ const WEAPONS = [
         color: '#ffaa44', glow: '#ffdd88', size: 12, life: 130,
         bandWeapon: true,        // tells shootBullet to dispatch on instrument
         flavor: '🎵 Music-note rifle. Press B to switch DRUM/SAX/CLARINET/FLUTE.'
+    },
+    // NICHOLAS PRIMUS SUMMONER — fires a single beacon shot. On impact
+    // (or just on shot), summons a colossal PRIMUS TITAN that fights
+    // alongside the player for 30 seconds. The summoner has its own
+    // cooldown (long) so it's not spammable.
+    {
+        name: 'PRIMUS SUMMONER', tier: 27, shopOnly: true, cost: 0, dev: true,
+        damage: 60, speed: 24, cooldown: 600, bullets: 1, spread: 0,
+        color: '#ffd744', glow: '#ffaa00', size: 14, life: 80,
+        primusSummon: true,
+        flavor: '⚙ NICHOLAS-themed. Summons PRIMUS TITAN ally for 30s. Long cooldown.'
     }
 ];
 
@@ -1246,7 +1257,7 @@ const player = {
     evoLevel: 0,              // 0 = base, 1 = MK-II, 2 = MK-III, 3 = OMEGA FORM
     bulletDamage: 0,         // additive damage bonus (from "Damage +5" upgrade)
     weaponTier: 0,            // index into WEAPONS (currently equipped)
-    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
+    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
     meleeWeaponsUnlocked: {},  // { knife:true, katana:true, ... } — bought from shop
     activeMelee: null,         // 'knife' | 'katana' | 'saber' | null = bare-fist
     // BAND BLASTER instrument state — cycles via B key while equipped.
@@ -2105,6 +2116,14 @@ let minecraftQueue = [];
 // timer and pops a friendly mob until its budget runs out, then crumbles.
 //   { kind, x, y, w, h, timer, spawnsLeft, totalBudget, life, anim }
 let minecraftSpawners = [];
+
+// PRIMUS TITAN — friendly colossus ally summoned by the NICHOLAS
+// PRIMUS SUMMONER weapon. Lives 30 seconds, towers over enemies,
+// fires a salvo of cannon shots + homing missiles + a sweeping beam.
+// Stays near the player; if it walks too far it teleports back.
+//   x/y, vx/vy, hp/maxHp, life, attackTimer, beamTimer, slamTimer,
+//   facing, animPhase, transformPhase, mode (idle/cannon/missile/beam/slam)
+let primusTitans = [];
 // Monotonic counter — increments every time we push to the queue. Drives
 // the rotation pattern. Stored separately from minecraftQueue.length so
 // it doesn't reset when items are shifted off the front. (Earlier bug:
@@ -3691,6 +3710,456 @@ function drawBandSpecialFx() {
             ctx.lineTo(ex, ey);
             ctx.stroke();
         }
+        ctx.restore();
+    }
+}
+
+// ============================================================================
+// PRIMUS TITAN — Nicholas-themed colossus ally
+// ============================================================================
+// Summoned by the PRIMUS SUMMONER weapon (tier 27). One titan spawns per
+// cast; it lives 30 seconds and cycles through 4 attack modes:
+//   - cannon volley (chest cannon, 6 shots fan)
+//   - missile barrage (shoulder pods, 4 homing rockets)
+//   - sweeping ion beam (sustained ground laser)
+//   - matrix slam (jump-then-shockwave AOE)
+// Each Transformer-style ability lasts ~60-90f, then 30f cooldown, then
+// the next mode. Player can summon another after the active one expires
+// (cooldown gates this).
+
+const PRIMUS_LIFE = 1800;          // 30s @ 60fps
+const PRIMUS_W = 90;
+const PRIMUS_H = 160;
+
+function spawnPrimusTitan(originX, originY, dirX) {
+    primusTitans.push({
+        x: originX - PRIMUS_W / 2,
+        y: originY - PRIMUS_H,
+        w: PRIMUS_W, h: PRIMUS_H,
+        vx: 0, vy: 0,
+        hp: 4500, maxHp: 4500,
+        life: PRIMUS_LIFE,
+        spawnAnim: 90,           // dramatic descent / pillar of light
+        facing: dirX > 0 ? 1 : -1,
+        animPhase: 0,
+        // Mode state machine
+        mode: 'idle',
+        modeTimer: 60,
+        attackTimer: 90,
+        target: null,
+        // Transform-mode state for matrix slam (titan crouches → leaps)
+        slamY0: 0, slamCharge: 0,
+        // Per-frame VFX accumulators
+        shake: 0,
+        beamLen: 0
+    });
+    // Massive entrance — pillar of light + screen shake + announce
+    spawnShockwave(originX, originY, 200, '#ffd744');
+    spawnShockwave(originX, originY, 320, '#ffffff');
+    spawnShockwave(originX, originY, 440, '#ffaa00');
+    spawnParticles(originX, originY, '#ffd744', 60, 12);
+    spawnParticles(originX, originY, '#ffffff', 40, 10);
+    screenShake = 26;
+    if (typeof applyHitStop === 'function') applyHitStop(8);
+    if (typeof shopMessage !== 'undefined') {
+        shopMessage = {
+            text: '⚙ PRIMUS TITAN HAS ARRIVED — 30s ⚙',
+            timer: 240,
+            color: '#ffd744'
+        };
+    }
+    if (typeof audio !== 'undefined' && audio.play) audio.play('bossIntro', { throttle: 200 });
+}
+
+function updatePrimusTitans() {
+    if (gameState !== 'playing' && gameState !== 'spaceBattle') return;
+    const GRAV = 0.55;
+    for (let i = primusTitans.length - 1; i >= 0; i--) {
+        const t = primusTitans[i];
+        t.life--;
+        t.animPhase += 0.06;
+        if (t.spawnAnim > 0) t.spawnAnim--;
+        if (t.shake > 0) t.shake--;
+        if (t.attackTimer > 0) t.attackTimer--;
+        if (t.modeTimer > 0) t.modeTimer--;
+
+        // Despawn when life or HP gone
+        if (t.life <= 0 || t.hp <= 0) {
+            // Big farewell explosion
+            const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
+            spawnExplosion(cx, cy);
+            spawnShockwave(cx, cy, 300, '#ffd744');
+            spawnParticles(cx, cy, '#ffd744', 60, 12);
+            spawnParticles(cx, cy, '#ffffff', 30, 10);
+            screenShake = 18;
+            if (typeof shopMessage !== 'undefined' && t.hp > 0) {
+                shopMessage = { text: '⚙ PRIMUS RETURNS TO THE MATRIX', timer: 120, color: '#ffd744' };
+            }
+            primusTitans.splice(i, 1);
+            continue;
+        }
+
+        // Spawn descent — float down for the first 90 frames
+        if (t.spawnAnim > 0) {
+            t.y -= 0.6;     // gentle hover-down inversion (already on ground)
+            // Continuous gold spark column
+            spawnParticles(t.x + t.w/2 + (Math.random() - 0.5) * t.w,
+                t.y + Math.random() * t.h, '#ffd744', 1, 4);
+            continue;       // skip combat during the entrance
+        }
+
+        // Find best target — prefer bosses, then any enemy in range
+        let target = null, bestDist = Infinity;
+        for (const e of enemies) {
+            const dx = (e.x + e.w/2) - (t.x + t.w/2);
+            const dy = (e.y + e.h/2) - (t.y + t.h/2);
+            const d = dx*dx + dy*dy;
+            // Heavy bias toward bosses
+            const score = (e.type === 'boss' || e.type === 'miniboss') ? d * 0.2 : d;
+            if (score < bestDist) { bestDist = score; target = e; }
+        }
+        t.target = target;
+
+        if (target) {
+            const tdx = (target.x + target.w/2) - (t.x + t.w/2);
+            t.facing = tdx > 0 ? 1 : -1;
+        }
+
+        // Walk toward enemy or follow player when no target
+        if (target && Math.abs((target.x + target.w/2) - (t.x + t.w/2)) > 240) {
+            t.vx = t.facing * 2.6;
+        } else if (!target) {
+            const pdx = (player.x + player.w/2) - (t.x + t.w/2);
+            if (Math.abs(pdx) > 200) {
+                t.vx = Math.sign(pdx) * 2.4;
+                t.facing = Math.sign(pdx);
+            } else t.vx *= 0.7;
+        } else {
+            t.vx *= 0.7;
+        }
+
+        // Mode dispatcher — when current mode finishes, pick the next one
+        if (t.modeTimer <= 0) {
+            // Cycle: cannon → missile → beam → slam → cannon...
+            const order = ['cannon', 'missile', 'beam', 'slam'];
+            let nextIdx = (order.indexOf(t.mode) + 1) % order.length;
+            if (t.mode === 'idle') nextIdx = 0;       // first attack always cannon
+            t.mode = order[nextIdx];
+            t.modeTimer = t.mode === 'beam' ? 90
+                        : t.mode === 'missile' ? 80
+                        : t.mode === 'slam' ? 90
+                        : 70;
+            t.attackTimer = 0;
+            // Slam preparation
+            if (t.mode === 'slam') {
+                t.slamY0 = t.y;
+                t.slamCharge = 0;
+                t.vy = -16;
+            }
+            // Launch FX
+            spawnParticles(t.x + t.w/2, t.y + t.h/2, '#ffd744', 16, 6);
+        }
+
+        // Apply mode-specific behavior
+        if (t.mode === 'cannon' && target) {
+            // Chest cannon volley — 6 quick shots in a fan over 70f
+            if (t.attackTimer <= 0) {
+                t.attackTimer = 12;
+                const cnx = t.x + t.w/2 + t.facing * 26;
+                const cny = t.y + 60;
+                for (let k = -1; k <= 1; k++) {
+                    const ang = Math.atan2((target.y + target.h/2) - cny,
+                                            (target.x + target.w/2) - cnx) + k * 0.10;
+                    bullets.push({
+                        x: cnx, y: cny,
+                        vx: Math.cos(ang) * 18, vy: Math.sin(ang) * 18,
+                        life: 90,
+                        damage: 180,
+                        color: '#ffd744', glow: '#ff8800', size: 8,
+                        pierce: false, hitEnemies: new Set(),
+                        fromAlly: true,
+                        explosive: true, aoeRadius: 60
+                    });
+                }
+                spawnParticles(cnx + t.facing * 8, cny, '#ffd744', 8, 5);
+                t.shake = 4;
+            }
+        } else if (t.mode === 'missile' && target) {
+            // Shoulder rocket pod — 4 homing missiles staggered
+            if (t.attackTimer <= 0) {
+                t.attackTimer = 18;
+                const launchY = t.y + 18;
+                for (let k = -1; k <= 1; k += 2) {
+                    const launchX = t.x + (t.facing > 0 ? t.w + k * 6 : -k * 6);
+                    bullets.push({
+                        x: launchX, y: launchY,
+                        vx: t.facing * 8, vy: -3,
+                        life: 200,
+                        damage: 220,
+                        color: '#ff8844', glow: '#ffaa00', size: 7,
+                        pierce: false, hitEnemies: new Set(),
+                        fromAlly: true,
+                        homing: true, rocket: true,
+                        explosive: true, aoeRadius: 90
+                    });
+                }
+                spawnParticles(t.x + (t.facing > 0 ? t.w : 0), launchY,
+                    '#ff8800', 8, 5);
+            }
+        } else if (t.mode === 'beam' && target) {
+            // Continuous chest ion beam — sweeps toward target every frame
+            const cnx = t.x + t.w/2;
+            const cny = t.y + 64;
+            const ang = Math.atan2((target.y + target.h/2) - cny,
+                                    (target.x + target.w/2) - cnx);
+            t.beamLen = Math.hypot((target.x + target.w/2) - cnx,
+                                    (target.y + target.h/2) - cny);
+            // Damage every 6 frames along the path
+            if (t.attackTimer <= 0) {
+                t.attackTimer = 6;
+                for (const e of enemies) {
+                    const ex = e.x + e.w/2, ey = e.y + e.h/2;
+                    // Approximate beam-hit: project enemy onto ray + width check
+                    const dx = ex - cnx, dy = ey - cny;
+                    const along = dx * Math.cos(ang) + dy * Math.sin(ang);
+                    if (along < 0 || along > t.beamLen + 60) continue;
+                    const perp = Math.abs(-dx * Math.sin(ang) + dy * Math.cos(ang));
+                    if (perp < 30) {
+                        e.hp -= 80;
+                        spawnDamageNumber(ex, e.y, 80, 'aoe');
+                    }
+                }
+                for (let i = enemies.length - 1; i >= 0; i--) {
+                    if (enemies[i].hp <= 0) handleEnemyKilled(enemies[i], i);
+                }
+            }
+            t.beamAng = ang;
+        } else if (t.mode === 'slam') {
+            // Charge upward, hold briefly, then plummet — on landing,
+            // emit a giant shockwave with massive AOE damage.
+            t.slamCharge++;
+            if (t.slamCharge < 30) {
+                // Going up
+                t.vy = -10;
+            } else if (t.slamCharge < 50) {
+                // Brief hover at apex
+                t.vy = -1;
+            } else {
+                // Slam down
+                t.vy = 18;
+            }
+            // Detect landing (back to slamY0 or below)
+            if (t.slamCharge > 50 && t.y >= t.slamY0 - 4 && !t.slamLanded) {
+                t.slamLanded = true;
+                const cx2 = t.x + t.w/2;
+                const cy2 = t.y + t.h - 10;
+                spawnExplosion(cx2, cy2);
+                spawnShockwave(cx2, cy2, 280, '#ffd744');
+                spawnShockwave(cx2, cy2, 380, '#ffffff');
+                spawnShockwave(cx2, cy2, 480, '#ffaa00');
+                screenShake = 24;
+                if (typeof applyHitStop === 'function') applyHitStop(6);
+                for (const e of enemies) {
+                    const dx = (e.x + e.w/2) - cx2;
+                    const dy = (e.y + e.h/2) - cy2;
+                    if (dx*dx + dy*dy < 380*380) {
+                        e.hp -= 350;
+                        e.vy = -10;
+                        spawnDamageNumber(e.x + e.w/2, e.y, 350, 'aoe');
+                    }
+                }
+                for (let i = enemies.length - 1; i >= 0; i--) {
+                    if (enemies[i].hp <= 0) handleEnemyKilled(enemies[i], i);
+                }
+                spawnParticles(cx2, cy2, '#ffd744', 50, 10);
+                t.shake = 10;
+                // Slam mode is done — exit to idle for the cooldown breath
+                t.modeTimer = 30;
+                t.mode = 'idle';
+                t.slamCharge = 0;
+                t.slamLanded = false;
+            }
+        }
+
+        // Gravity + ground collision
+        t.vy += GRAV;
+        if (t.vy > 18) t.vy = 18;
+        t.x += t.vx;
+        t.y += t.vy;
+        for (const plat of platforms) {
+            if (plat.type === 'spike' || plat.type === 'laser' || plat.type === 'recovery') continue;
+            if (t.x + t.w > plat.x && t.x < plat.x + plat.w) {
+                if (t.vy >= 0 && t.y + t.h <= plat.y + 8 && t.y + t.h + t.vy >= plat.y) {
+                    t.y = plat.y - t.h;
+                    t.vy = 0;
+                }
+            }
+        }
+        if (t.y > 800) {
+            t.x = player.x; t.y = 200;
+        }
+
+        // Take damage from enemy bullets (titanic HP, but does take hits)
+        for (let bi = enemyBullets.length - 1; bi >= 0; bi--) {
+            const b = enemyBullets[bi];
+            if (b.x >= t.x && b.x <= t.x + t.w && b.y >= t.y && b.y <= t.y + t.h) {
+                t.hp -= (b.damage || 6) * 0.5;     // tank-tier damage reduction
+                spawnParticles(b.x, b.y, '#ff8844', 4, 3);
+                enemyBullets.splice(bi, 1);
+            }
+        }
+    }
+}
+
+function drawPrimusTitans() {
+    for (const t of primusTitans) {
+        const tx = Math.round(t.x - camera.x + (t.shake ? (Math.random() - 0.5) * t.shake : 0));
+        const ty = Math.round(t.y - camera.y);
+        ctx.save();
+        // Spawn-pillar of light (during entrance)
+        if (t.spawnAnim > 0) {
+            ctx.fillStyle = `rgba(255, 215, 68, ${0.25 + Math.sin(t.animPhase * 5) * 0.12})`;
+            ctx.shadowColor = '#ffd744';
+            ctx.shadowBlur = 30;
+            ctx.fillRect(tx + t.w/2 - 8, 0, 16, ty + t.h);
+            ctx.fillStyle = `rgba(255, 255, 255, ${0.5})`;
+            ctx.fillRect(tx + t.w/2 - 3, 0, 6, ty + t.h);
+            ctx.shadowBlur = 0;
+        }
+        // === BODY ===
+        // Backplate / shoulder pads
+        ctx.fillStyle = '#332277';     // royal-blue plating
+        ctx.shadowColor = '#ffd744';
+        ctx.shadowBlur = 18;
+        ctx.fillRect(tx + 4, ty + 16, 14, 28);                 // L shoulder
+        ctx.fillRect(tx + t.w - 18, ty + 16, 14, 28);          // R shoulder
+        // Torso (chest plate w/ matrix glow)
+        ctx.fillStyle = '#5544aa';
+        ctx.fillRect(tx + 16, ty + 22, t.w - 32, 60);
+        // Chest highlight bevel
+        ctx.fillStyle = '#7766cc';
+        ctx.fillRect(tx + 18, ty + 24, t.w - 36, 6);
+        // MATRIX OF LEADERSHIP — glowing oval on chest
+        const pulse = 0.7 + Math.sin(t.animPhase * 3) * 0.3;
+        ctx.fillStyle = '#ffd744';
+        ctx.shadowColor = '#ffd744';
+        ctx.shadowBlur = 22 * pulse;
+        ctx.beginPath();
+        ctx.ellipse(tx + t.w/2, ty + 50, 16, 22, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.ellipse(tx + t.w/2, ty + 50, 8, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // Lower torso (waist)
+        ctx.fillStyle = '#332277';
+        ctx.fillRect(tx + 22, ty + 82, t.w - 44, 14);
+        // Belt accent gold band
+        ctx.fillStyle = '#ffd744';
+        ctx.fillRect(tx + 22, ty + 82, t.w - 44, 3);
+        // Legs (chunky, segmented)
+        ctx.fillStyle = '#5544aa';
+        ctx.fillRect(tx + 16, ty + 96, 24, 50);                // L thigh
+        ctx.fillRect(tx + t.w - 40, ty + 96, 24, 50);          // R thigh
+        ctx.fillStyle = '#332277';
+        ctx.fillRect(tx + 14, ty + 142, 28, 18);               // L boot
+        ctx.fillRect(tx + t.w - 42, ty + 142, 28, 18);         // R boot
+        // Boot gold trim
+        ctx.fillStyle = '#ffd744';
+        ctx.fillRect(tx + 14, ty + 142, 28, 3);
+        ctx.fillRect(tx + t.w - 42, ty + 142, 28, 3);
+        // Arms — bulky pauldrons + forearm cannons
+        ctx.fillStyle = '#5544aa';
+        ctx.fillRect(tx, ty + 28, 12, 36);                     // L upper arm
+        ctx.fillRect(tx + t.w - 12, ty + 28, 12, 36);          // R upper arm
+        ctx.fillStyle = '#332277';
+        ctx.fillRect(tx - 4, ty + 60, 16, 32);                 // L forearm
+        ctx.fillRect(tx + t.w - 12, ty + 60, 16, 32);          // R forearm
+        // Forearm cannon barrels (gold)
+        ctx.fillStyle = '#ffd744';
+        ctx.shadowColor = '#ffaa00';
+        ctx.shadowBlur = 14;
+        ctx.fillRect(tx - 8, ty + 84, 8, 12);                  // L cannon
+        ctx.fillRect(tx + t.w, ty + 84, 8, 12);                // R cannon
+        ctx.shadowBlur = 0;
+        // Head — angular helmet w/ visor
+        ctx.fillStyle = '#332277';
+        ctx.fillRect(tx + 30, ty, t.w - 60, 22);
+        ctx.fillStyle = '#5544aa';
+        ctx.fillRect(tx + 32, ty + 2, t.w - 64, 8);
+        // Visor (cyan glow)
+        ctx.fillStyle = '#88ddff';
+        ctx.shadowColor = '#88ddff';
+        ctx.shadowBlur = 12;
+        ctx.fillRect(tx + 34, ty + 10, t.w - 68, 5);
+        ctx.shadowBlur = 0;
+        // Antennae
+        ctx.fillStyle = '#ffd744';
+        ctx.fillRect(tx + 28, ty - 8, 2, 8);
+        ctx.fillRect(tx + t.w - 30, ty - 8, 2, 8);
+
+        // === MODE-specific FX ===
+        if (t.mode === 'beam' && t.beamAng !== undefined && t.beamLen > 0) {
+            const cnx = tx + t.w/2;
+            const cny = ty + 64;
+            ctx.save();
+            ctx.shadowColor = '#88ddff';
+            ctx.shadowBlur = 26;
+            // Outer halo
+            ctx.strokeStyle = '#88ddff';
+            ctx.globalAlpha = 0.6;
+            ctx.lineWidth = 22;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(cnx, cny);
+            ctx.lineTo(cnx + Math.cos(t.beamAng) * t.beamLen,
+                       cny + Math.sin(t.beamAng) * t.beamLen);
+            ctx.stroke();
+            // Mid
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = '#aaeeff';
+            ctx.lineWidth = 12;
+            ctx.beginPath();
+            ctx.moveTo(cnx, cny);
+            ctx.lineTo(cnx + Math.cos(t.beamAng) * t.beamLen,
+                       cny + Math.sin(t.beamAng) * t.beamLen);
+            ctx.stroke();
+            // Bright white core
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.moveTo(cnx, cny);
+            ctx.lineTo(cnx + Math.cos(t.beamAng) * t.beamLen,
+                       cny + Math.sin(t.beamAng) * t.beamLen);
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // HP bar above head
+        if (t.hp < t.maxHp) {
+            ctx.fillStyle = '#222';
+            ctx.fillRect(tx + 8, ty - 16, t.w - 16, 5);
+            ctx.fillStyle = '#ffd744';
+            ctx.fillRect(tx + 8, ty - 16, ((t.hp / t.maxHp) * (t.w - 16)), 5);
+        }
+        // Lifetime gauge below the body
+        const lifeFrac = t.life / PRIMUS_LIFE;
+        ctx.fillStyle = '#222';
+        ctx.fillRect(tx + 8, ty + t.h + 4, t.w - 16, 4);
+        ctx.fillStyle = '#88ddff';
+        ctx.fillRect(tx + 8, ty + t.h + 4, lifeFrac * (t.w - 16), 4);
+        // Label
+        ctx.fillStyle = '#ffd744';
+        ctx.font = 'bold 11px Courier New';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#ffd744';
+        ctx.shadowBlur = 8;
+        const secs = Math.ceil(t.life / 60);
+        ctx.fillText(`PRIMUS — ${secs}s — ${t.mode.toUpperCase()}`, tx + t.w/2, ty - 22);
+        ctx.shadowBlur = 0;
+        ctx.textAlign = 'left';
         ctx.restore();
     }
 }
@@ -7709,6 +8178,20 @@ function shootBullet() {
         shootBandWeapon(cx, cy, baseDx, baseDy, baseAngle);
         spawnParticles(cx + baseDx * 22, cy + baseDy * 22, w.glow, 5, 3);
         screenShake = 4;
+        return;
+    }
+    // PRIMUS SUMMONER — gigantic ally summon. Refuses to summon if a
+    // titan is already active (one at a time). Long cooldown.
+    if (w.primusSummon) {
+        if (primusTitans.length > 0) {
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: 'PRIMUS IS ALREADY HERE — wait for him to depart', timer: 90, color: '#ffaa00' };
+            }
+            // Refund cooldown so the kid can re-fire next frame
+            player.shootCooldown = 6;
+            return;
+        }
+        spawnPrimusTitan(cx + baseDx * 60, cy + 30, baseDx);
         return;
     }
 
@@ -21698,7 +22181,7 @@ function restart() {
     player.scrap = 0;
     player.bulletDamage = 0;
     player.weaponTier = 0;
-    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
     player.meleeWeaponsUnlocked = {};
     player.activeMelee = null;
     player.maxJumpsBonus = 0;
@@ -27902,6 +28385,7 @@ function gameLoop(timestamp) {
         switches = []; doors = []; arenaGates = []; bossGates = []; exitPortals = []; floatTexts = [];
         cages = []; allies = [];
         minecraftMobs = []; minecraftBlocks = []; minecraftSpawners = []; minecraftQueue = []; minecraftQueueCursor = 0;
+        primusTitans = [];
         laserGrids = []; terminals = []; keyPickups = []; player.keysHeld = [];
         stageHazards = []; stageHazardTimer = 240;
         healingStations = []; activeHealingStation = null;
@@ -27924,7 +28408,7 @@ function gameLoop(timestamp) {
         player.scrap = 0;
         player.bulletDamage = 0;
         player.weaponTier = 0;
-        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
     player.meleeWeaponsUnlocked = {};
     player.activeMelee = null;
         player.maxJumpsBonus = 0;
@@ -27951,6 +28435,7 @@ function gameLoop(timestamp) {
             updateEnemies();
             updateAllies();
             updateMinecraftSummons();
+            if (typeof updatePrimusTitans === 'function') updatePrimusTitans();
             updateCoins();
             updateHealthDrops();
             updateStageHazards();
@@ -28042,6 +28527,7 @@ function gameLoop(timestamp) {
     drawEnemies();
     drawAllies();
     drawMinecraftSummons();
+    if (typeof drawPrimusTitans === 'function') drawPrimusTitans();
     drawPlayer();
     drawBullets();
     if (typeof drawBandSpecialFx === 'function') drawBandSpecialFx();

@@ -361,6 +361,9 @@
             <button class="util-btn" data-util="giveBand" style="border-color:#ffaa44;color:#ffaa44">🎵 BAND BLASTER (B = switch)</button>
         </div>
         <div class="row">
+            <button class="util-btn" data-util="givePrimus" style="border-color:#ffd744;color:#ffd744">⚙ PRIMUS SUMMONER (Nicholas)</button>
+        </div>
+        <div class="row">
             <button class="util-btn" data-util="giveDaggers" style="font-size:9px">DAGGERS</button>
             <button class="util-btn" data-util="giveHammer" style="font-size:9px">HAMMER</button>
             <button class="util-btn" data-util="giveScythe" style="font-size:9px">SCYTHE</button>
@@ -861,6 +864,19 @@
                                 text: '🎵 BAND BLASTER — F shoot · B switch instrument · V SPECIAL MOVE',
                                 timer: 280,
                                 color: '#ffaa44'
+                            };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'givePrimus':
+                        player.weaponsUnlocked[27] = true;
+                        player.weaponTier = 27;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = {
+                                text: '⚙ PRIMUS SUMMONER — F to summon a titan ally for 30 seconds',
+                                timer: 280,
+                                color: '#ffd744'
                             };
                         }
                         devPanel.classList.add('hidden');
