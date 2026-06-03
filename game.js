@@ -980,16 +980,17 @@ const WEAPONS = [
         bandWeapon: true,        // tells shootBullet to dispatch on instrument
         flavor: '🎵 Music-note rifle. Press B to switch DRUM/SAX/CLARINET/FLUTE.'
     },
-    // NICHOLAS PRIMUS SUMMONER — fires a single beacon shot. On impact
-    // (or just on shot), summons a colossal PRIMUS TITAN that fights
-    // alongside the player for 30 seconds. The summoner has its own
-    // cooldown (long) so it's not spammable.
+    // NICHOLAS PRIMUS SUMMONER — pressing F TRANSFORMS the player into
+    // PRIME for 30 seconds (auto-fires convoy ion-blaster shots while in
+    // Prime mode). 30s cooldown after transformation ends. Player keeps
+    // this gun equipped to STAY as Prime — it's a transformation gun.
     {
-        name: 'PRIMUS SUMMONER', tier: 27, shopOnly: true, cost: 0, dev: true,
-        damage: 60, speed: 24, cooldown: 600, bullets: 1, spread: 0,
-        color: '#ffd744', glow: '#ffaa00', size: 14, life: 80,
-        primusSummon: true,
-        flavor: '⚙ NICHOLAS-themed. Summons PRIMUS TITAN ally for 30s. Long cooldown.'
+        name: 'CONVOY ION BLASTER', tier: 27, shopOnly: true, cost: 0, dev: true,
+        damage: 240, speed: 26, cooldown: 8, bullets: 3, spread: 0.06,
+        color: '#ffd744', glow: '#ffaa00', size: 11, life: 160,
+        primusSummon: true,        // legacy flag — triggers transform-to-Prime
+        explosive: true, aoeRadius: 90, pierce: true,
+        flavor: '⚙ NICHOLAS-themed. F to TRANSFORM into PRIME for 30s. Convoy ion-blaster fires while in Prime form.'
     }
 ];
 
@@ -3027,6 +3028,10 @@ function drawMinecraftSummons() {
 // showing the next ~5 entries in the minecraft summon queue, so the
 // player can see what their next shots will spawn (mob portraits +
 // block icons). Called from drawHUD when MICAH MINECRAFTER is equipped.
+// HUD preview — draws a small panel at the top-center of the screen
+// showing the next ~5 entries in the minecraft summon queue, so the
+// player can see what their next shots will spawn (mob portraits +
+// block icons). Called from drawHUD when MICAH MINECRAFTER is equipped.
 function drawMinecraftPreview() {
     ensureMinecraftQueue();
     const previewCount = 5;
@@ -4162,6 +4167,94 @@ function drawPrimusTitans() {
         ctx.textAlign = 'left';
         ctx.restore();
     }
+}
+
+// HUD indicator for the Convoy Ion Blaster's PRIME transformation.
+// Three states drive what's drawn:
+//   - primeMode > 0:    bright gold "PRIME ACTIVE — Ns" bar that drains
+//   - primeCooldown > 0: red "PRIME RECHARGING — Ns" bar that fills toward ready
+//   - default:           dim "PRIME READY — F to transform" callout
+// All states use the same anchor (top-center, below stage name) so the
+// kid always knows where to look.
+function drawPrimeHud() {
+    const panelW = 280;
+    const panelH = 52;
+    const panelX = canvas.width / 2 - panelW / 2;
+    const panelY = 50;
+    ctx.save();
+    // Background
+    ctx.fillStyle = 'rgba(20, 14, 4, 0.78)';
+    ctx.strokeStyle = '#ffd744';
+    ctx.shadowColor = '#ffd744';
+    ctx.shadowBlur = 8;
+    ctx.fillRect(panelX, panelY, panelW, panelH);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(panelX, panelY, panelW, panelH);
+    ctx.shadowBlur = 0;
+
+    if (player.primeMode && player.primeMode > 0) {
+        const frac = player.primeMode / 1800;
+        const sec = Math.ceil(player.primeMode / 60);
+        // Title
+        ctx.fillStyle = '#ffd744';
+        ctx.font = 'bold 11px Courier New';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#ffd744';
+        ctx.shadowBlur = 8;
+        ctx.fillText(`⚙ PRIME ACTIVE — ${sec}s ⚙`, canvas.width / 2, panelY + 18);
+        ctx.shadowBlur = 0;
+        // Drain bar
+        ctx.fillStyle = '#332200';
+        ctx.fillRect(panelX + 12, panelY + 26, panelW - 24, 14);
+        ctx.fillStyle = '#ffd744';
+        ctx.shadowColor = '#ffaa00';
+        ctx.shadowBlur = 8;
+        ctx.fillRect(panelX + 12, panelY + 26, frac * (panelW - 24), 14);
+        ctx.shadowBlur = 0;
+        // Tick marks
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 1;
+        for (let s = 1; s < 6; s++) {
+            const tx = panelX + 12 + (s / 6) * (panelW - 24);
+            ctx.beginPath();
+            ctx.moveTo(tx, panelY + 26);
+            ctx.lineTo(tx, panelY + 40);
+            ctx.stroke();
+        }
+    } else if (player.primeCooldown && player.primeCooldown > 0) {
+        const frac = 1 - (player.primeCooldown / 1800);
+        const sec = Math.ceil(player.primeCooldown / 60);
+        ctx.fillStyle = '#ff8844';
+        ctx.font = 'bold 11px Courier New';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#ff8844';
+        ctx.shadowBlur = 8;
+        ctx.fillText(`⚙ PRIME RECHARGING — ${sec}s ⚙`, canvas.width / 2, panelY + 18);
+        ctx.shadowBlur = 0;
+        // Recharge bar (red → orange as it fills)
+        ctx.fillStyle = '#221408';
+        ctx.fillRect(panelX + 12, panelY + 26, panelW - 24, 14);
+        ctx.fillStyle = '#ff6644';
+        ctx.shadowColor = '#ff8844';
+        ctx.shadowBlur = 6;
+        ctx.fillRect(panelX + 12, panelY + 26, frac * (panelW - 24), 14);
+        ctx.shadowBlur = 0;
+    } else {
+        // Ready
+        ctx.fillStyle = '#ffd744';
+        ctx.font = 'bold 11px Courier New';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#ffd744';
+        ctx.shadowBlur = 10;
+        ctx.fillText('⚙ PRIME READY ⚙', canvas.width / 2, panelY + 22);
+        ctx.fillStyle = '#ffaa00';
+        ctx.font = '9px Courier New';
+        ctx.shadowBlur = 4;
+        ctx.fillText('Press F to transform', canvas.width / 2, panelY + 38);
+        ctx.shadowBlur = 0;
+    }
+    ctx.textAlign = 'left';
+    ctx.restore();
 }
 
 // Melee combat - 3-hit combo with increasing damage and knockback. Final hit explodes.
@@ -7711,6 +7804,39 @@ function updatePlayer() {
     // Invincibility timer
     if (player.invincible > 0) player.invincible--;
 
+    // === PRIME MODE TICK (Convoy Ion Blaster) ===
+    // While in Prime mode, sustain a gold halo. When time runs out,
+    // revert maxHp buff and start the cooldown that gates the next
+    // transformation. Cooldown ticks down separately.
+    if (player.primeMode && player.primeMode > 0) {
+        player.primeMode--;
+        // Halo / ember particles trail the player
+        if (player.primeMode % 4 === 0) {
+            spawnParticles(player.x + player.w / 2 + (Math.random() - 0.5) * player.w,
+                player.y + Math.random() * player.h,
+                Math.random() < 0.5 ? '#ffd744' : '#ffaa00', 1, 4);
+        }
+        if (player.primeMode <= 0) {
+            // Revert max HP buff. Clamp current HP if it now exceeds max.
+            if (player.primeMaxHpBuff && player.primeMaxHpBuff > 0) {
+                player.maxHp = Math.max(1, player.maxHp - player.primeMaxHpBuff);
+                if (player.hp > player.maxHp) player.hp = player.maxHp;
+                player.primeMaxHpBuff = 0;
+            }
+            player.primeCooldown = 1800;     // 30s cooldown after expiration
+            spawnShockwave(player.x + player.w / 2, player.y + player.h / 2, 200, '#ffaa00');
+            spawnParticles(player.x + player.w / 2, player.y + player.h / 2, '#ffd744', 30, 8);
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: '⚙ PRIME RECHARGING — 30s', timer: 180, color: '#ff8844' };
+            }
+        }
+    } else if (player.primeCooldown && player.primeCooldown > 0) {
+        player.primeCooldown--;
+        if (player.primeCooldown === 0 && typeof shopMessage !== 'undefined') {
+            shopMessage = { text: '⚙ PRIME READY — F to transform', timer: 180, color: '#ffd744' };
+        }
+    }
+
     // Platform collision
     player.onGround = false;
     player.onWall = false;
@@ -8180,19 +8306,46 @@ function shootBullet() {
         screenShake = 4;
         return;
     }
-    // PRIMUS SUMMONER — gigantic ally summon. Refuses to summon if a
-    // titan is already active (one at a time). Long cooldown.
+    // PRIMUS SUMMONER / CONVOY ION BLASTER — pressing F TRANSFORMS the
+    // player into PRIME for 30 seconds. Once transformed, subsequent F
+    // presses fire the convoy ion-blaster volley like a normal weapon.
+    // After the 30s expires, a 30s cooldown gates the next transform.
     if (w.primusSummon) {
-        if (primusTitans.length > 0) {
+        // Already in Prime mode — fall through to the normal bullet fire
+        // path (uses the WEAPONS entry's damage/spread/etc.) so F shoots
+        // the convoy gun instead of trying to re-transform.
+        if (player.primeMode && player.primeMode > 0) {
+            // intentional fall-through to the regular fire loop below
+        } else if (player.primeCooldown && player.primeCooldown > 0) {
             if (typeof shopMessage !== 'undefined') {
-                shopMessage = { text: 'PRIMUS IS ALREADY HERE — wait for him to depart', timer: 90, color: '#ffaa00' };
+                const sec = Math.ceil(player.primeCooldown / 60);
+                shopMessage = { text: `⚙ PRIME COOLDOWN: ${sec}s`, timer: 60, color: '#ff6644' };
             }
-            // Refund cooldown so the kid can re-fire next frame
             player.shootCooldown = 6;
             return;
+        } else {
+            // === Player transforms INTO Prime ===
+            // Boost stats, full heal, big halo. 30 sec duration.
+            player.primeMode = 1800;          // 30s @ 60fps
+            player.primeMaxHpBuff = Math.max(0, player.maxHp * 0.5);
+            player.maxHp += player.primeMaxHpBuff;
+            player.hp = player.maxHp;        // full heal on transform
+            player.invincible = Math.max(player.invincible || 0, 60);
+            spawnShockwave(cx, cy, 200, '#ffd744');
+            spawnShockwave(cx, cy, 320, '#ffffff');
+            spawnShockwave(cx, cy, 440, '#ffaa00');
+            spawnParticles(cx, cy, '#ffd744', 60, 12);
+            spawnParticles(cx, cy, '#ffffff', 40, 10);
+            screenShake = 26;
+            if (typeof applyHitStop === 'function') applyHitStop(8);
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: '⚙ I AM PRIME — 30 SECONDS ⚙', timer: 240, color: '#ffd744' };
+            }
+            if (typeof audio !== 'undefined' && audio.play) audio.play('bossIntro', { throttle: 200 });
+            // Don't fire on the transform shot — let the player aim first
+            player.shootCooldown = 30;
+            return;
         }
-        spawnPrimusTitan(cx + baseDx * 60, cy + 30, baseDx);
-        return;
     }
 
     // Fire one or more bullets
@@ -13007,6 +13160,49 @@ function drawPlayer() {
     ctx.save();
     const px = player.x - camera.x;
     const py = player.y - camera.y;
+
+    // === PRIME MODE GOLD HALO ===
+    // While the player is in Prime form (Convoy Ion Blaster transformed
+    // state) draw a pulsing gold halo around them, plus a Matrix-of-
+    // Leadership glow on the chest. Rendered before the rest of the
+    // player so it sits behind the body silhouette.
+    if (player.primeMode && player.primeMode > 0) {
+        const cx0 = px + player.w / 2;
+        const cy0 = py + player.h / 2;
+        const pulse = 0.7 + Math.sin(player.primeMode * 0.08) * 0.3;
+        // Big outer halo
+        ctx.save();
+        ctx.shadowColor = '#ffd744';
+        ctx.shadowBlur = 28 * pulse;
+        ctx.strokeStyle = '#ffd744';
+        ctx.globalAlpha = 0.55;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(cx0, cy0, player.w + 6, 0, Math.PI * 2);
+        ctx.stroke();
+        // Inner ring
+        ctx.globalAlpha = 0.85;
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#ffffff';
+        ctx.shadowColor = '#ffffff';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(cx0, cy0, player.w + 2, 0, Math.PI * 2);
+        ctx.stroke();
+        // Matrix glow on chest
+        ctx.fillStyle = '#ffd744';
+        ctx.shadowColor = '#ffd744';
+        ctx.shadowBlur = 22 * pulse;
+        ctx.beginPath();
+        ctx.ellipse(cx0, py + 18, 6, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.ellipse(cx0, py + 18, 3, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
 
     // === HEIGHT-AWARE DROP SHADOW (3D feel) ===
     // Shadow is always projected on the nearest ground beneath the player,
@@ -20140,6 +20336,12 @@ function drawHUD() {
     // around upcoming blocks vs mobs.
     if (player.weaponTier === 25) {
         drawMinecraftPreview();
+    }
+    // === PRIME MODE HUD — gold timer bar at top-center showing duration
+    // remaining or recharge progress. Only visible when the Convoy Ion
+    // Blaster is equipped or Prime is active/recharging.
+    if (player.weaponTier === 27 || (player.primeMode && player.primeMode > 0) || (player.primeCooldown && player.primeCooldown > 0)) {
+        drawPrimeHud();
     }
 
     // Health bar
