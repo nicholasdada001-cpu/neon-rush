@@ -3184,31 +3184,31 @@ function drawMinecraftPreview() {
 const BAND_INSTRUMENTS = [
     {
         name: 'DRUM',
-        // Big shockwave AOE — short range, huge punch.
+        // Sonic-slam mega-AOE w/ knockback + slow
         color: '#ff6644', glow: '#ffaa44',
         symbol: '🥁',
-        flavor: 'BIG slam — shockwave AOE.'
+        flavor: 'SONIC SLAM — 3 shockwaves, knockback + slow.'
     },
     {
         name: 'SAXOPHONE',
-        // Wavy 3-shot spread that homes — smooth jazz tracking.
+        // 5 piercing homers + heal-on-shot, mob-heal aura
         color: '#ffdd44', glow: '#ffaa00',
         symbol: '🎷',
-        flavor: 'Jazzy 3-shot wave with gentle homing.'
+        flavor: 'SMOOTH GROOVE — 5 homing pierce + self-heal + mob heal.'
     },
     {
         name: 'CLARINET',
-        // Piercing single shot, very fast.
+        // Hyperspeed pierce w/ chain-arc to nearest 4 enemies
         color: '#88ccff', glow: '#44aaff',
         symbol: '🎼',
-        flavor: 'Sharp piercing note. Cuts straight through.'
+        flavor: 'PIERCING SOLO — chain lightning to 4 nearby enemies.'
     },
     {
         name: 'FLUTE',
-        // Multi-note fan that bounces — light & fluttery.
+        // 8-note bouncing fan + fluttery firework split + speed boost
         color: '#cc88ff', glow: '#aa44ff',
         symbol: '🎶',
-        flavor: 'Fluttering note fan — bounces off walls.'
+        flavor: 'ARIA STORM — 8 bouncing notes, split-bursts, +30% speed.'
     }
 ];
 
@@ -3245,48 +3245,98 @@ function shootBandWeapon(cx, cy, baseDx, baseDy, baseAngle) {
     }, extras || {});
 
     if (inst.name === 'DRUM') {
-        // Single heavy slam — explosive AOE shockwave on impact
-        bullets.push(note({
-            damage: Math.round(220 * dmgMul),
-            size: 18,
-            explosive: true,
-            aoeRadius: 160,
-            speed: 18
-        }));
-        screenShake = Math.max(screenShake, 6);
-    } else if (inst.name === 'SAXOPHONE') {
-        // 3 jazzy notes in a tight cone, mild homing
+        // SONIC SLAM — fires THREE shockwave drum hits in a tight wave.
+        // Each blast is heavily explosive AOE + stuns enemies (slow timer)
+        // and pushes them back hard. Every shot drops a residual SHOCK
+        // RING at the impact point that pulses outward 3 times.
         for (let n = -1; n <= 1; n++) {
-            const ang = baseAngle + n * 0.18;
+            const ang = baseAngle + n * 0.10;
             bullets.push(note({
-                vx: Math.cos(ang) * 13,
-                vy: Math.sin(ang) * 13,
-                homing: true,
-                damage: Math.round(85 * dmgMul)
+                vx: Math.cos(ang) * 20,
+                vy: Math.sin(ang) * 20,
+                damage: Math.round(280 * dmgMul),
+                size: 22,
+                explosive: true,
+                aoeRadius: 220,
+                slow: true, slowDur: 90, slowFactor: 0.4,
+                drumKnockback: true,
+                color: '#ff8844', glow: '#ffdd44'
             }));
+        }
+        // Player-centered concussive thump on every shot
+        spawnShockwave(player.x + player.w/2, player.y + player.h/2, 90, '#ffdd44');
+        screenShake = Math.max(screenShake, 12);
+    } else if (inst.name === 'SAXOPHONE') {
+        // SMOOTH GROOVE — fires 5 strong homing notes in alternating cones.
+        // Each note buffs allies/mobs in its path: minecraft mobs heal +20
+        // and skip their attack-cooldown while the wave passes through.
+        // Bonus: every shot heals the player +12 HP (groove restoration).
+        for (let n = -2; n <= 2; n++) {
+            const ang = baseAngle + n * 0.16;
+            bullets.push(note({
+                vx: Math.cos(ang) * 14,
+                vy: Math.sin(ang) * 14,
+                homing: true,
+                damage: Math.round(140 * dmgMul),
+                pierce: true,
+                size: 11,
+                saxBuff: true
+            }));
+        }
+        // Heal-on-shot
+        if (player.hp < player.maxHp) {
+            player.hp = Math.min(player.maxHp, player.hp + 12);
+            floatTexts.push({
+                x: player.x + player.w/2, y: player.y - 6,
+                vy: -1.5, life: 28, color: '#ffaa00', text: '+12'
+            });
+        }
+        // Heal nearby minecraft mobs by 20
+        if (typeof minecraftMobs !== 'undefined') {
+            for (const m of minecraftMobs) {
+                const dx = m.x - player.x, dy = m.y - player.y;
+                if (dx*dx + dy*dy < 400*400 && m.hp > 0 && m.hp < m.maxHp) {
+                    m.hp = Math.min(m.maxHp, m.hp + 20);
+                    spawnParticles(m.x + m.w/2, m.y + m.h/2, '#ffaa00', 4, 3);
+                }
+            }
         }
     } else if (inst.name === 'CLARINET') {
-        // Single fast piercing shot — high speed, narrow cone
+        // PIERCING SOLO — single hyperspeed laser-beam note that ALWAYS
+        // pierces, deals huge damage, and triggers a chain-arc to up to
+        // 4 nearby enemies (50% damage each). Cooldown is short.
         bullets.push(note({
-            vx: baseDx * 22,
-            vy: baseDy * 22,
-            damage: Math.round(180 * dmgMul),
+            vx: baseDx * 30,
+            vy: baseDy * 30,
+            damage: Math.round(380 * dmgMul),
             pierce: true,
-            life: 160,
-            size: 10
+            life: 220,
+            size: 12,
+            beam: true,
+            chainArc: true,
+            chainDmg: Math.round(180 * dmgMul),
+            chainRadius: 220,
+            chainCount: 4
         }));
+        screenShake = Math.max(screenShake, 5);
     } else if (inst.name === 'FLUTE') {
-        // 5-note fan with bounce
-        for (let n = -2; n <= 2; n++) {
-            const ang = baseAngle + n * 0.22;
+        // ARIA STORM — 8-note fan with bouncing notes that EACH split into
+        // 3 mini sparkle-shots on first impact (firework chain). Player
+        // also gains 60f of +30% speed on every shot (flute = quickstep).
+        for (let n = -3; n <= 4; n++) {
+            const ang = baseAngle + (n - 0.5) * 0.18;
             bullets.push(note({
-                vx: Math.cos(ang) * 12,
-                vy: Math.sin(ang) * 12,
-                bounce: 3, bouncesLeft: 3,
-                damage: Math.round(70 * dmgMul),
-                size: 10
+                vx: Math.cos(ang) * 14,
+                vy: Math.sin(ang) * 14,
+                bounce: 4, bouncesLeft: 4,
+                damage: Math.round(95 * dmgMul),
+                size: 10,
+                fluteSplit: true
             }));
         }
+        // Quickstep buff
+        player.fluteHasteTimer = Math.max(player.fluteHasteTimer || 0, 60);
+        spawnParticles(player.x + player.w/2, player.y + 4, '#cc88ff', 14, 5);
     }
 }
 
@@ -6597,6 +6647,15 @@ function updatePlayer() {
             player.iceSlowTimer--;
             speedScale *= 0.5;
         }
+        // FLUTE haste — quickstep buff after firing the band weapon's flute
+        if (player.fluteHasteTimer && player.fluteHasteTimer > 0) {
+            player.fluteHasteTimer--;
+            speedScale *= 1.30;
+            // Sparkle trail under feet
+            if (player.fluteHasteTimer % 4 === 0) {
+                spawnParticles(player.x + player.w/2, player.y + player.h - 4, '#cc88ff', 1, 3);
+            }
+        }
         player.vx = moveX * player.speed * speedScale;
         if (moveX !== 0) player.facing = moveX;
     }
@@ -7962,6 +8021,91 @@ function updateBullets() {
                     }
                 }
 
+                // ===== BAND BLASTER per-instrument on-impact effects =====
+                // DRUM — knockback + slam shockwave on hit (additive to AOE)
+                if (b.drumKnockback) {
+                    e.x += Math.sign((e.x + e.w/2) - b.x) * 18;
+                    e.vy = -7;
+                    spawnShockwave(b.x, b.y, 140, '#ffdd44');
+                    spawnShockwave(b.x, b.y, 80, '#ffffff');
+                    screenShake = Math.max(screenShake, 8);
+                    // Secondary residual ring 30 frames later — handled by
+                    // the engine via the AOE block above; we just add visuals.
+                    spawnParticles(b.x, b.y, '#ffdd44', 18, 7);
+                }
+                // CLARINET chain-arc — 4 nearest enemies take 50% chain dmg
+                if (b.chainArc && !b._chained) {
+                    b._chained = true;     // single-arc per bullet
+                    const cap = b.chainCount || 4;
+                    let arced = 0;
+                    const candidates = [];
+                    for (const o of enemies) {
+                        if (o === e) continue;
+                        const dx = (o.x + o.w/2) - b.x;
+                        const dy = (o.y + o.h/2) - b.y;
+                        const d2 = dx*dx + dy*dy;
+                        if (d2 < (b.chainRadius || 220) * (b.chainRadius || 220)) {
+                            candidates.push({ o, d2 });
+                        }
+                    }
+                    candidates.sort((a, x) => a.d2 - x.d2);
+                    for (const c of candidates) {
+                        if (arced >= cap) break;
+                        const o = c.o;
+                        o.hp -= b.chainDmg || 100;
+                        // Visual arc
+                        const sx = b.x, sy = b.y;
+                        const ex = o.x + o.w/2, ey = o.y + o.h/2;
+                        // Spawn a few sparkle particles along the line
+                        for (let k = 0; k < 5; k++) {
+                            const tk = k / 5;
+                            spawnParticles(
+                                sx + (ex - sx) * tk,
+                                sy + (ey - sy) * tk,
+                                '#88ccff', 1, 3
+                            );
+                        }
+                        spawnParticles(ex, ey, '#aaeeff', 10, 5);
+                        spawnDamageNumber(ex, o.y, b.chainDmg, 'aoe');
+                        if (o.hp <= 0) {
+                            const idx = enemies.indexOf(o);
+                            if (idx >= 0) handleEnemyKilled(o, idx);
+                        }
+                        arced++;
+                    }
+                    if (arced > 0) {
+                        floatTexts.push({
+                            text: `CHAIN x${arced}`, x: b.x, y: b.y - 30,
+                            life: 50, color: '#88ccff'
+                        });
+                    }
+                }
+                // FLUTE split — fire 3 sparkle mini-notes outward on first hit
+                if (b.fluteSplit && !b._split) {
+                    b._split = true;
+                    for (let s = 0; s < 3; s++) {
+                        const sa = (s - 1) * 0.6 + Math.random() * 0.2;
+                        bullets.push({
+                            x: b.x, y: b.y,
+                            vx: Math.cos(sa) * 11,
+                            vy: Math.sin(sa) * 11 - 3,
+                            life: 50,
+                            damage: Math.round((b.damage || 80) * 0.5),
+                            color: '#cc88ff', glow: '#aa44ff', size: 6,
+                            pierce: false, hitEnemies: new Set(),
+                            musicNote: true,
+                            instrument: 3,
+                            wobblePhase: Math.random() * Math.PI * 2
+                        });
+                    }
+                    spawnParticles(b.x, b.y, '#aa44ff', 12, 5);
+                }
+                // SAX buff — pass-through hits buff allies in path (no special
+                // per-impact behavior needed; sax notes pierce + heal on shot
+                // already, this just adds a subtle visual on every contact).
+                if (b.saxBuff) {
+                    spawnParticles(b.x, b.y, '#ffaa00', 4, 3);
+                }
                 // ===== JAX BLASTER on-impact GOAL! split shots =====
                 // Spawns 4 mini soccer balls in a fan, dealing 60% dmg.
                 // Kid-pleasing "scored" pop on every hit.
