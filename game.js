@@ -787,159 +787,159 @@ let stageBgTint = '#0a0a0f';
 const WEAPONS = [
     {
         name: 'PISTOL',  tier: 0,
-        damage: 16, speed: 14, cooldown: 11, bullets: 1, spread: 0,
+        damage: 22, speed: 14, cooldown: 11, bullets: 1, spread: 0,
         color: '#ffff66', glow: '#ffff00', size: 6, life: 70,
         flavor: 'Standard issue. Reliable.'
     },
     {
         name: 'GUARD CANNON',  tier: 1,
-        damage: 16, speed: 16, cooldown: 16, bullets: 3, spread: 0.22,
+        damage: 22, speed: 16, cooldown: 16, bullets: 3, spread: 0.22,
         color: '#ff66dd', glow: '#ff00aa', size: 6, life: 80,
         flavor: 'Triple spread shot.'
     },
     {
         name: 'STORM HAMMER',  tier: 2,
-        damage: 32, speed: 11, cooldown: 34, bullets: 1, spread: 0,
+        damage: 44, speed: 11, cooldown: 34, bullets: 1, spread: 0,
         color: '#44aaff', glow: '#0088ff', size: 11, life: 110,
         explosive: true, aoeRadius: 95,
         flavor: 'Lobbed cluster bomb. Big AOE.'
     },
     {
         name: 'INFERNO RIFLE',  tier: 3,
-        damage: 11, speed: 17, cooldown: 6, bullets: 1, spread: 0.1,
+        damage: 15, speed: 17, cooldown: 6, bullets: 1, spread: 0.1,
         color: '#ff5500', glow: '#ff2200', size: 6, life: 80,
-        burn: true, burnDmg: 4, burnDur: 70,
+        burn: true, burnDmg: 6, burnDur: 70,
         flavor: 'Rapid fire that burns enemies.'
     },
     {
         name: 'RAVAGER FANG',  tier: 4,
-        damage: 11, speed: 20, cooldown: 5, bullets: 1, spread: 0.2,
+        damage: 15, speed: 20, cooldown: 5, bullets: 1, spread: 0.2,
         color: '#88ff44', glow: '#22ff00', size: 5, life: 70,
         flavor: 'Full auto chain-gun. Hold F to spray.'
     },
     {
         name: 'FROST CANNON',  tier: 5,
-        damage: 4, speed: 22, cooldown: 2, bullets: 1, spread: 0.02,
+        damage: 6, speed: 22, cooldown: 2, bullets: 1, spread: 0.02,
         color: '#aaeeff', glow: '#66ccff', size: 7, life: 70, pierce: true,
         slow: true, slowFactor: 0.4, slowDur: 100, ice: true, beam: true,
         flavor: 'Continuous frost beam. Locks enemies in a freeze.'
     },
     {
         name: 'VOID PIERCER',  tier: 6,
-        damage: 56, speed: 26, cooldown: 26, bullets: 1, spread: 0,
+        damage: 76, speed: 26, cooldown: 26, bullets: 1, spread: 0,
         color: '#cc66ff', glow: '#aa00ff', size: 8, life: 120, pierce: true,
         flavor: 'Hyper-velocity rail shot.'
     },
     {
         name: 'OMEGA BLASTER',  tier: 7,
-        damage: 95, speed: 26, cooldown: 38, bullets: 3, spread: 0.1,
+        damage: 130, speed: 26, cooldown: 38, bullets: 3, spread: 0.1,
         color: '#ffffff', glow: '#ffff00', size: 12, life: 130, pierce: true, explosive: true, aoeRadius: 75,
         flavor: 'Three piercing explosive shots.'
     },
     // Shop weapons - several tiers, more variety
     {
         name: 'BURST RIFLE', tier: 8, shopOnly: true, cost: 200,
-        damage: 13, speed: 18, cooldown: 7, bullets: 1, spread: 0.05,
+        damage: 18, speed: 18, cooldown: 7, bullets: 1, spread: 0.05,
         color: '#88ffaa', glow: '#44ff66', size: 5, life: 85,
         flavor: 'Solid fast rifle. Mid-cost.'
     },
     {
         name: 'SCATTER GUN', tier: 9, shopOnly: true, cost: 280,
-        damage: 8, speed: 14, cooldown: 19, bullets: 7, spread: 0.5,
+        damage: 11, speed: 14, cooldown: 19, bullets: 7, spread: 0.5,
         color: '#ffaa66', glow: '#ff6622', size: 5, life: 45,
         flavor: 'Shop shotgun. 7-pellet spread.'
     },
     {
         name: 'TWIN BLASTER', tier: 10, shopOnly: true, cost: 350,
-        damage: 13, speed: 16, cooldown: 10, bullets: 2, spread: 0.07,
+        damage: 18, speed: 16, cooldown: 10, bullets: 2, spread: 0.07,
         color: '#ff88ff', glow: '#ff44ff', size: 6, life: 80,
         flavor: 'Dual barrel pistol.'
     },
     {
         name: 'SNIPER', tier: 11, shopOnly: true, cost: 500,
-        damage: 140, speed: 38, cooldown: 70, bullets: 1, spread: 0,
+        damage: 195, speed: 38, cooldown: 70, bullets: 1, spread: 0,
         color: '#aaccff', glow: '#0088ff', size: 8, life: 220, pierce: true, big: true,
         flavor: 'Bolt-action sniper. One shot, one kill — slow reload.'
     },
     {
         name: 'FLAME THROWER', tier: 12, shopOnly: true, cost: 420,
-        damage: 1, speed: 8, cooldown: 2, bullets: 1, spread: 0.08,
+        damage: 2, speed: 8, cooldown: 2, bullets: 1, spread: 0.08,
         color: '#ff8800', glow: '#ff4400', size: 8, life: 38,
-        burn: true, burnDmg: 5, burnDur: 75, flame: true,
+        burn: true, burnDmg: 7, burnDur: 75, flame: true,
         flavor: 'Straight flame stream. Strong burn, weak per hit.'
     },
     {
         name: 'BFG-9000', tier: 13, shopOnly: true, cost: 800,
-        damage: 160, speed: 13, cooldown: 60, bullets: 1, spread: 0,
+        damage: 220, speed: 13, cooldown: 60, bullets: 1, spread: 0,
         color: '#00ff00', glow: '#88ff00', size: 16, life: 150,
         explosive: true, aoeRadius: 150,
         flavor: 'Massive plasma orb. Huge AOE.'
     },
     {
         name: 'AUTO PISTOL', tier: 14, shopOnly: true, cost: 150,
-        damage: 10, speed: 16, cooldown: 5, bullets: 1, spread: 0.06,
+        damage: 14, speed: 16, cooldown: 5, bullets: 1, spread: 0.06,
         color: '#ffcc88', glow: '#ffaa44', size: 5, life: 75,
         flavor: 'Cheap full-auto starter upgrade.'
     },
     {
         name: 'GRENADE LAUNCHER', tier: 15, shopOnly: true, cost: 600,
-        damage: 60, speed: 9, cooldown: 38, bullets: 1, spread: 0,
+        damage: 85, speed: 9, cooldown: 38, bullets: 1, spread: 0,
         color: '#88ff44', glow: '#44ff00', size: 13, life: 130,
         explosive: true, aoeRadius: 120,
         flavor: 'Lobs explosive grenades. Big AOE.'
     },
     {
         name: 'PLASMA RIFLE', tier: 16, shopOnly: true, cost: 550,
-        damage: 28, speed: 18, cooldown: 9, bullets: 1, spread: 0.04,
+        damage: 38, speed: 18, cooldown: 9, bullets: 1, spread: 0.04,
         color: '#88ffff', glow: '#00ffff', size: 7, life: 95, pierce: true,
         flavor: 'Fast-firing piercing energy beam.'
     },
     {
         name: 'CHAOS MORTAR', tier: 17, shopOnly: true, cost: 700,
-        damage: 20, speed: 12, cooldown: 16, bullets: 4, spread: 0.55,
+        damage: 28, speed: 12, cooldown: 16, bullets: 4, spread: 0.55,
         color: '#ff44aa', glow: '#ff0066', size: 7, life: 75,
         explosive: true, aoeRadius: 60,
         flavor: 'Quad chaos shells with mini explosions.'
     },
     {
         name: 'SOUL CANNON', tier: 18, shopOnly: true, cost: 950,
-        damage: 44, speed: 20, cooldown: 11, bullets: 2, spread: 0.05,
+        damage: 60, speed: 20, cooldown: 11, bullets: 2, spread: 0.05,
         color: '#ddaaff', glow: '#aa44ff', size: 8, life: 110, pierce: true,
-        burn: true, burnDmg: 5, burnDur: 55,
+        burn: true, burnDmg: 7, burnDur: 55,
         flavor: 'Twin piercing rounds that burn souls.'
     },
     {
         name: 'ICE BLAST', tier: 19, shopOnly: true, cost: 480,
-        damage: 10, speed: 22, cooldown: 8, bullets: 1, spread: 0.02,
+        damage: 14, speed: 22, cooldown: 8, bullets: 1, spread: 0.02,
         color: '#aaeeff', glow: '#66ccff', size: 7, life: 70, pierce: true,
         slow: true, slowFactor: 0.35, slowDur: 90, ice: true, beam: true,
         flavor: 'Freeze ray beam. Steady fire, hard freeze, pierces.'
     },
     {
         name: 'RAILGUN', tier: 20, shopOnly: true, cost: 720,
-        damage: 130, speed: 32, cooldown: 50, bullets: 1, spread: 0,
+        damage: 180, speed: 32, cooldown: 50, bullets: 1, spread: 0,
         color: '#ddeeff', glow: '#4488ff', size: 9, life: 200, pierce: true,
         flavor: 'Magnetic coil rifle. Slow charge, devastating pierce.'
     },
     {
         name: 'ACID GUN', tier: 21, shopOnly: true, cost: 540,
-        damage: 4, speed: 9, cooldown: 5, bullets: 1, spread: 0.18,
+        damage: 6, speed: 9, cooldown: 5, bullets: 1, spread: 0.18,
         color: '#88ff44', glow: '#44ff00', size: 9, life: 45,
-        burn: true, burnDmg: 6, burnDur: 120, acid: true,
+        burn: true, burnDmg: 8, burnDur: 120, acid: true,
         flavor: 'Corrosive globs. Eats armor, melts metal slowly.'
     },
     {
         name: 'WATER GUN', tier: 22, shopOnly: true, cost: 380,
-        damage: 2, speed: 11, cooldown: 4, bullets: 1, spread: 0.14,
+        damage: 3, speed: 11, cooldown: 4, bullets: 1, spread: 0.14,
         color: '#88ccff', glow: '#44aaff', size: 8, life: 50,
         slow: true, slowFactor: 0.55, slowDur: 60, water: true,
         flavor: 'Pressurized stream. Short-circuits enemies briefly.'
     },
     {
         name: 'LIGHTNING GUN', tier: 23, shopOnly: true, cost: 620,
-        damage: 22, speed: 26, cooldown: 28, bullets: 1, spread: 0.04,
+        damage: 30, speed: 26, cooldown: 28, bullets: 1, spread: 0.04,
         color: '#aaeeff', glow: '#ffff44', size: 8, life: 100, pierce: false,
-        lightningStrike: true, strikeDmg: 80, strikeRadius: 110,
+        lightningStrike: true, strikeDmg: 110, strikeRadius: 110,
         flavor: 'Marker shot. On hit, a sky lightning strike crashes down.'
     },
     // ===== DEV-ONLY WEAPONS =====
@@ -991,6 +991,14 @@ const WEAPONS = [
         primusSummon: true,
         explosive: true, aoeRadius: 90, pierce: true,
         flavor: '⚙ NICHOLAS-themed. F = fire convoy gun. V = transform into PRIME + summon PRIMUS TITAN for 30s.'
+    },
+    // LASER GUN — high-tech laser rifle. Continuous beam-style fire,
+    // pierces all enemies, hits hard. Mid-late shop weapon.
+    {
+        name: 'LASER RIFLE', tier: 28, shopOnly: true, cost: 1100,
+        damage: 90, speed: 30, cooldown: 4, bullets: 1, spread: 0.01,
+        color: '#ff4488', glow: '#ff0088', size: 6, life: 140, pierce: true, beam: true,
+        flavor: 'High-tech laser. Hot pink piercing beam, very fast fire.'
     }
 ];
 
@@ -1258,7 +1266,7 @@ const player = {
     evoLevel: 0,              // 0 = base, 1 = MK-II, 2 = MK-III, 3 = OMEGA FORM
     bulletDamage: 0,         // additive damage bonus (from "Damage +5" upgrade)
     weaponTier: 0,            // index into WEAPONS (currently equipped)
-    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
+    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
     meleeWeaponsUnlocked: {},  // { knife:true, katana:true, ... } — bought from shop
     activeMelee: null,         // 'knife' | 'katana' | 'saber' | null = bare-fist
     // BAND BLASTER instrument state — cycles via B key while equipped.
@@ -1320,43 +1328,46 @@ const player = {
 };
 
 // Shop items - upgrades plus mid-tier shop-bought weapons
+// Prices bumped across the board (user feedback: game was too easy because
+// upgrades were too cheap). Heals + stats up ~50%, weapons up ~40-60%.
 const SHOP_ITEMS = [
-    { key: '1', name: 'Heal +60 HP',         cost: 15, action: p => { p.hp = Math.min(p.maxHp, p.hp + 60); }, repeatable: true },
-    { key: '2', name: 'Full Repair',         cost: 40, action: p => { p.hp = p.maxHp; }, repeatable: true },
-    { key: '3', name: 'Max HP +25',          cost: 30, action: p => { p.maxHp += 25; p.hp += 25; }, repeatable: true },
-    { key: '4', name: 'Damage +5',           cost: 70, action: p => { p.bulletDamage += 5; }, repeatable: true },
-    { key: '5', name: 'Speed +0.4',          cost: 25, action: p => { p.speed += 0.4; }, repeatable: true },
-    { key: '6', name: 'Triple Jump',         cost: 80, action: p => { p.maxJumpsBonus += 1; }, repeatable: true },
-    { key: '7', name: 'Fire Rate +15%',      cost: 120, action: p => { p.fireRateMul *= 0.87; }, repeatable: true },
-    { key: '8', name: 'Buy: AUTO PISTOL',    cost: 150, action: p => { p.weaponsUnlocked[14] = true; p.weaponTier = 14; }, weapon: 14 },
-    { key: '9', name: 'Buy: BURST RIFLE',    cost: 200, action: p => { p.weaponsUnlocked[8] = true; p.weaponTier = 8; }, weapon: 8 },
-    { key: '0', name: 'Buy: SCATTER GUN',    cost: 280, action: p => { p.weaponsUnlocked[9] = true; p.weaponTier = 9; }, weapon: 9 },
-    { key: 'Y', name: 'Buy: TWIN BLASTER',   cost: 350, action: p => { p.weaponsUnlocked[10] = true; p.weaponTier = 10; }, weapon: 10 },
-    { key: 'U', name: 'Buy: PLASMA RIFLE',   cost: 550, action: p => { p.weaponsUnlocked[16] = true; p.weaponTier = 16; }, weapon: 16 },
-    { key: 'I', name: 'Buy: SNIPER',         cost: 500, action: p => { p.weaponsUnlocked[11] = true; p.weaponTier = 11; }, weapon: 11 },
-    { key: 'O', name: 'Buy: GRENADE LAUNCH', cost: 600, action: p => { p.weaponsUnlocked[15] = true; p.weaponTier = 15; }, weapon: 15 },
-    { key: 'P', name: 'Buy: FLAME THROWER',  cost: 420, action: p => { p.weaponsUnlocked[12] = true; p.weaponTier = 12; }, weapon: 12 },
-    { key: 'V', name: 'Buy: CHAOS MORTAR',   cost: 700, action: p => { p.weaponsUnlocked[17] = true; p.weaponTier = 17; }, weapon: 17 },
-    { key: 'B', name: 'Buy: SOUL CANNON',    cost: 950, action: p => { p.weaponsUnlocked[18] = true; p.weaponTier = 18; }, weapon: 18 },
-    { key: 'Z', name: 'Buy: ICE BLAST',      cost: 480, action: p => { p.weaponsUnlocked[19] = true; p.weaponTier = 19; }, weapon: 19 },
-    { key: 'Q', name: 'Buy: RAILGUN',        cost: 720, action: p => { p.weaponsUnlocked[20] = true; p.weaponTier = 20; }, weapon: 20 },
-    { key: 'W', name: 'Buy: ACID GUN',       cost: 540, action: p => { p.weaponsUnlocked[21] = true; p.weaponTier = 21; }, weapon: 21 },
-    { key: 'T', name: 'Buy: WATER GUN',      cost: 380, action: p => { p.weaponsUnlocked[22] = true; p.weaponTier = 22; }, weapon: 22 },
-    { key: 'R', name: 'Buy: LIGHTNING GUN',  cost: 620, action: p => { p.weaponsUnlocked[23] = true; p.weaponTier = 23; }, weapon: 23 },
+    { key: '1', name: 'Heal +60 HP',         cost: 25, action: p => { p.hp = Math.min(p.maxHp, p.hp + 60); }, repeatable: true },
+    { key: '2', name: 'Full Repair',         cost: 70, action: p => { p.hp = p.maxHp; }, repeatable: true },
+    { key: '3', name: 'Max HP +25',          cost: 50, action: p => { p.maxHp += 25; p.hp += 25; }, repeatable: true },
+    { key: '4', name: 'Damage +5',           cost: 110, action: p => { p.bulletDamage += 5; }, repeatable: true },
+    { key: '5', name: 'Speed +0.4',          cost: 45, action: p => { p.speed += 0.4; }, repeatable: true },
+    { key: '6', name: 'Triple Jump',         cost: 140, action: p => { p.maxJumpsBonus += 1; }, repeatable: true },
+    { key: '7', name: 'Fire Rate +15%',      cost: 200, action: p => { p.fireRateMul *= 0.87; }, repeatable: true },
+    { key: '8', name: 'Buy: AUTO PISTOL',    cost: 230, action: p => { p.weaponsUnlocked[14] = true; p.weaponTier = 14; }, weapon: 14 },
+    { key: '9', name: 'Buy: BURST RIFLE',    cost: 320, action: p => { p.weaponsUnlocked[8] = true; p.weaponTier = 8; }, weapon: 8 },
+    { key: '0', name: 'Buy: SCATTER GUN',    cost: 440, action: p => { p.weaponsUnlocked[9] = true; p.weaponTier = 9; }, weapon: 9 },
+    { key: 'Y', name: 'Buy: TWIN BLASTER',   cost: 540, action: p => { p.weaponsUnlocked[10] = true; p.weaponTier = 10; }, weapon: 10 },
+    { key: 'U', name: 'Buy: PLASMA RIFLE',   cost: 820, action: p => { p.weaponsUnlocked[16] = true; p.weaponTier = 16; }, weapon: 16 },
+    { key: 'I', name: 'Buy: SNIPER',         cost: 760, action: p => { p.weaponsUnlocked[11] = true; p.weaponTier = 11; }, weapon: 11 },
+    { key: 'O', name: 'Buy: GRENADE LAUNCH', cost: 920, action: p => { p.weaponsUnlocked[15] = true; p.weaponTier = 15; }, weapon: 15 },
+    { key: 'P', name: 'Buy: FLAME THROWER',  cost: 660, action: p => { p.weaponsUnlocked[12] = true; p.weaponTier = 12; }, weapon: 12 },
+    { key: 'V', name: 'Buy: CHAOS MORTAR',   cost: 1050, action: p => { p.weaponsUnlocked[17] = true; p.weaponTier = 17; }, weapon: 17 },
+    { key: 'B', name: 'Buy: SOUL CANNON',    cost: 1450, action: p => { p.weaponsUnlocked[18] = true; p.weaponTier = 18; }, weapon: 18 },
+    { key: 'Z', name: 'Buy: ICE BLAST',      cost: 740, action: p => { p.weaponsUnlocked[19] = true; p.weaponTier = 19; }, weapon: 19 },
+    { key: 'Q', name: 'Buy: RAILGUN',        cost: 1100, action: p => { p.weaponsUnlocked[20] = true; p.weaponTier = 20; }, weapon: 20 },
+    { key: 'W', name: 'Buy: ACID GUN',       cost: 820, action: p => { p.weaponsUnlocked[21] = true; p.weaponTier = 21; }, weapon: 21 },
+    { key: 'T', name: 'Buy: WATER GUN',      cost: 580, action: p => { p.weaponsUnlocked[22] = true; p.weaponTier = 22; }, weapon: 22 },
+    { key: 'R', name: 'Buy: LIGHTNING GUN',  cost: 980, action: p => { p.weaponsUnlocked[23] = true; p.weaponTier = 23; }, weapon: 23 },
+    { key: 'E', name: 'Buy: LASER RIFLE',    cost: 1700, action: p => { p.weaponsUnlocked[28] = true; p.weaponTier = 28; }, weapon: 28 },
     // Melee weapons — equip via shop. Damage scales the punch/axe combo.
-    { key: 'D', name: 'Buy: KNIFE',          cost: 120, action: p => { p.meleeWeaponsUnlocked.knife = true; p.activeMelee = 'knife'; },
+    { key: 'D', name: 'Buy: KNIFE',          cost: 200, action: p => { p.meleeWeaponsUnlocked.knife = true; p.activeMelee = 'knife'; },
       melee: 'knife',  meleeName: 'KNIFE',       meleeColor: '#88aaff' },
-    { key: 'F', name: 'Buy: KATANA',         cost: 320, action: p => { p.meleeWeaponsUnlocked.katana = true; p.activeMelee = 'katana'; },
+    { key: 'F', name: 'Buy: KATANA',         cost: 520, action: p => { p.meleeWeaponsUnlocked.katana = true; p.activeMelee = 'katana'; },
       melee: 'katana', meleeName: 'KATANA',      meleeColor: '#ff6644' },
-    { key: 'G', name: 'Buy: LIGHT SABER',    cost: 680, action: p => { p.meleeWeaponsUnlocked.saber = true; p.activeMelee = 'saber'; },
+    { key: 'G', name: 'Buy: LIGHT SABER',    cost: 1100, action: p => { p.meleeWeaponsUnlocked.saber = true; p.activeMelee = 'saber'; },
       melee: 'saber',  meleeName: 'LIGHT SABER', meleeColor: '#00ff88' },
-    { key: 'H', name: 'Buy: DUAL DAGGERS',   cost: 220, action: p => { p.meleeWeaponsUnlocked.daggers = true; p.activeMelee = 'daggers'; },
+    { key: 'H', name: 'Buy: DUAL DAGGERS',   cost: 360, action: p => { p.meleeWeaponsUnlocked.daggers = true; p.activeMelee = 'daggers'; },
       melee: 'daggers',meleeName: 'DUAL DAGGERS',meleeColor: '#ff8844' },
-    { key: 'J', name: 'Buy: WAR HAMMER',     cost: 480, action: p => { p.meleeWeaponsUnlocked.hammer = true; p.activeMelee = 'hammer'; },
+    { key: 'J', name: 'Buy: WAR HAMMER',     cost: 760, action: p => { p.meleeWeaponsUnlocked.hammer = true; p.activeMelee = 'hammer'; },
       melee: 'hammer', meleeName: 'WAR HAMMER',  meleeColor: '#ff6600' },
-    { key: 'K', name: 'Buy: PHANTOM SCYTHE', cost: 880, action: p => { p.meleeWeaponsUnlocked.scythe = true; p.activeMelee = 'scythe'; },
+    { key: 'K', name: 'Buy: PHANTOM SCYTHE', cost: 1380, action: p => { p.meleeWeaponsUnlocked.scythe = true; p.activeMelee = 'scythe'; },
       melee: 'scythe', meleeName: 'PHANTOM SCYTHE', meleeColor: '#aa00ff' },
-    { key: 'N', name: 'Buy: BFG-9000',       cost: 800, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
+    { key: 'N', name: 'Buy: BFG-9000',       cost: 1250, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
     // Dev-only weapons — hidden from non-developers (gated by window.isDeveloper())
     // Free for devs (cost 0) so the kid + friends can grab them anytime.
     // The BAND BLASTER (tier 26) doesn't have a shop hotkey — every letter
@@ -4930,10 +4941,10 @@ function buildLevel() {
     // ===== HARD MODE SCALING =====
     // Bosses scale lighter than mobs. Late stages (4-8) get a steeper bump
     // since the player has 7 evolution tiers and vehicle forms by then.
-    const stageScale = 1 + Math.max(0, currentStage - 2) * 0.08;  // stage 3 = 1.08, stage 8 = 1.48
-    const enemyHpMul = 1.7 * stageScale;       // was 1.4
-    const bossHpMul = 1.45 * stageScale;        // was 1.25
-    const enemySpeedMul = 1.12;                 // was 1.08 — slightly faster patrols
+    const stageScale = 1 + Math.max(0, currentStage - 2) * 0.10;  // stage 3 = 1.10, stage 8 = 1.60
+    const enemyHpMul = 2.2 * stageScale;       // was 1.7 — beefier mobs across the board
+    const bossHpMul = 1.85 * stageScale;        // was 1.45 — bossroom-buff stacks on top
+    const enemySpeedMul = 1.18;                 // was 1.12 — slightly faster patrols
     for (const e of enemies) {
         if (e.type === 'boss') {
             e.hp = Math.round(e.hp * bossHpMul);
@@ -6222,7 +6233,7 @@ function buildStage1() {
         { x: 2750, y: 520, w: 32, h: 30, type: 'turret', hp: 100, maxHp: 100, shootTimer: 50, angle: 0, color: '#ffaa00' },
         { x: 2950, y: 220, w: 30, h: 24, type: 'drone', hp: 70, maxHp: 70, baseY: 220, floatTimer: Math.PI, shootTimer: 50, color: '#66ddff' },
         // BOSS GUARD-1 (a bit beefier now)
-        { x: 3500, y: 380, w: 90, h: 100, type: 'boss', subtype: 'guard', hp: 1100, maxHp: 1100, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3500, baseY: 380, color: '#ff00ff', attackPattern: 0 }
+        { x: 3500, y: 380, w: 90, h: 100, type: 'boss', subtype: 'guard', hp: 1500, maxHp: 1500, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3500, baseY: 380, color: '#ff00ff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 500, triggered: false, text: '⚠ DANGER: HOSTILE BOT DETECTED ⚠' },
@@ -6305,7 +6316,7 @@ function buildStage2() {
         { x: 2900, y: 200, w: 30, h: 24, type: 'drone', hp: 90, maxHp: 90, baseY: 200, floatTimer: 0, shootTimer: 40, color: '#66ddff' },
         { x: 3100, y: 510, w: 36, h: 40, type: 'patrol', hp: 100, maxHp: 100, vx: 2, dir: 1, shootTimer: 25, patrolStart: 3050, patrolEnd: 3300, color: '#ff5555' },
         // BOSS SKYHAMMER - flies, drops bombs from above
-        { x: 3550, y: 200, w: 100, h: 80, type: 'boss', subtype: 'skyhammer', hp: 1400, maxHp: 1400, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3550, baseY: 200, color: '#0088ff', attackPattern: 0 }
+        { x: 3550, y: 200, w: 100, h: 80, type: 'boss', subtype: 'skyhammer', hp: 1900, maxHp: 1900, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3550, baseY: 200, color: '#0088ff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ DANGER: SKY DOCKS PATROL ⚠' },
@@ -6387,7 +6398,7 @@ function buildStage3() {
         { x: 2700, y: 520, w: 32, h: 30, type: 'turret', hp: 140, maxHp: 140, shootTimer: 40, angle: 0, color: '#ff5500' },
         { x: 2850, y: 220, w: 30, h: 24, type: 'drone', hp: 110, maxHp: 110, baseY: 220, floatTimer: 0, shootTimer: 38, color: '#ff8866' },
         // BOSS INFERNO-X
-        { x: 3300, y: 350, w: 100, h: 110, type: 'boss', subtype: 'inferno', hp: 1700, maxHp: 1700, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3300, baseY: 350, color: '#ff3300', attackPattern: 0 }
+        { x: 3300, y: 350, w: 100, h: 110, type: 'boss', subtype: 'inferno', hp: 2300, maxHp: 2300, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3300, baseY: 350, color: '#ff3300', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 350, triggered: false, text: '⚠ DANGER: REACTOR HEAT - HOSTILES ⚠' },
@@ -6473,7 +6484,7 @@ function buildStage4() {
         { x: 3000, y: 504, w: 46, h: 46, type: 'heavy', hp: 250, maxHp: 250, vx: 0.8, dir: 1, shootTimer: 30, patrolStart: 2890, patrolEnd: 3220, color: '#22aa44' },
         { x: 3200, y: 510, w: 38, h: 40, type: 'shielder', hp: 180, maxHp: 180, vx: 1.4, dir: 1, shootTimer: 30, patrolStart: 3150, patrolEnd: 3300, color: '#88ff44', shieldColor: '#88ffff' },
         // BOSS RAVAGER - charges and minigun-spreads (HP reduced for difficulty curve)
-        { x: 3500, y: 350, w: 110, h: 110, type: 'boss', subtype: 'ravager', hp: 2100, maxHp: 2100, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3500, baseY: 350, color: '#22ff44', attackPattern: 0 }
+        { x: 3500, y: 350, w: 110, h: 110, type: 'boss', subtype: 'ravager', hp: 2900, maxHp: 2900, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3500, baseY: 350, color: '#22ff44', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 350, triggered: false, text: '⚠ DANGER: SECURITY BOTS ⚠' },
@@ -6564,7 +6575,7 @@ function buildStage5() {
         { x: 2200, y: 510, w: 38, h: 32, type: 'jumper', hp: 150, maxHp: 150, vx: 0, vy: 0, jumpTimer: 60, color: '#aaccff', onGround: true },
         { x: 2900, y: 504, w: 38, h: 46, type: 'sniper', hp: 220, maxHp: 220, shootTimer: 50, aimTimer: 0, aimAngle: 0, color: '#88ccff' },
         // BOSS CRYO-LORD - frost shots, freezes time briefly via screen shake (HP reduced)
-        { x: 3400, y: 320, w: 100, h: 110, type: 'boss', subtype: 'cryo', hp: 2400, maxHp: 2400, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3400, baseY: 320, color: '#88ccff', attackPattern: 0 }
+        { x: 3400, y: 320, w: 100, h: 110, type: 'boss', subtype: 'cryo', hp: 3300, maxHp: 3300, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3400, baseY: 320, color: '#88ccff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 350, triggered: false, text: '⚠ DANGER: ARCTIC PATROL ⚠' },
@@ -6664,7 +6675,7 @@ function buildStage6() {
         { x: 2950, y: 504, w: 38, h: 46, type: 'sniper', hp: 280, maxHp: 280, shootTimer: 60, aimTimer: 0, aimAngle: 0, color: '#cc66ff' },
         { x: 3300, y: 510, w: 38, h: 32, type: 'jumper', hp: 200, maxHp: 200, vx: 0, vy: 0, jumpTimer: 50, color: '#dd44ff', onGround: true },
         // BOSS NULLIFIER - teleports, dense bullet patterns (HP reduced)
-        { x: 3600, y: 300, w: 110, h: 120, type: 'boss', subtype: 'nullifier', hp: 2900, maxHp: 2900, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3600, baseY: 300, color: '#aa00ff', attackPattern: 0 }
+        { x: 3600, y: 300, w: 110, h: 120, type: 'boss', subtype: 'nullifier', hp: 4000, maxHp: 4000, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3600, baseY: 300, color: '#aa00ff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ DANGER: VOID HOSTILES ⚠' },
@@ -6771,7 +6782,7 @@ function buildStage7() {
         { x: 3000, y: 504, w: 38, h: 46, type: 'sniper', hp: 320, maxHp: 320, shootTimer: 55, aimTimer: 0, aimAngle: 0, color: '#ff44ff' },
         { x: 3300, y: 510, w: 38, h: 40, type: 'shielder', hp: 320, maxHp: 320, vx: 2, dir: 1, shootTimer: 22, patrolStart: 3200, patrolEnd: 3450, color: '#ff44ff', shieldColor: '#ffaaff' },
         // FINAL BOSS OMEGA-PRIME (HP reduced for difficulty curve — still beefy)
-        { x: 3700, y: 300, w: 130, h: 140, type: 'boss', subtype: 'omega', hp: 3600, maxHp: 3600, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3700, baseY: 300, color: '#ffffff', attackPattern: 0 }
+        { x: 3700, y: 300, w: 130, h: 140, type: 'boss', subtype: 'omega', hp: 4900, maxHp: 4900, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3700, baseY: 300, color: '#ffffff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ DANGER: ELITE CITADEL GUARD ⚠' },
@@ -6832,7 +6843,7 @@ function buildStage8() {
         // Two MECHs guard the throat of the corridor — the visual gauntlet
         { x: 3720, y: 470, w: 80, h: 80, type: 'mech',    hp: 600, maxHp: 600, shootTimer: 60, attackPhase: 0, walkPhase: 0, vx: 0, vy: 0, facing: -1, onGround: false, baseY: 470, color: '#66ffff' },
         // FINAL-FINAL BOSS TITAN-LORD - mech that transforms into a battleship
-        { x: 4700, y: 280, w: 160, h: 170, type: 'boss', subtype: 'titan', hp: 4800, maxHp: 4800, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 4700, baseY: 280, color: '#66ffff', attackPattern: 0, transformTimer: 0, transformed: false }
+        { x: 4700, y: 280, w: 160, h: 170, type: 'boss', subtype: 'titan', hp: 6500, maxHp: 6500, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 4700, baseY: 280, color: '#66ffff', attackPattern: 0, transformTimer: 0, transformed: false }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ ORBITAL FORTRESS — ELITE GUARDS ⚠' },
@@ -22431,7 +22442,7 @@ function restart() {
     player.scrap = 0;
     player.bulletDamage = 0;
     player.weaponTier = 0;
-    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
     player.meleeWeaponsUnlocked = {};
     player.activeMelee = null;
     player.maxJumpsBonus = 0;
@@ -28658,7 +28669,7 @@ function gameLoop(timestamp) {
         player.scrap = 0;
         player.bulletDamage = 0;
         player.weaponTier = 0;
-        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
     player.meleeWeaponsUnlocked = {};
     player.activeMelee = null;
         player.maxJumpsBonus = 0;
