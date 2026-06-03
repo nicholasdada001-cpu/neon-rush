@@ -358,6 +358,9 @@
             <button class="util-btn" data-util="giveMicah" style="border-color:#88ff88;color:#88ff88">⛏ MICAH MINECRAFTER</button>
         </div>
         <div class="row">
+            <button class="util-btn" data-util="giveBand" style="border-color:#ffaa44;color:#ffaa44">🎵 BAND BLASTER (B = switch)</button>
+        </div>
+        <div class="row">
             <button class="util-btn" data-util="giveDaggers" style="font-size:9px">DAGGERS</button>
             <button class="util-btn" data-util="giveHammer" style="font-size:9px">HAMMER</button>
             <button class="util-btn" data-util="giveScythe" style="font-size:9px">SCYTHE</button>
@@ -846,6 +849,19 @@
                         player.weaponTier = 25;
                         if (typeof shopMessage !== 'undefined') {
                             shopMessage = { text: '⛏ MICAH MINECRAFTER equipped!', timer: 120, color: '#88ff88' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'giveBand':
+                        player.weaponsUnlocked[26] = true;
+                        player.weaponTier = 26;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = {
+                                text: '🎵 BAND BLASTER equipped! Press B to switch instrument.',
+                                timer: 200,
+                                color: '#ffaa44'
+                            };
                         }
                         devPanel.classList.add('hidden');
                         devToggle.textContent = '🛠 DEV';

@@ -968,6 +968,17 @@ const WEAPONS = [
         //   craftBonus: on impact, free-summons one extra mob (no queue)
         leavesLava: true, craftBonus: true,
         flavor: '⛏ MICAH-themed. Massive TNT, leaves a green acid pool, summons squads + bonus mobs.'
+    },
+    // BAND WEAPON — fires music notes. Press B to cycle instrument.
+    // Each instrument changes the bullet pattern, color, and effect.
+    // Wired up specially in shootBullet so all the other weapon flags
+    // don't have to know about instrument variants.
+    {
+        name: 'BAND BLASTER', tier: 26, shopOnly: true, cost: 0, dev: true,
+        damage: 80, speed: 18, cooldown: 12, bullets: 1, spread: 0,
+        color: '#ffaa44', glow: '#ffdd88', size: 12, life: 130,
+        bandWeapon: true,        // tells shootBullet to dispatch on instrument
+        flavor: '🎵 Music-note rifle. Press B to switch DRUM/SAX/CLARINET/FLUTE.'
     }
 ];
 
@@ -1235,9 +1246,13 @@ const player = {
     evoLevel: 0,              // 0 = base, 1 = MK-II, 2 = MK-III, 3 = OMEGA FORM
     bulletDamage: 0,         // additive damage bonus (from "Damage +5" upgrade)
     weaponTier: 0,            // index into WEAPONS (currently equipped)
-    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
+    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
     meleeWeaponsUnlocked: {},  // { knife:true, katana:true, ... } — bought from shop
     activeMelee: null,         // 'knife' | 'katana' | 'saber' | null = bare-fist
+    // BAND BLASTER instrument state — cycles via B key while equipped.
+    // Each instrument fires a different pattern (see shootBandWeapon).
+    activeInstrument: 0,       // 0=DRUM, 1=SAXOPHONE, 2=CLARINET, 3=FLUTE
+    bandSwitchHeld: false,     // edge-trigger for B key
     maxJumpsBonus: 0,         // extra jumps from upgrades
     fireRateMul: 1,           // < 1 = faster
     dmgMul: 1,                // damage multiplier from character
@@ -1324,6 +1339,8 @@ const SHOP_ITEMS = [
     { key: 'N', name: 'Buy: BFG-9000',       cost: 800, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
     // Dev-only weapons — hidden from non-developers (gated by window.isDeveloper())
     // Free for devs (cost 0) so the kid + friends can grab them anytime.
+    // The BAND BLASTER (tier 26) doesn't have a shop hotkey — every letter
+    // is taken — so it's purchased exclusively via the 🛠 DEV panel button.
     { key: 'A', name: 'Buy: ⚽ JAX BLASTER',  cost: 0, action: p => { p.weaponsUnlocked[24] = true; p.weaponTier = 24; }, weapon: 24, dev: true },
     { key: 'S', name: 'Buy: ⛏ MICAH MINECRAFTER', cost: 0, action: p => { p.weaponsUnlocked[25] = true; p.weaponTier = 25; }, weapon: 25, dev: true },
     { key: 'M', name: 'Switch Weapon ▶',     cost: 0,   action: p => { switchWeapon(p); }, repeatable: true, switcher: true },
@@ -3157,6 +3174,120 @@ function drawMinecraftPreview() {
     }
     ctx.textAlign = 'left';
     ctx.restore();
+}
+
+// ============================================================================
+// BAND BLASTER — multi-instrument music-note weapon (dev only)
+// ============================================================================
+// Each instrument fires a different bullet pattern. Press B in-game to
+// cycle: DRUM -> SAXOPHONE -> CLARINET -> FLUTE -> back to DRUM.
+const BAND_INSTRUMENTS = [
+    {
+        name: 'DRUM',
+        // Big shockwave AOE — short range, huge punch.
+        color: '#ff6644', glow: '#ffaa44',
+        symbol: '🥁',
+        flavor: 'BIG slam — shockwave AOE.'
+    },
+    {
+        name: 'SAXOPHONE',
+        // Wavy 3-shot spread that homes — smooth jazz tracking.
+        color: '#ffdd44', glow: '#ffaa00',
+        symbol: '🎷',
+        flavor: 'Jazzy 3-shot wave with gentle homing.'
+    },
+    {
+        name: 'CLARINET',
+        // Piercing single shot, very fast.
+        color: '#88ccff', glow: '#44aaff',
+        symbol: '🎼',
+        flavor: 'Sharp piercing note. Cuts straight through.'
+    },
+    {
+        name: 'FLUTE',
+        // Multi-note fan that bounces — light & fluttery.
+        color: '#cc88ff', glow: '#aa44ff',
+        symbol: '🎶',
+        flavor: 'Fluttering note fan — bounces off walls.'
+    }
+];
+
+function cycleBandInstrument() {
+    player.activeInstrument = (player.activeInstrument + 1) % BAND_INSTRUMENTS.length;
+    const inst = BAND_INSTRUMENTS[player.activeInstrument];
+    if (typeof shopMessage !== 'undefined') {
+        shopMessage = {
+            text: `🎵 ${inst.symbol} ${inst.name} — ${inst.flavor}`,
+            timer: 150,
+            color: inst.glow
+        };
+    }
+    spawnParticles(player.x + player.w / 2, player.y, inst.glow, 14, 5);
+    if (typeof audio !== 'undefined' && audio.play) audio.play('switch', { throttle: 60 });
+}
+
+function shootBandWeapon(cx, cy, baseDx, baseDy, baseAngle) {
+    const inst = BAND_INSTRUMENTS[player.activeInstrument || 0];
+    const dmgMul = player.dmgMul || 1;
+    const note = (extras) => Object.assign({
+        x: cx + baseDx * 18,
+        y: cy + baseDy * 18,
+        vx: baseDx * 14,
+        vy: baseDy * 14,
+        life: 110,
+        damage: Math.round(120 * dmgMul),
+        color: inst.color, glow: inst.glow, size: 12,
+        pierce: false, hitEnemies: new Set(),
+        musicNote: true,
+        instrument: player.activeInstrument || 0,
+        // small sine wobble baked into the renderer
+        wobblePhase: Math.random() * Math.PI * 2
+    }, extras || {});
+
+    if (inst.name === 'DRUM') {
+        // Single heavy slam — explosive AOE shockwave on impact
+        bullets.push(note({
+            damage: Math.round(220 * dmgMul),
+            size: 18,
+            explosive: true,
+            aoeRadius: 160,
+            speed: 18
+        }));
+        screenShake = Math.max(screenShake, 6);
+    } else if (inst.name === 'SAXOPHONE') {
+        // 3 jazzy notes in a tight cone, mild homing
+        for (let n = -1; n <= 1; n++) {
+            const ang = baseAngle + n * 0.18;
+            bullets.push(note({
+                vx: Math.cos(ang) * 13,
+                vy: Math.sin(ang) * 13,
+                homing: true,
+                damage: Math.round(85 * dmgMul)
+            }));
+        }
+    } else if (inst.name === 'CLARINET') {
+        // Single fast piercing shot — high speed, narrow cone
+        bullets.push(note({
+            vx: baseDx * 22,
+            vy: baseDy * 22,
+            damage: Math.round(180 * dmgMul),
+            pierce: true,
+            life: 160,
+            size: 10
+        }));
+    } else if (inst.name === 'FLUTE') {
+        // 5-note fan with bounce
+        for (let n = -2; n <= 2; n++) {
+            const ang = baseAngle + n * 0.22;
+            bullets.push(note({
+                vx: Math.cos(ang) * 12,
+                vy: Math.sin(ang) * 12,
+                bounce: 3, bouncesLeft: 3,
+                damage: Math.round(70 * dmgMul),
+                size: 10
+            }));
+        }
+    }
 }
 
 // Melee combat - 3-hit combo with increasing damage and knockback. Final hit explodes.
@@ -7117,6 +7248,20 @@ function updatePlayer() {
         player.meleeKeyHeld = true;
     }
     if (!keys['KeyG']) player.meleeKeyHeld = false;
+
+    // BAND BLASTER — press B to cycle instrument (DRUM/SAX/CLARINET/FLUTE).
+    // Edge-triggered so a held key only switches once. Skip while the
+    // shop is open since B is also a shop hotkey there (Soul Cannon).
+    {
+        const wEquipped = WEAPONS[player.weaponTier];
+        if (!shopOpen && wEquipped && wEquipped.bandWeapon) {
+            if (keys['KeyB'] && !player.bandSwitchHeld) {
+                cycleBandInstrument();
+                player.bandSwitchHeld = true;
+            }
+            if (!keys['KeyB']) player.bandSwitchHeld = false;
+        }
+    }
 }
 
 // Shooting - fires in the direction you're facing, using current weapon
@@ -7132,6 +7277,15 @@ function shootBullet() {
     const baseLen = Math.sqrt(baseDx * baseDx + baseDy * baseDy);
     baseDx /= baseLen; baseDy /= baseLen;
     const baseAngle = Math.atan2(baseDy, baseDx);
+
+    // BAND BLASTER — divert to the instrument-specific shoot helper.
+    // It handles its own bullet count, color, and per-instrument special FX.
+    if (w.bandWeapon) {
+        shootBandWeapon(cx, cy, baseDx, baseDy, baseAngle);
+        spawnParticles(cx + baseDx * 22, cy + baseDy * 22, w.glow, 5, 3);
+        screenShake = 4;
+        return;
+    }
 
     // Fire one or more bullets
     for (let i = 0; i < w.bullets; i++) {
@@ -17197,6 +17351,63 @@ function drawBullets() {
             ctx.shadowBlur = 0;
             continue;
         }
+        // ===== MUSIC NOTE bullet (BAND BLASTER) =====
+        // Fancy musical note silhouette — eighth-note shape (filled head
+        // with a flag stem). Color/glow set by instrument.
+        if (b.musicNote) {
+            const sx = b.x - camera.x;
+            const sy = b.y - camera.y;
+            // Sine wobble so the note dances along its path
+            const wob = Math.sin((b.wobblePhase || 0) + (b.life || 0) * 0.3) * 5;
+            // Project perpendicular to velocity for the wobble
+            const speed = Math.hypot(b.vx, b.vy) || 1;
+            const px = -b.vy / speed;
+            const py = b.vx / speed;
+            const fx = sx + px * wob;
+            const fy = sy + py * wob;
+            ctx.save();
+            ctx.shadowColor = b.glow || '#ffaa44';
+            ctx.shadowBlur = 14;
+            // Note head (filled tilted ellipse)
+            ctx.fillStyle = b.color || '#ffaa44';
+            ctx.translate(fx, fy);
+            ctx.rotate(-0.3);
+            ctx.beginPath();
+            ctx.ellipse(0, 0, b.size, b.size * 0.7, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Inner highlight
+            ctx.fillStyle = '#ffffff';
+            ctx.globalAlpha = 0.6;
+            ctx.beginPath();
+            ctx.ellipse(-b.size * 0.3, -b.size * 0.25, b.size * 0.35, b.size * 0.2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            // Stem (tail of the note pointing up)
+            ctx.fillStyle = b.color || '#ffaa44';
+            ctx.fillRect(b.size * 0.6, -b.size * 1.6, 2, b.size * 1.4);
+            // Flag (the curl on top of the eighth note)
+            ctx.beginPath();
+            ctx.moveTo(b.size * 0.7, -b.size * 1.6);
+            ctx.bezierCurveTo(
+                b.size * 1.6, -b.size * 1.4,
+                b.size * 1.4, -b.size * 0.6,
+                b.size * 0.7, -b.size * 0.4
+            );
+            ctx.bezierCurveTo(
+                b.size * 1.2, -b.size * 0.8,
+                b.size * 1.2, -b.size * 1.2,
+                b.size * 0.7, -b.size * 1.2
+            );
+            ctx.closePath();
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.restore();
+            // Sparkle trail at intervals
+            if (Math.random() < 0.4) {
+                spawnParticles(sx - b.vx * 0.3, sy - b.vy * 0.3, b.glow || '#ffaa44', 1, 2);
+            }
+            continue;
+        }
         // ===== SOCCER BALL bullet (JAX BLASTER, dev) =====
         // Black-and-white pentagon-stitched soccer ball that spins as it
         // travels. Spin angle = bullet life * speed for a tumbling effect.
@@ -20823,7 +21034,7 @@ function restart() {
     player.scrap = 0;
     player.bulletDamage = 0;
     player.weaponTier = 0;
-    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
     player.meleeWeaponsUnlocked = {};
     player.activeMelee = null;
     player.maxJumpsBonus = 0;
@@ -27049,7 +27260,7 @@ function gameLoop(timestamp) {
         player.scrap = 0;
         player.bulletDamage = 0;
         player.weaponTier = 0;
-        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
     player.meleeWeaponsUnlocked = {};
     player.activeMelee = null;
         player.maxJumpsBonus = 0;
