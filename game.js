@@ -1253,6 +1253,9 @@ const player = {
     // Each instrument fires a different pattern (see shootBandWeapon).
     activeInstrument: 0,       // 0=DRUM, 1=SAXOPHONE, 2=CLARINET, 3=FLUTE
     bandSwitchHeld: false,     // edge-trigger for B key
+    bandSpecialHeld: false,    // edge-trigger for V key (special move)
+    bandSpecialCooldown: 0,    // ticks until special is ready
+    bandSpecialFx: null,       // active cinematic state (depends on instrument)
     maxJumpsBonus: 0,         // extra jumps from upgrades
     fireRateMul: 1,           // < 1 = faster
     dmgMul: 1,                // damage multiplier from character
@@ -3217,8 +3220,8 @@ function cycleBandInstrument() {
     const inst = BAND_INSTRUMENTS[player.activeInstrument];
     if (typeof shopMessage !== 'undefined') {
         shopMessage = {
-            text: `🎵 ${inst.symbol} ${inst.name} — ${inst.flavor}`,
-            timer: 150,
+            text: `🎵 ${inst.symbol} ${inst.name} — F shoot · V SPECIAL — ${inst.flavor}`,
+            timer: 200,
             color: inst.glow
         };
     }
@@ -3337,6 +3340,358 @@ function shootBandWeapon(cx, cy, baseDx, baseDy, baseAngle) {
         // Quickstep buff
         player.fluteHasteTimer = Math.max(player.fluteHasteTimer || 0, 60);
         spawnParticles(player.x + player.w/2, player.y + 4, '#cc88ff', 14, 5);
+    }
+}
+
+// SPECIAL MOVE — press V while BAND BLASTER is equipped. Each instrument
+// has a totally different cinematic ability that visually transforms the
+// screen, runs a 60-180 frame animation, and deals massive damage. Shared
+// cooldown of ~3 seconds so they're meaningful but not spammy.
+const BAND_SPECIAL_COOLDOWN = 180;       // ~3 seconds at 60fps
+
+function executeBandSpecial() {
+    if (player.bandSpecialCooldown > 0) return;
+    const inst = BAND_INSTRUMENTS[player.activeInstrument || 0];
+    if (!inst) return;
+    const cx = player.x + player.w / 2;
+    const cy = player.y + player.h / 2;
+    const dmgMul = player.dmgMul || 1;
+
+    if (inst.name === 'DRUM') {
+        // ★ EARTHQUAKE SOLO ★
+        // 6 expanding shockwave rings centered on the player. Anything
+        // caught in any ring takes massive damage + airborne knockback.
+        // Ground itself rumbles for 90f. Camera slams every ring.
+        player.bandSpecialFx = {
+            kind: 'drumQuake', t: 0, duration: 90,
+            rings: [],
+            ringSpawnTimer: 0
+        };
+        if (typeof shopMessage !== 'undefined') {
+            shopMessage = { text: '★ EARTHQUAKE SOLO ★', timer: 90, color: '#ffaa44' };
+        }
+        screenShake = 26;
+        applyHitStop && applyHitStop(6);
+        // Initial massive shockwave
+        spawnShockwave(cx, cy, 200, '#ffdd44');
+        spawnShockwave(cx, cy, 280, '#ff8844');
+        spawnShockwave(cx, cy, 360, '#ffffff');
+        for (const e of enemies) {
+            const dx = (e.x + e.w/2) - cx;
+            const dy = (e.y + e.h/2) - cy;
+            if (dx*dx + dy*dy < 400*400) {
+                e.hp -= Math.round(420 * dmgMul);
+                e.vy = -10;
+                e.x += Math.sign(dx) * 30;
+                spawnDamageNumber(e.x + e.w/2, e.y, 420, 'aoe');
+            }
+        }
+        // Cull dead enemies
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            if (enemies[i].hp <= 0) handleEnemyKilled(enemies[i], i);
+        }
+    } else if (inst.name === 'SAXOPHONE') {
+        // ★ JAZZ FRENZY ★
+        // 12 wild homing saxophone notes spiral outward in 360°, each
+        // tracking and piercing. Player levitates on a sound-cloud and
+        // gets +50 max HP for the duration. Looks like a brass tornado.
+        player.bandSpecialFx = {
+            kind: 'saxFrenzy', t: 0, duration: 120,
+            spiralAng: 0
+        };
+        if (typeof shopMessage !== 'undefined') {
+            shopMessage = { text: '★ JAZZ FRENZY ★', timer: 90, color: '#ffaa00' };
+        }
+        // Burst out 12 spiral homing notes immediately
+        for (let n = 0; n < 12; n++) {
+            const ang = (n / 12) * Math.PI * 2;
+            bullets.push({
+                x: cx + Math.cos(ang) * 24, y: cy + Math.sin(ang) * 24,
+                vx: Math.cos(ang) * 11, vy: Math.sin(ang) * 11,
+                life: 220,
+                damage: Math.round(160 * dmgMul),
+                color: '#ffdd44', glow: '#ffaa00', size: 12,
+                pierce: true, hitEnemies: new Set(),
+                musicNote: true, instrument: 1,
+                wobblePhase: ang * 2,
+                homing: true
+            });
+        }
+        // Big heal + temp max-HP buff
+        player.maxHp += 50;
+        player.hp = Math.min(player.maxHp, player.hp + 80);
+        floatTexts.push({
+            x: cx, y: cy - 30, vy: -2, life: 40,
+            color: '#ffaa00', text: '+80 HP / +50 MAX'
+        });
+        spawnShockwave(cx, cy, 180, '#ffaa00');
+        screenShake = 10;
+    } else if (inst.name === 'CLARINET') {
+        // ★ THUNDER OVERTURE ★
+        // A massive lightning beam fires straight ahead full-screen-wide.
+        // It chains to EVERY visible enemy in sequence (zigzag bolt
+        // animation). 800 dmg primary + 220 chain dmg per hop, infinite hops.
+        player.bandSpecialFx = {
+            kind: 'clarinetThunder', t: 0, duration: 60,
+            bolts: [],
+            beamAng: Math.atan2(0, player.facing)
+        };
+        if (typeof shopMessage !== 'undefined') {
+            shopMessage = { text: '★ THUNDER OVERTURE ★', timer: 90, color: '#88ccff' };
+        }
+        // Pre-compute the chain — start at the player's aim ray, find every
+        // enemy in screen range, then connect them sequentially closest-first.
+        const visibleEnemies = enemies.filter(e =>
+            Math.abs((e.x + e.w/2) - cx) < canvas.width / 2 + 200);
+        // Sort by distance from player, attacking the closest first
+        visibleEnemies.sort((a, b) => {
+            const da = (a.x - cx) ** 2 + (a.y - cy) ** 2;
+            const db = (b.x - cx) ** 2 + (b.y - cy) ** 2;
+            return da - db;
+        });
+        let prevX = cx, prevY = cy - 8;
+        const beamPath = [{ x: prevX, y: prevY }];
+        for (const e of visibleEnemies) {
+            const ex = e.x + e.w/2, ey = e.y + e.h/2;
+            beamPath.push({ x: ex, y: ey });
+            // Damage and visual
+            const isFirst = beamPath.length === 2;
+            const dmg = Math.round((isFirst ? 800 : 320) * dmgMul);
+            e.hp -= dmg;
+            spawnDamageNumber(ex, e.y, dmg, isFirst ? 'crit' : 'aoe');
+            spawnParticles(ex, ey, '#aaeeff', 14, 6);
+            spawnParticles(ex, ey, '#ffffff', 8, 4);
+            prevX = ex; prevY = ey;
+        }
+        player.bandSpecialFx.beamPath = beamPath;
+        // Cull dead
+        for (let i = enemies.length - 1; i >= 0; i--) {
+            if (enemies[i].hp <= 0) handleEnemyKilled(enemies[i], i);
+        }
+        screenShake = 18;
+        applyHitStop && applyHitStop(4);
+        if (beamPath.length > 1) {
+            floatTexts.push({
+                text: `THUNDER x${beamPath.length - 1}`,
+                x: cx, y: cy - 50, life: 60, color: '#88ccff'
+            });
+        }
+    } else if (inst.name === 'FLUTE') {
+        // ★ DOVE STORM ★
+        // Player turns into a sparkling phantom for 90f — invincible,
+        // can fly freely, leaves a trail of homing dove-notes that
+        // explode into hearts on contact (low dmg but huge AOE chain).
+        // 30 dove-notes spawn over the duration.
+        player.bandSpecialFx = {
+            kind: 'fluteDove', t: 0, duration: 90,
+            spawnTimer: 0
+        };
+        if (typeof shopMessage !== 'undefined') {
+            shopMessage = { text: '★ DOVE STORM ★', timer: 90, color: '#cc88ff' };
+        }
+        player.invincible = Math.max(player.invincible || 0, 90);
+        spawnShockwave(cx, cy, 160, '#cc88ff');
+        spawnShockwave(cx, cy, 220, '#ffffff');
+    }
+    player.bandSpecialCooldown = BAND_SPECIAL_COOLDOWN;
+    if (typeof audio !== 'undefined' && audio.play) audio.play('bossIntro', { throttle: 200 });
+}
+
+// Per-frame update for the active special-move FX. Called from updatePlayer.
+function updateBandSpecialFx() {
+    if (player.bandSpecialCooldown > 0) player.bandSpecialCooldown--;
+    if (player.fluteHasteTimer && player.fluteHasteTimer > 0) {
+        // (timer ticks elsewhere in the speedScale block)
+    }
+    const fx = player.bandSpecialFx;
+    if (!fx) return;
+    fx.t++;
+    if (fx.t >= fx.duration) {
+        // End-of-special — clean up state per kind
+        if (fx.kind === 'saxFrenzy') {
+            // Revert max HP buff
+            player.maxHp -= 50;
+            if (player.hp > player.maxHp) player.hp = player.maxHp;
+        }
+        player.bandSpecialFx = null;
+        return;
+    }
+    const cx = player.x + player.w / 2;
+    const cy = player.y + player.h / 2;
+    const dmgMul = player.dmgMul || 1;
+
+    if (fx.kind === 'drumQuake') {
+        // Spawn a fresh shockwave ring every 12 frames; AOE damage
+        // anything caught inside the ring's outermost expanding band.
+        fx.ringSpawnTimer--;
+        if (fx.ringSpawnTimer <= 0) {
+            fx.ringSpawnTimer = 12;
+            const r = 100 + (fx.t / fx.duration) * 250;
+            spawnShockwave(cx, cy + 30, r, '#ff8844');
+            for (const e of enemies) {
+                const dx = (e.x + e.w/2) - cx;
+                const dy = (e.y + e.h/2) - cy;
+                const d = Math.sqrt(dx*dx + dy*dy);
+                if (d < r && d > r - 70) {
+                    e.hp -= Math.round(120 * dmgMul);
+                    e.vy = -7;
+                    spawnDamageNumber(e.x + e.w/2, e.y, 120, 'aoe');
+                }
+            }
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                if (enemies[i].hp <= 0) handleEnemyKilled(enemies[i], i);
+            }
+            screenShake = Math.max(screenShake, 8);
+        }
+    } else if (fx.kind === 'saxFrenzy') {
+        // Burst additional homing notes in a slow spiral every 8 frames
+        if (fx.t % 8 === 0) {
+            fx.spiralAng = (fx.spiralAng || 0) + 0.6;
+            for (let n = 0; n < 3; n++) {
+                const a = fx.spiralAng + n * (Math.PI * 2 / 3);
+                bullets.push({
+                    x: cx + Math.cos(a) * 30, y: cy + Math.sin(a) * 30,
+                    vx: Math.cos(a) * 10, vy: Math.sin(a) * 10,
+                    life: 160,
+                    damage: Math.round(110 * dmgMul),
+                    color: '#ffdd44', glow: '#ffaa00', size: 10,
+                    pierce: true, hitEnemies: new Set(),
+                    musicNote: true, instrument: 1,
+                    wobblePhase: Math.random() * Math.PI * 2,
+                    homing: true
+                });
+            }
+        }
+        // Sound-cloud particles around player
+        spawnParticles(cx + (Math.random() - 0.5) * 50, cy + (Math.random() - 0.5) * 50,
+            '#ffdd44', 1, 3);
+    } else if (fx.kind === 'fluteDove') {
+        // Spawn a homing dove-note trail every 3 frames, full 360° spread
+        fx.spawnTimer = (fx.spawnTimer || 0) - 1;
+        if (fx.spawnTimer <= 0) {
+            fx.spawnTimer = 3;
+            const a = Math.random() * Math.PI * 2;
+            bullets.push({
+                x: cx + Math.cos(a) * 16, y: cy + Math.sin(a) * 16,
+                vx: Math.cos(a) * 9, vy: Math.sin(a) * 9,
+                life: 180,
+                damage: Math.round(120 * dmgMul),
+                color: '#ffaaff', glow: '#cc88ff', size: 11,
+                pierce: false, hitEnemies: new Set(),
+                musicNote: true, instrument: 3,
+                wobblePhase: Math.random() * Math.PI * 2,
+                homing: true,
+                explosive: true,
+                aoeRadius: 80,
+                fluteSplit: true
+            });
+        }
+        // Constant invuln during the move
+        player.invincible = Math.max(player.invincible || 0, 8);
+        // Halo particles
+        if (fx.t % 4 === 0) {
+            const a = (fx.t * 0.2);
+            spawnParticles(cx + Math.cos(a) * 30, cy + Math.sin(a) * 30,
+                '#cc88ff', 1, 4);
+        }
+    }
+}
+
+// Render an overlay for the active special move (player-anchored).
+function drawBandSpecialFx() {
+    const fx = player.bandSpecialFx;
+    if (!fx) return;
+    const sx = player.x - camera.x + player.w / 2;
+    const sy = player.y - camera.y + player.h / 2;
+    if (fx.kind === 'clarinetThunder' && fx.beamPath) {
+        // Draw a zigzag chain-beam connecting the path
+        ctx.save();
+        const lifeT = 1 - (fx.t / fx.duration);
+        ctx.globalAlpha = lifeT;
+        ctx.shadowColor = '#88ccff';
+        ctx.shadowBlur = 22;
+        ctx.strokeStyle = '#aaeeff';
+        ctx.lineCap = 'round';
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        for (let i = 0; i < fx.beamPath.length; i++) {
+            const p = fx.beamPath[i];
+            const px = p.x - camera.x;
+            const py = p.y - camera.y;
+            // Add zigzag jitter for that lightning feel
+            const jx = (Math.random() - 0.5) * 14;
+            const jy = (Math.random() - 0.5) * 14;
+            if (i === 0) ctx.moveTo(px + jx, py + jy);
+            else ctx.lineTo(px + jx, py + jy);
+        }
+        ctx.stroke();
+        // Inner bright core
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#ffffff';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        for (let i = 0; i < fx.beamPath.length; i++) {
+            const p = fx.beamPath[i];
+            const px = p.x - camera.x;
+            const py = p.y - camera.y;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        ctx.restore();
+    } else if (fx.kind === 'fluteDove') {
+        // Player-encircling sparkle halo
+        ctx.save();
+        const lifeT = 1 - (fx.t / fx.duration);
+        for (let r = 0; r < 3; r++) {
+            const ang = (fx.t * 0.08) + r * (Math.PI * 2 / 3);
+            const rad = 36 + Math.sin(fx.t * 0.1 + r) * 6;
+            const px = sx + Math.cos(ang) * rad;
+            const py = sy + Math.sin(ang) * rad;
+            ctx.fillStyle = '#cc88ff';
+            ctx.shadowColor = '#cc88ff';
+            ctx.shadowBlur = 18;
+            ctx.globalAlpha = lifeT;
+            ctx.beginPath();
+            ctx.arc(px, py, 5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    } else if (fx.kind === 'saxFrenzy') {
+        // Sound-wave concentric rings expanding outward
+        ctx.save();
+        const lifeT = 1 - (fx.t / fx.duration);
+        ctx.globalAlpha = lifeT * 0.6;
+        ctx.strokeStyle = '#ffaa00';
+        ctx.shadowColor = '#ffaa00';
+        ctx.shadowBlur = 16;
+        ctx.lineWidth = 2;
+        for (let r = 0; r < 3; r++) {
+            const rad = ((fx.t + r * 18) % 60) * 4 + 30;
+            ctx.beginPath();
+            ctx.arc(sx, sy, rad, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        ctx.restore();
+    } else if (fx.kind === 'drumQuake') {
+        // Ground crack overlay — rumble lines emanating downward
+        ctx.save();
+        const lifeT = 1 - (fx.t / fx.duration);
+        ctx.globalAlpha = lifeT * 0.5;
+        ctx.strokeStyle = '#ffaa44';
+        ctx.lineWidth = 2;
+        const groundY = sy + 30;
+        for (let r = 0; r < 6; r++) {
+            const a = (r / 6) * Math.PI * 2;
+            const len = 60 + (fx.t / fx.duration) * 200;
+            const ex = sx + Math.cos(a) * len;
+            const ey = groundY + Math.sin(a) * len * 0.4;
+            ctx.beginPath();
+            ctx.moveTo(sx, groundY);
+            ctx.lineTo(ex, ey);
+            ctx.stroke();
+        }
+        ctx.restore();
     }
 }
 
@@ -7319,7 +7674,18 @@ function updatePlayer() {
                 player.bandSwitchHeld = true;
             }
             if (!keys['KeyB']) player.bandSwitchHeld = false;
+            // V — fire SPECIAL MOVE for the active instrument. Uses its
+            // own cooldown (3 sec) so it's not gated by the regular shoot
+            // cooldown. Edge-triggered.
+            if (keys['KeyV'] && !player.bandSpecialHeld && player.bandSpecialCooldown <= 0) {
+                executeBandSpecial();
+                player.bandSpecialHeld = true;
+            }
+            if (!keys['KeyV']) player.bandSpecialHeld = false;
         }
+        // Always tick the FX even if weapon was swapped mid-special so it
+        // cleanly finishes (or we'd leak the maxHp buff etc.)
+        if (typeof updateBandSpecialFx === 'function') updateBandSpecialFx();
     }
 }
 
@@ -27678,6 +28044,7 @@ function gameLoop(timestamp) {
     drawMinecraftSummons();
     drawPlayer();
     drawBullets();
+    if (typeof drawBandSpecialFx === 'function') drawBandSpecialFx();
     drawStageHazards();
     drawParticles();
     drawShockwaves();
