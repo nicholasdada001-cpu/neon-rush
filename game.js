@@ -12356,10 +12356,163 @@ function drawPlayer() {
         const isExplosive = !!eqWpn.explosive;
         const isPiercer = !!eqWpn.pierce;
         const isMulti = (eqWpn.bullets || 1) >= 3;
+        // BAND BLASTER — entire gun render is replaced with the active
+        // instrument silhouette so switching is visually obvious.
+        const isBand = !!eqWpn.bandWeapon;
         ctx.save();
         ctx.translate(armEndX, armEndY);
         ctx.rotate(aimAng);
         ctx.translate(-recoil, 0);
+        if (isBand) {
+            const instIdx = player.activeInstrument || 0;
+            const instName = (typeof BAND_INSTRUMENTS !== 'undefined')
+                ? BAND_INSTRUMENTS[instIdx]?.name : 'DRUM';
+            const instCol = (typeof BAND_INSTRUMENTS !== 'undefined')
+                ? BAND_INSTRUMENTS[instIdx]?.color : '#ffaa44';
+            const instGlow = (typeof BAND_INSTRUMENTS !== 'undefined')
+                ? BAND_INSTRUMENTS[instIdx]?.glow : '#ffdd88';
+            ctx.shadowColor = instGlow;
+            ctx.shadowBlur = 10;
+
+            if (instName === 'DRUM') {
+                // Snare drum — round body w/ tension rods + sticks
+                ctx.fillStyle = '#dd1144';
+                ctx.beginPath();
+                ctx.ellipse(8, 0, 13, 9, 0, 0, Math.PI * 2);
+                ctx.fill();
+                // Drum head (white top)
+                ctx.fillStyle = '#f5f5f5';
+                ctx.beginPath();
+                ctx.ellipse(8, 0, 12, 7, 0, 0, Math.PI * 2);
+                ctx.fill();
+                // Side band (red strip)
+                ctx.fillStyle = '#aa0033';
+                ctx.fillRect(-4, -3, 24, 2);
+                ctx.fillRect(-4, 1, 24, 2);
+                // Tension rods
+                ctx.fillStyle = '#ddaa44';
+                for (let r = 0; r < 6; r++) {
+                    const ra = (r / 6) * Math.PI * 2;
+                    ctx.fillRect(8 + Math.cos(ra) * 11, Math.sin(ra) * 7, 1.5, 1.5);
+                }
+                // Drumsticks crossing on top
+                ctx.shadowBlur = 0;
+                ctx.strokeStyle = '#a87844';
+                ctx.lineCap = 'round';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(-6, -10); ctx.lineTo(20, -2); ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(-6, 10); ctx.lineTo(20, 2); ctx.stroke();
+            } else if (instName === 'SAXOPHONE') {
+                // Saxophone — curved gold body w/ keys
+                ctx.fillStyle = '#ffcc00';
+                ctx.shadowColor = '#ffaa00';
+                ctx.shadowBlur = 12;
+                // Mouthpiece + neck
+                ctx.fillRect(-2, -2, 6, 4);
+                // Curved body — arc downward then forward
+                ctx.beginPath();
+                ctx.moveTo(4, -3);
+                ctx.bezierCurveTo(8, -3, 14, 5, 10, 10);
+                ctx.bezierCurveTo(7, 12, 5, 10, 4, 3);
+                ctx.closePath();
+                ctx.fill();
+                // Bell flare at the bottom
+                ctx.beginPath();
+                ctx.moveTo(8, 8);
+                ctx.lineTo(20, 14);
+                ctx.lineTo(22, 6);
+                ctx.lineTo(13, 4);
+                ctx.closePath();
+                ctx.fill();
+                // Bright lip on the bell
+                ctx.fillStyle = '#fff7aa';
+                ctx.fillRect(20, 8, 3, 3);
+                // Keys (small dark dots along the body)
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#222';
+                ctx.fillRect(6, -1, 2, 2);
+                ctx.fillRect(8, 2, 2, 2);
+                ctx.fillRect(9, 5, 2, 2);
+                ctx.fillRect(11, 8, 2, 2);
+            } else if (instName === 'CLARINET') {
+                // Clarinet — long thin black tube with silver keys
+                ctx.fillStyle = '#1a1a1a';
+                ctx.fillRect(-4, -2, 30, 4);
+                // Mouthpiece (lighter)
+                ctx.fillStyle = '#ddc088';
+                ctx.fillRect(-6, -2, 4, 4);
+                ctx.fillStyle = '#000';
+                ctx.fillRect(-2, -1, 2, 2);
+                // Bell flare on the right end
+                ctx.fillStyle = '#1a1a1a';
+                ctx.beginPath();
+                ctx.moveTo(24, -3);
+                ctx.lineTo(28, -5);
+                ctx.lineTo(28, 5);
+                ctx.lineTo(24, 3);
+                ctx.closePath();
+                ctx.fill();
+                // Silver keys along the body
+                ctx.fillStyle = '#cccccc';
+                ctx.shadowColor = '#ffffff';
+                ctx.shadowBlur = 6;
+                for (let k = 0; k < 5; k++) {
+                    ctx.fillRect(2 + k * 4, -3, 2, 2);
+                }
+                // Section bands
+                ctx.fillStyle = '#888';
+                ctx.fillRect(8, -2, 1, 4);
+                ctx.fillRect(16, -2, 1, 4);
+            } else if (instName === 'FLUTE') {
+                // Flute — long silver tube with finger holes
+                ctx.fillStyle = '#cccccc';
+                ctx.shadowColor = '#ffffff';
+                ctx.shadowBlur = 10;
+                ctx.fillRect(-6, -2, 32, 4);
+                // Embouchure end cap
+                ctx.fillStyle = '#888';
+                ctx.fillRect(-8, -3, 2, 6);
+                // Embouchure hole
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.ellipse(-3, 0, 1.5, 1, 0, 0, Math.PI * 2);
+                ctx.fill();
+                // Finger holes
+                for (let h = 0; h < 6; h++) {
+                    ctx.fillStyle = '#000';
+                    ctx.beginPath();
+                    ctx.ellipse(4 + h * 4, 0, 1.2, 1.2, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                // Silver keys arranged above the tube
+                ctx.fillStyle = '#dddddd';
+                ctx.shadowBlur = 4;
+                for (let k = 0; k < 4; k++) {
+                    ctx.fillRect(2 + k * 6, -4, 3, 2);
+                }
+                // Endcap
+                ctx.fillStyle = '#888';
+                ctx.fillRect(26, -3, 2, 6);
+            }
+            ctx.shadowBlur = 0;
+            // Floating instrument label above the gun (only when actively
+            // recoiling so it doesn't crowd the screen at rest).
+            if (recoil > 0.5) {
+                ctx.save();
+                ctx.rotate(-aimAng);
+                ctx.fillStyle = instGlow;
+                ctx.font = 'bold 9px Courier New';
+                ctx.textAlign = 'center';
+                ctx.shadowColor = instGlow;
+                ctx.shadowBlur = 6;
+                ctx.fillText(instName, 14, -16);
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            }
+            ctx.restore();
+        } else {
         // The gun is drawn in local space — origin at the grip / hand point,
         // +x = forward (toward enemy). Length is now ~26px (was 14) so it
         // reads as a real rifle, not a stub.
@@ -12552,6 +12705,7 @@ function drawPlayer() {
         }
         ctx.shadowBlur = 0;
         ctx.restore();
+        }   // close BAND-vs-regular gun branch
 
         // PERSISTENT MELEE BLADE — when the player has a knife/katana/saber
         // equipped, draw the blade in their off-hand (back arm side) at all
