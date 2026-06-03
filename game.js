@@ -988,9 +988,9 @@ const WEAPONS = [
         name: 'CONVOY ION BLASTER', tier: 27, shopOnly: true, cost: 0, dev: true,
         damage: 240, speed: 26, cooldown: 8, bullets: 3, spread: 0.06,
         color: '#ffd744', glow: '#ffaa00', size: 11, life: 160,
-        primusSummon: true,        // legacy flag — triggers transform-to-Prime
+        primusSummon: true,
         explosive: true, aoeRadius: 90, pierce: true,
-        flavor: '⚙ NICHOLAS-themed. F to TRANSFORM into PRIME for 30s. Convoy ion-blaster fires while in Prime form.'
+        flavor: '⚙ NICHOLAS-themed. F = fire convoy gun. V = transform into PRIME + summon PRIMUS TITAN for 30s.'
     }
 ];
 
@@ -1268,6 +1268,11 @@ const player = {
     bandSpecialHeld: false,    // edge-trigger for V key (special move)
     bandSpecialCooldown: 0,    // ticks until special is ready
     bandSpecialFx: null,       // active cinematic state (depends on instrument)
+    // CONVOY ION BLASTER state — V key edge-trigger for the Prime+Primus ultimate
+    primeSwitchHeld: false,
+    primeMode: 0,              // ticks remaining in Prime form
+    primeCooldown: 0,          // ticks until next V press is allowed
+    primeMaxHpBuff: 0,         // record amount added so we can revert
     maxJumpsBonus: 0,         // extra jumps from upgrades
     fireRateMul: 1,           // < 1 = faster
     dmgMul: 1,                // damage multiplier from character
@@ -4169,6 +4174,53 @@ function drawPrimusTitans() {
     }
 }
 
+// CONVOY ION BLASTER ULTIMATE — V key while equipped. Combined effect:
+//  1. PLAYER transforms into PRIME (gold halo, +50% maxHp, full heal,
+//     i-frames). Lasts 30s.
+//  2. PRIMUS TITAN ally is summoned at the player's side. Same 30s
+//     lifespan as before; gets the existing cycling 4-mode AI.
+// After the 30s active window, a 30s cooldown gates the next V press.
+// The cooldown bar shown in the HUD is shared so the kid sees one timer.
+function executePrimusUltimate() {
+    if (player.primeMode && player.primeMode > 0) {
+        if (typeof shopMessage !== 'undefined') {
+            shopMessage = { text: 'YOU ARE ALREADY PRIME', timer: 60, color: '#ffd744' };
+        }
+        return;
+    }
+    if (player.primeCooldown && player.primeCooldown > 0) {
+        const sec = Math.ceil(player.primeCooldown / 60);
+        if (typeof shopMessage !== 'undefined') {
+            shopMessage = { text: `⚙ PRIME COOLDOWN: ${sec}s`, timer: 60, color: '#ff6644' };
+        }
+        return;
+    }
+    const cx = player.x + player.w / 2;
+    const cy = player.y + player.h / 2;
+    // === Player transforms INTO Prime ===
+    player.primeMode = 1800;          // 30s @ 60fps
+    player.primeMaxHpBuff = Math.max(0, player.maxHp * 0.5);
+    player.maxHp += player.primeMaxHpBuff;
+    player.hp = player.maxHp;
+    player.invincible = Math.max(player.invincible || 0, 60);
+    // Cinematic FX
+    spawnShockwave(cx, cy, 200, '#ffd744');
+    spawnShockwave(cx, cy, 320, '#ffffff');
+    spawnShockwave(cx, cy, 440, '#ffaa00');
+    spawnParticles(cx, cy, '#ffd744', 60, 12);
+    spawnParticles(cx, cy, '#ffffff', 40, 10);
+    screenShake = 26;
+    if (typeof applyHitStop === 'function') applyHitStop(8);
+    // === Summon PRIMUS TITAN ally at the player's side ===
+    if (typeof spawnPrimusTitan === 'function') {
+        spawnPrimusTitan(cx + (player.facing || 1) * 80, player.y + player.h, player.facing || 1);
+    }
+    if (typeof shopMessage !== 'undefined') {
+        shopMessage = { text: '⚙ I AM PRIME — PRIMUS RISES — 30s ⚙', timer: 240, color: '#ffd744' };
+    }
+    if (typeof audio !== 'undefined' && audio.play) audio.play('bossIntro', { throttle: 200 });
+}
+
 // HUD indicator for the Convoy Ion Blaster's PRIME transformation.
 // Three states drive what's drawn:
 //   - primeMode > 0:    bright gold "PRIME ACTIVE — Ns" bar that drains
@@ -4246,11 +4298,11 @@ function drawPrimeHud() {
         ctx.textAlign = 'center';
         ctx.shadowColor = '#ffd744';
         ctx.shadowBlur = 10;
-        ctx.fillText('⚙ PRIME READY ⚙', canvas.width / 2, panelY + 22);
+        ctx.fillText('⚙ PRIME ULTIMATE READY ⚙', canvas.width / 2, panelY + 22);
         ctx.fillStyle = '#ffaa00';
         ctx.font = '9px Courier New';
         ctx.shadowBlur = 4;
-        ctx.fillText('Press F to transform', canvas.width / 2, panelY + 38);
+        ctx.fillText('V to transform + summon Primus  ·  F to fire convoy gun', canvas.width / 2, panelY + 38);
         ctx.shadowBlur = 0;
     }
     ctx.textAlign = 'left';
@@ -8282,6 +8334,21 @@ function updatePlayer() {
         // cleanly finishes (or we'd leak the maxHp buff etc.)
         if (typeof updateBandSpecialFx === 'function') updateBandSpecialFx();
     }
+
+    // CONVOY ION BLASTER ultimate — V key triggers the full Prime mode
+    // (transform PLAYER) + summons the PRIMUS TITAN ally at the same
+    // time. Both effects share a 60-sec timing window: 30s active, 30s
+    // cooldown before another V press is allowed. Edge-triggered.
+    {
+        const wEq = WEAPONS[player.weaponTier];
+        if (!shopOpen && wEq && wEq.primusSummon) {
+            if (keys['KeyV'] && !player.primeSwitchHeld) {
+                executePrimusUltimate();
+                player.primeSwitchHeld = true;
+            }
+            if (!keys['KeyV']) player.primeSwitchHeld = false;
+        }
+    }
 }
 
 // Shooting - fires in the direction you're facing, using current weapon
@@ -8306,46 +8373,13 @@ function shootBullet() {
         screenShake = 4;
         return;
     }
-    // PRIMUS SUMMONER / CONVOY ION BLASTER — pressing F TRANSFORMS the
-    // player into PRIME for 30 seconds. Once transformed, subsequent F
-    // presses fire the convoy ion-blaster volley like a normal weapon.
-    // After the 30s expires, a 30s cooldown gates the next transform.
+    // PRIMUS SUMMONER / CONVOY ION BLASTER — F always fires the convoy
+    // ion-blaster volley (triple piercing explosive shots from the
+    // weapon definition). The TRANSFORMATION + PRIMUS SUMMON happens on
+    // a separate V key press inside updatePlayer (executePrimusUltimate).
+    // Falls through to the regular bullet-fire loop below.
     if (w.primusSummon) {
-        // Already in Prime mode — fall through to the normal bullet fire
-        // path (uses the WEAPONS entry's damage/spread/etc.) so F shoots
-        // the convoy gun instead of trying to re-transform.
-        if (player.primeMode && player.primeMode > 0) {
-            // intentional fall-through to the regular fire loop below
-        } else if (player.primeCooldown && player.primeCooldown > 0) {
-            if (typeof shopMessage !== 'undefined') {
-                const sec = Math.ceil(player.primeCooldown / 60);
-                shopMessage = { text: `⚙ PRIME COOLDOWN: ${sec}s`, timer: 60, color: '#ff6644' };
-            }
-            player.shootCooldown = 6;
-            return;
-        } else {
-            // === Player transforms INTO Prime ===
-            // Boost stats, full heal, big halo. 30 sec duration.
-            player.primeMode = 1800;          // 30s @ 60fps
-            player.primeMaxHpBuff = Math.max(0, player.maxHp * 0.5);
-            player.maxHp += player.primeMaxHpBuff;
-            player.hp = player.maxHp;        // full heal on transform
-            player.invincible = Math.max(player.invincible || 0, 60);
-            spawnShockwave(cx, cy, 200, '#ffd744');
-            spawnShockwave(cx, cy, 320, '#ffffff');
-            spawnShockwave(cx, cy, 440, '#ffaa00');
-            spawnParticles(cx, cy, '#ffd744', 60, 12);
-            spawnParticles(cx, cy, '#ffffff', 40, 10);
-            screenShake = 26;
-            if (typeof applyHitStop === 'function') applyHitStop(8);
-            if (typeof shopMessage !== 'undefined') {
-                shopMessage = { text: '⚙ I AM PRIME — 30 SECONDS ⚙', timer: 240, color: '#ffd744' };
-            }
-            if (typeof audio !== 'undefined' && audio.play) audio.play('bossIntro', { throttle: 200 });
-            // Don't fire on the transform shot — let the player aim first
-            player.shootCooldown = 30;
-            return;
-        }
+        // intentional fall-through — F just shoots, V triggers ultimate
     }
 
     // Fire one or more bullets
