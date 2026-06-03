@@ -5173,9 +5173,10 @@ let arenaTheme = null;
 // Build a boss arena - open space, boss-themed hazards. Removes existing nearby content.
 function buildBossArena(stageIdx, playerX, boss) {
     const arenaStartX = Math.max(playerX - 150, 0);
-    // Stages 4+ get a much bigger arena (2400 vs 1600) so the player can
-    // properly maneuver around bigger bosses (especially TITAN-LORD's ship form).
-    const arenaW = stageIdx >= 3 ? 2400 : 1600;
+    // Boss arena is now MUCH bigger and uniform across stages so the player
+    // gets a clean fighting space. Was 1600 / 2400 by stage; now 3200 for
+    // every stage. Removes the cramped feeling on stages 1-3.
+    const arenaW = 3200;
     const arenaEndX = arenaStartX + arenaW;
     const groundY = 550;
 
@@ -5199,6 +5200,16 @@ function buildBossArena(stageIdx, playerX, boss) {
             return !(e.x + e.w > arenaStartX - 50 && e.x < arenaEndX + 200);
         });
     }
+    // ALL stages: also kill in-flight stage hazards so falling acid drips,
+    // lava globs, lightning, etc. don't pelt the player during the fight.
+    if (typeof stageHazards !== 'undefined') {
+        stageHazards = stageHazards.filter(h =>
+            !(h.x + (h.w || 0) > arenaStartX - 50 && h.x < arenaEndX + 200));
+    }
+    // Suppress new stage hazards from spawning — guard the periodic
+    // updateStageHazards trigger by extending the in-boss-area bool window.
+    // (Already done by the existing inBossArea check at line 5683 — fight
+    // arena now wide enough that the player is well within bossTriggerX-200.)
 
     // Place boss at the far right of the arena
     boss.baseX = arenaStartX + arenaW - 250;
@@ -5206,19 +5217,28 @@ function buildBossArena(stageIdx, playerX, boss) {
 
     // Buff the boss for the arena fight (stronger, more aggressive). Stages
     // 4+ get an EXTRA scaling pass since the cleared arena makes it a 1v1.
-    // Bosses now have 3 phases including rage at 25%, so HP is bumped further.
-    // CONVOY-tier players get an extra buff so the final tier doesn't
-    // trivialize boss fights.
-    const baseBossHpMul = stageIdx >= 3 ? 3.2 : 2.4;     // boosted from 2.4/1.8
+    // Bosses are now WAY beefier per user request — bigger arena means
+    // longer fights are appropriate. CONVOY-tier players still get a buff
+    // so the final tier doesn't trivialize boss fights.
+    const baseBossHpMul = stageIdx >= 3 ? 4.6 : 3.4;     // up from 3.2/2.4
     const bossHpMul = baseBossHpMul * (player.evoLevel >= 6 ? 1.4 : 1.0);
-    const bossFireMul = stageIdx >= 3 ? 0.40 : 0.55;     // boosted from 0.45/0.65
+    const bossFireMul = stageIdx >= 3 ? 0.36 : 0.50;     // slightly faster
     boss.hp = Math.round(boss.maxHp * bossHpMul);
     boss.maxHp = boss.hp;
     boss.shootTimer = Math.round(boss.shootTimer * bossFireMul);
 
-    // Single closing gate (just locks the player in for the fight)
+    // === ARENA WALLS ===
+    // Lock the player inside with TWO solid walls — left and right —
+    // creating a hard barrier. The right wall is the new addition (was
+    // missing before, so the player could just run past the boss); both
+    // walls are tall enough to prevent any escape, including jet-boost.
     arenaGates.push({
-        x: arenaStartX - 30, y: 100, w: 30, h: 460, open: false, anim: 0
+        x: arenaStartX - 30, y: 0, w: 30, h: 600,
+        open: false, anim: 0
+    });
+    arenaGates.push({
+        x: arenaEndX, y: 0, w: 30, h: 600,
+        open: false, anim: 0
     });
 
     // Theme-specific arena
@@ -10400,7 +10420,7 @@ function updateEnemies() {
                 }
                 screenShake = 36;
                 hitStop = 14;
-                hitFlash = 1;     // full red screen flash
+                hitFlash = 0.25;     // toned-down boss-rage pulse (was full screen)
                 critFlash = 24;
                 if (typeof shopMessage !== 'undefined') {
                     shopMessage = { text: '★ BOSS ENRAGED — FINAL PHASE ★', timer: 240, color: '#ff0044' };
@@ -19093,24 +19113,25 @@ function drawBgStars() {
 
 // Full-screen red flash overlay when the player gets hit (and gold flash on crit)
 function drawScreenFlashes() {
+    // User feedback: the bright red flash was way too "flashbang-y" during
+    // boss fights. Killed the full-screen tint and dropped the vignette
+    // alpha by ~70% so it reads as a subtle pulse around the edges instead
+    // of a screen-flood.
     if (hitFlash > 0) {
         ctx.save();
-        ctx.fillStyle = `rgba(255, 30, 40, ${hitFlash * 0.45})`;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        // pulse vignette ring
         const vg = ctx.createRadialGradient(
-            canvas.width / 2, canvas.height / 2, canvas.width * 0.25,
+            canvas.width / 2, canvas.height / 2, canvas.width * 0.45,
             canvas.width / 2, canvas.height / 2, canvas.width * 0.7
         );
-        vg.addColorStop(0, `rgba(255, 0, 0, 0)`);
-        vg.addColorStop(1, `rgba(255, 0, 0, ${hitFlash * 0.55})`);
+        vg.addColorStop(0, 'rgba(255, 0, 0, 0)');
+        vg.addColorStop(1, `rgba(255, 0, 0, ${Math.min(0.16, hitFlash * 0.18)})`);
         ctx.fillStyle = vg;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.restore();
     }
     if (critFlash > 0) {
         ctx.save();
-        ctx.fillStyle = `rgba(255, 220, 80, ${critFlash * 0.22})`;
+        ctx.fillStyle = `rgba(255, 220, 80, ${Math.min(0.10, critFlash * 0.08)})`;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.restore();
     }
