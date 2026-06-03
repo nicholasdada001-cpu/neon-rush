@@ -406,19 +406,27 @@
     </script>
     <script>
         // ===== NAME GATE =====
-        // First-load name prompt + developer detection. Stored in localStorage
-        // so the player only types it once. The "developer" check is name === 
-        // "nicholas" (case-insensitive, trimmed). Only matters for unlocking
-        // the dev panel + hotkeys; it's a soft gate (anyone with browser dev
-        // tools can bypass) but reads as intentional for normal players.
+        // First-load name prompt. Once a name is locked in, it's PERMANENT
+        // for that browser — the input becomes read-only on subsequent
+        // loads. The dev gate is checked against the FIRST locked name:
+        // if you typed a dev name on first-load you keep dev access; if
+        // you typed something else, dev access is permanently denied for
+        // that browser (the soft localStorage gate, anyway).
         const PLAYER_NAME_KEY = 'neonRush.playerName';
+        const FIRST_NAME_KEY  = 'neonRush.firstName';   // locked on first submit
         let playerName = localStorage.getItem(PLAYER_NAME_KEY) || '';
+        let firstName  = localStorage.getItem(FIRST_NAME_KEY) || '';
         // Names that unlock developer mode (case-insensitive). Add/remove
         // here to control who gets the dev panel + hotkeys.
         const DEV_NAMES = ['nicholas', 'micah', 'jax'];
+        // True only if BOTH the current playerName matches a dev name AND
+        // the FIRST locked name was also a dev name. This means typing a
+        // dev name on a save that started with a non-dev name does NOT
+        // grant dev access (prevents the obvious-bypass case).
         function isDeveloper() {
             const n = (playerName || '').trim().toLowerCase();
-            return DEV_NAMES.includes(n);
+            const f = (firstName  || '').trim().toLowerCase();
+            return DEV_NAMES.includes(n) && DEV_NAMES.includes(f);
         }
 
         // Levenshtein distance — number of single-char edits to turn a into b.
@@ -483,19 +491,40 @@
                     return;       // wait for user choice
                 }
             }
+            // FIRST-EVER name lock-in. The first time someone submits a
+            // non-empty name, we record it as the immutable firstName.
+            // All future loads will compare against this when deciding
+            // dev access — typing a dev name now doesn't grant it if
+            // your firstName was something else.
+            if (!firstName) {
+                firstName = val;
+                localStorage.setItem(FIRST_NAME_KEY, firstName);
+            }
             playerName = val;
             localStorage.setItem(PLAYER_NAME_KEY, playerName);
             namePrompt.style.display = 'none';
             // Refresh DEV button visibility now that we know who the user is
             if (typeof applyDevVisibility === 'function') applyDevVisibility();
             if (typeof refreshPlayerNameTag === 'function') refreshPlayerNameTag();
-            // Greet the player using the float-text system if available
+            // Greet message — flag the case where they typed a dev name
+            // but their firstName isn't dev so they got locked out.
             if (typeof shopMessage !== 'undefined') {
-                shopMessage = {
-                    text: `Welcome, ${playerName}` + (isDeveloper() ? ' [DEV]' : ''),
-                    timer: 200,
-                    color: isDeveloper() ? '#ffaa44' : '#88ffdd'
-                };
+                const typedDev = DEV_NAMES.includes(val.toLowerCase());
+                const firstDev = DEV_NAMES.includes(firstName.toLowerCase());
+                let text, color;
+                if (isDeveloper()) {
+                    text = `Welcome back, ${playerName} [DEV]`;
+                    color = '#ffaa44';
+                } else if (typedDev && !firstDev) {
+                    // They typed a dev name but their first claim was different.
+                    // Game still works — dev access is just denied for them.
+                    text = `🔒 Dev access locked to "${firstName}" — playing as normal`;
+                    color = '#ff8844';
+                } else {
+                    text = `Welcome, ${playerName}`;
+                    color = '#88ffdd';
+                }
+                shopMessage = { text, timer: 240, color };
             }
         }
 
@@ -562,13 +591,27 @@
             });
         }
 
-        if (playerName) {
-            // Saved name from previous session — DON'T pre-fill. Force the
-            // user to retype every time. This guarantees uppercase/lowercase
-            // changes always re-check, and you can quickly switch between
-            // testing dev vs non-dev names without clicking the change tag.
-            playerName = '';                  // require a fresh submit
-            nameInput.value = '';             // empty input box every load
+        if (firstName) {
+            // Returning player — name is LOCKED. Pre-fill the saved name
+            // and disable the input so they can't change it. They just
+            // press ENTER (or click the button) to continue. Dev access
+            // is determined by whether firstName itself was a dev name.
+            playerName = firstName;
+            nameInput.value = firstName;
+            nameInput.readOnly = true;
+            nameInput.style.opacity = '0.7';
+            nameInput.style.cursor = 'not-allowed';
+            // Update the prompt's helper text so they understand
+            const helperText = document.querySelector('#name-prompt > div > div:nth-child(2)');
+            if (helperText) {
+                helperText.textContent = `Welcome back, ${firstName}`;
+                helperText.style.color = DEV_NAMES.includes(firstName.toLowerCase()) ? '#ffaa44' : '#88ffdd';
+            }
+            const subText = document.querySelector('#name-prompt > div > div:last-child');
+            if (subText) {
+                subText.innerHTML = '※ Your name is permanently set. Press ENTER to continue.';
+            }
+            nameSubmit.textContent = '▶ CONTINUE';
             setTimeout(() => nameInput && nameInput.focus(), 50);
         } else {
             // First-ever load — auto-focus the empty input
@@ -599,19 +642,15 @@
                     font-family: 'Courier New', monospace;
                     font-size: 10px;
                     opacity: 0.55;
-                    cursor: pointer;
                     z-index: 50;
                     user-select: none;
                     text-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
                 `;
-                nameTag.addEventListener('click', () => {
-                    localStorage.removeItem(PLAYER_NAME_KEY);
-                    location.reload();
-                });
+                // Name is locked to firstName — no click-to-change behavior.
                 document.body.appendChild(nameTag);
             }
             nameTag.style.color = isDeveloper() ? '#ffaa44' : '#88ddaa';
-            nameTag.textContent = `${playerName}${isDeveloper() ? ' [DEV]' : ''} (click to change)`;
+            nameTag.textContent = `${playerName}${isDeveloper() ? ' [DEV]' : ''}`;
         }
 
         // Show a brief on-canvas message when a non-dev attempts a dev action.

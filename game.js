@@ -5228,29 +5228,26 @@ function buildBossArena(stageIdx, playerX, boss) {
     boss.shootTimer = Math.round(boss.shootTimer * bossFireMul);
 
     // === ARENA WALLS ===
-    // Lock the player inside with TWO solid walls — left and right —
-    // creating a hard barrier. The right wall is the new addition (was
-    // missing before, so the player could just run past the boss); both
-    // walls are tall enough to prevent any escape, including jet-boost.
+    // Single arena gate on the LEFT only — locks the player in from
+    // backtracking but doesn't trap them with a right wall (user feedback:
+    // dual walls felt cramped/blocking even in the bigger arena). The
+    // arena ground itself terminates at arenaEndX, so the player still
+    // can't keep walking forever — they just won't bonk into a visible
+    // wall mid-fight.
     arenaGates.push({
-        x: arenaStartX - 30, y: 0, w: 30, h: 600,
-        open: false, anim: 0
-    });
-    arenaGates.push({
-        x: arenaEndX, y: 0, w: 30, h: 600,
+        x: arenaStartX - 30, y: 100, w: 30, h: 460,
         open: false, anim: 0
     });
 
     // Theme-specific arena
     if (stageIdx === 0) {
-        // STAGE 1: Facility - simple open arena, two side pillars
+        // STAGE 1: Facility - clean open arena, no center pillars (user
+        // feedback: pillars blocked sightlines / felt cramped). Keep just
+        // floor + a couple high platforms for jet-boost positioning.
         arenaTheme = { name: 'facility', floor: '#1a2a1a', accent: '#00ff44' };
         platforms.push({ x: arenaStartX, y: groundY, w: arenaW, h: 50, type: 'ground' });
-        platforms.push({ x: arenaStartX + 350, y: groundY - 220, w: 50, h: 220, type: 'wall' });
-        platforms.push({ x: arenaEndX - 400, y: groundY - 220, w: 50, h: 220, type: 'wall' });
-        platforms.push({ x: arenaStartX + 200, y: 380, w: 130, h: 16, type: 'platform' });
         platforms.push({ x: arenaStartX + 700, y: 280, w: 200, h: 16, type: 'platform' });
-        platforms.push({ x: arenaEndX - 330, y: 380, w: 130, h: 16, type: 'platform' });
+        platforms.push({ x: arenaEndX - 900, y: 280, w: 200, h: 16, type: 'platform' });
     } else if (stageIdx === 1) {
         // STAGE 2: Sky - high platforms with gaps you can fall through (no center floor!)
         arenaTheme = { name: 'sky', floor: '#1a1a35', accent: '#88aaff' };
@@ -5353,14 +5350,13 @@ function buildBossArena(stageIdx, playerX, boss) {
         platforms.push({ x: arenaStartX + 1750, y: 280, w: 160, h: 16, type: 'platform' });
         platforms.push({ x: arenaStartX + 2050, y: 380, w: 130, h: 16, type: 'platform' });
     } else if (stageIdx === 6) {
-        // STAGE 7: CITADEL — final arena, throne-like center, no ground walls.
+        // STAGE 7: CITADEL — clean throne arena. Pillars/towers removed
+        // (user feedback: blocked sightlines). Just the throne pedestal
+        // boss perches on + floating fight platforms.
         arenaTheme = { name: 'citadel', floor: '#1a0030', accent: '#ff44ff' };
         platforms.push({ x: arenaStartX, y: groundY, w: arenaW, h: 50, type: 'ground' });
         // Center throne pedestal — a low platform Omega stood on
         platforms.push({ x: arenaStartX + 1050, y: 470, w: 300, h: 80, type: 'wall' });
-        // Side towers (raised, NOT touching the ground so player can walk under)
-        platforms.push({ x: arenaStartX + 240, y: 250, w: 50, h: 240, type: 'wall' });
-        platforms.push({ x: arenaEndX - 290, y: 250, w: 50, h: 240, type: 'wall' });
         // Layered fight platforms
         platforms.push({ x: arenaStartX + 100, y: 420, w: 160, h: 16, type: 'platform' });
         platforms.push({ x: arenaStartX + 380, y: 320, w: 220, h: 16, type: 'platform' });
@@ -5370,9 +5366,6 @@ function buildBossArena(stageIdx, playerX, boss) {
         platforms.push({ x: arenaStartX + 1500, y: 200, w: 220, h: 16, type: 'platform' });
         platforms.push({ x: arenaStartX + 1800, y: 420, w: 180, h: 16, type: 'platform' });
         platforms.push({ x: arenaEndX - 360, y: 420, w: 180, h: 16, type: 'platform' });
-        // Breakable royal pillars (cover for player, can be destroyed)
-        platforms.push({ x: arenaStartX + 600, y: groundY - 60, w: 50, h: 60, type: 'breakable', hp: 130 });
-        platforms.push({ x: arenaStartX + 1700, y: groundY - 60, w: 50, h: 60, type: 'breakable', hp: 130 });
     } else {
         // STAGE 8: ORBITAL FORTRESS — wide arena, floor open from gate to
         // boss. Floating decks for vertical maneuvering. TITAN-LORD's ship
