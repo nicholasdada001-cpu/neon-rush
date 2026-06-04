@@ -5184,10 +5184,11 @@ let arenaTheme = null;
 // Build a boss arena - open space, boss-themed hazards. Removes existing nearby content.
 function buildBossArena(stageIdx, playerX, boss) {
     const arenaStartX = Math.max(playerX - 150, 0);
-    // Boss arena is now MUCH bigger and uniform across stages so the player
-    // gets a clean fighting space. Was 1600 / 2400 by stage; now 3200 for
-    // every stage. Removes the cramped feeling on stages 1-3.
-    const arenaW = 3200;
+    // Boss arena width — uniform 2000 across stages. Was 3200 which was
+    // too big: bosses were placed 2950px right of the player and split-
+    // floor stages (Sky / Inferno / Void) had huge empty gaps the player
+    // couldn't traverse. 2000 keeps the boss visible without crowding.
+    const arenaW = 2000;
     const arenaEndX = arenaStartX + arenaW;
     const groundY = 550;
 

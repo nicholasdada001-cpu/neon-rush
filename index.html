@@ -419,14 +419,22 @@
         // Names that unlock developer mode (case-insensitive). Add/remove
         // here to control who gets the dev panel + hotkeys.
         const DEV_NAMES = ['nicholas', 'micah', 'jax'];
-        // True only if BOTH the current playerName matches a dev name AND
-        // the FIRST locked name was also a dev name. This means typing a
-        // dev name on a save that started with a non-dev name does NOT
-        // grant dev access (prevents the obvious-bypass case).
+        // True when current playerName matches a dev name.
+        // The firstName gate is a SECOND safeguard: if your firstName was
+        // a non-dev name (you proved you're a normal player first), trying
+        // to claim a dev name later doesn't grant dev access. But fresh
+        // browsers (no firstName yet) rely only on the current name check
+        // — friends typing nicholas/micah/jax on their own browser DO get
+        // dev access since their firstName ends up matching too.
         function isDeveloper() {
             const n = (playerName || '').trim().toLowerCase();
-            const f = (firstName  || '').trim().toLowerCase();
-            return DEV_NAMES.includes(n) && DEV_NAMES.includes(f);
+            if (!DEV_NAMES.includes(n)) return false;
+            // If a firstName is recorded, it must also be a dev name.
+            // Empty firstName (very first load before submit) is allowed
+            // through as a benefit of the doubt — onboarding flow.
+            const f = (firstName || '').trim().toLowerCase();
+            if (f && !DEV_NAMES.includes(f)) return false;
+            return true;
         }
 
         // Levenshtein distance — number of single-char edits to turn a into b.
