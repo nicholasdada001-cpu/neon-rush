@@ -34201,13 +34201,21 @@ SC.blackHole = {
                 const dy = h.y - (e.y + e.h/2);
                 const d = Math.sqrt(dx*dx + dy*dy);
                 if (d < h.radius && d > 4) {
-                    // Stronger near the center
+                    // Stronger near the center — distance-scaled
                     const distScale = 1 - (d / h.radius);
-                    let pull = h.strength * (0.4 + distScale * 1.3);
-                    // Bosses get 25% pull (still affected, just less)
-                    if (e.type === 'boss') pull *= 0.25;
+                    // Use TRUE strength (was halved by 0.4..1.7 earlier).
+                    // Now full strength close-up so enemies actually slide in.
+                    let pull = h.strength * (0.6 + distScale * 1.6);
+                    // Bosses get 30% pull (still affected, just less)
+                    if (e.type === 'boss') pull *= 0.30;
                     e.x += (dx / d) * pull;
-                    e.y += (dy / d) * pull * 0.7;
+                    e.y += (dy / d) * pull * 0.8;
+                    // Cancel any outward velocity so the pull actually
+                    // sticks. Bosses skip this so their attack movements
+                    // still feel weighty.
+                    if (e.type !== 'boss' && e.vx !== undefined) {
+                        e.vx = (e.vx || 0) * 0.7 + (dx / d) * 0.5;
+                    }
                     // Damage tick — every 6 frames
                     if (h.damageInterval % 6 === 0) {
                         const dmg = e.type === 'boss' ? Math.round(h.damage * 0.4)
@@ -34334,30 +34342,57 @@ SC.draw = function() {
             w.name = 'BLACK HOLE GUN';
             w.color = '#aa44ff';
             w.glow = '#ff44dd';
-            w.size = 16;
-            w.flavor = '🌌 Each round IS a black hole. Sucks enemies in. V: SUPERMASSIVE.';
+            w.size = 18;
+            w.flavor = '🌌 Short-range singularity. Tap F: bullet stops fast and SUCKS enemies in.';
             // Remove the old gravityPull, replace with blackHole flag.
             delete w.gravityPull;
-            w.blackHoleRound = { radius: 340, strength: 8.0, damage: 50, life: 120 };
-            // Buff alt-fire too
+            // === SHORT RANGE — bullet stops in ~25 frames so the
+            // singularity spawns relatively close to the player. The
+            // bullet's life is short, the speed is moderate, and the
+            // singularity does the heavy lifting via its pull field.
+            w.damage = 60;            // small impact damage — pull does the work
+            w.speed = 9;              // slower bullet so you SEE the black hole flying
+            w.cooldown = 28;
+            w.life = 24;              // SHORT range — bullet stops in 24 frames
+            w.bullets = 1;
+            w.spread = 0;
+            w.size = 18;
+            w.pierce = false;
+            // === Stronger suction, smaller field ===
+            // Smaller radius (240 vs 340) so it's surgical, but MUCH
+            // stronger pull (15.0) so it actually drags enemies in fast.
+            w.blackHoleRound = {
+                radius: 240,
+                strength: 15.0,        // very strong attraction
+                damage: 70,
+                life: 100              // singularity lasts 100 frames (~1.6s)
+            };
             w.altFire = {
                 name: 'SUPERMASSIVE',
                 heatCost: 90,
                 execute(cx, cy, dir) {
                     bullets.push({
                         x: cx, y: cy,
-                        vx: dir * 7, vy: -2,
-                        life: 90, damage: Math.round(220 * (player.dmgMul || 1)),
-                        color: '#ff44dd', glow: '#aa00ff', size: 30,
-                        explosive: true, aoeRadius: 130,
-                        blackHoleRound: { radius: 520, strength: 12.0, damage: 90, life: 200 },
+                        vx: dir * 6, vy: -2,
+                        life: 30, damage: Math.round(180 * (player.dmgMul || 1)),
+                        color: '#ff44dd', glow: '#aa00ff', size: 32,
+                        explosive: false,
+                        // BIG black hole — wider radius, pulls bosses too,
+                        // and lasts longer. Still SHORT range bullet flight.
+                        blackHoleRound: {
+                            radius: 420,
+                            strength: 22.0,
+                            damage: 130,
+                            life: 180
+                        },
                         pierce: false, hitEnemies: new Set(),
                         altFire: true
                     });
                     if (typeof shopMessage !== 'undefined') {
-                        shopMessage = { text: '🌌 SUPERMASSIVE — pulls bosses too', timer: 120, color: '#ff44dd' };
+                        shopMessage = { text: '🌌 SUPERMASSIVE — bosses pulled too', timer: 120, color: '#ff44dd' };
                     }
-                    if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 18);
+                    if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 22);
+                    if (typeof critFlash !== 'undefined') critFlash = Math.min(1, critFlash + 0.3);
                 }
             };
             break;
@@ -34366,7 +34401,8 @@ SC.draw = function() {
 })();
 
 // Bullet hit hook — when a bullet flagged blackHoleRound hits an enemy
-// it spawns a singularity at impact. We patch into onBulletHit.
+// it spawns a singularity at impact. Also detonates when the bullet
+// expires from life=0 or hits a wall.
 const _SC_origOnBulletHit = SC.weaponEffects.onBulletHit.bind(SC.weaponEffects);
 SC.weaponEffects.onBulletHit = function(b, e, dmg) {
     dmg = _SC_origOnBulletHit(b, e, dmg);
@@ -34375,6 +34411,25 @@ SC.weaponEffects.onBulletHit = function(b, e, dmg) {
         SC.blackHole.spawn(b.x, b.y, b.blackHoleRound);
     }
     return dmg;
+};
+
+// === Detonate on life expiration ===
+// When a black hole bullet reaches the end of its (short) life without
+// hitting anything, spawn the singularity wherever it stopped. Hooked
+// via SC.weaponEffects.tick which already iterates bullets.
+const _SC_origWeaponTick = SC.weaponEffects.tick.bind(SC.weaponEffects);
+SC.weaponEffects.tick = function() {
+    _SC_origWeaponTick();
+    // Find black-hole-round bullets about to expire
+    if (typeof bullets === 'undefined') return;
+    for (const b of bullets) {
+        if (!b.blackHoleRound || b._spawnedHole) continue;
+        if (b.life <= 1) {
+            // About to expire — detonate now
+            b._spawnedHole = true;
+            SC.blackHole.spawn(b.x, b.y, b.blackHoleRound);
+        }
+    }
 };
 
 console.log('[SC] Black Hole Gun loaded — gravity cannon is now a singularity launcher.');
