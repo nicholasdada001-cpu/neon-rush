@@ -34358,14 +34358,17 @@ SC.draw = function() {
             w.spread = 0;
             w.size = 18;
             w.pierce = false;
-            // === Stronger suction, smaller field ===
-            // Smaller radius (240 vs 340) so it's surgical, but MUCH
-            // stronger pull (15.0) so it actually drags enemies in fast.
+            // === Long-lasting massive suck ===
+            // The singularity sticks where the bullet lands and holds
+            // for 600 frames (~10 seconds) with crushing pull strength.
+            // Wide radius (380px) so it dominates a chunk of the screen.
+            // Damage tick stays moderate so it's a control tool, not an
+            // instant-kill button.
             w.blackHoleRound = {
-                radius: 240,
-                strength: 15.0,        // very strong attraction
-                damage: 70,
-                life: 100              // singularity lasts 100 frames (~1.6s)
+                radius: 380,
+                strength: 28.0,        // crushing attraction
+                damage: 60,
+                life: 600              // singularity lasts 600 frames (~10s)
             };
             w.altFire = {
                 name: 'SUPERMASSIVE',
@@ -34377,13 +34380,13 @@ SC.draw = function() {
                         life: 30, damage: Math.round(180 * (player.dmgMul || 1)),
                         color: '#ff44dd', glow: '#aa00ff', size: 32,
                         explosive: false,
-                        // BIG black hole — wider radius, pulls bosses too,
-                        // and lasts longer. Still SHORT range bullet flight.
+                        // BIG black hole — wider radius, stronger pull,
+                        // longer duration. Pulls bosses too at 30%.
                         blackHoleRound: {
-                            radius: 420,
-                            strength: 22.0,
-                            damage: 130,
-                            life: 180
+                            radius: 560,
+                            strength: 40.0,
+                            damage: 110,
+                            life: 720          // 12 seconds
                         },
                         pierce: false, hitEnemies: new Set(),
                         altFire: true
