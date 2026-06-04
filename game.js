@@ -655,7 +655,11 @@ const save = (() => {
         totalDeaths: 0,
         totalWins: 0,
         farthestStage: 0,
-        maxEvoLevel: 0
+        maxEvoLevel: 0,
+        // Persistent kill count across all runs. Drives the Fortnite-style
+        // player rank shown top-left. Bumped on every enemy kill in
+        // handleEnemyKilled (or +5 for a boss, +3 for a mini-boss).
+        totalKills: 0
     };
 
     function safeGet() {
@@ -787,159 +791,159 @@ let stageBgTint = '#0a0a0f';
 const WEAPONS = [
     {
         name: 'PISTOL',  tier: 0,
-        damage: 22, speed: 14, cooldown: 11, bullets: 1, spread: 0,
+        damage: 38, speed: 14, cooldown: 11, bullets: 1, spread: 0,
         color: '#ffff66', glow: '#ffff00', size: 6, life: 70,
         flavor: 'Standard issue. Reliable.'
     },
     {
         name: 'GUARD CANNON',  tier: 1,
-        damage: 22, speed: 16, cooldown: 16, bullets: 3, spread: 0.22,
+        damage: 36, speed: 16, cooldown: 16, bullets: 3, spread: 0.22,
         color: '#ff66dd', glow: '#ff00aa', size: 6, life: 80,
         flavor: 'Triple spread shot.'
     },
     {
         name: 'STORM HAMMER',  tier: 2,
-        damage: 44, speed: 11, cooldown: 34, bullets: 1, spread: 0,
+        damage: 64, speed: 11, cooldown: 34, bullets: 1, spread: 0,
         color: '#44aaff', glow: '#0088ff', size: 11, life: 110,
         explosive: true, aoeRadius: 95,
         flavor: 'Lobbed cluster bomb. Big AOE.'
     },
     {
         name: 'INFERNO RIFLE',  tier: 3,
-        damage: 15, speed: 17, cooldown: 6, bullets: 1, spread: 0.1,
+        damage: 24, speed: 17, cooldown: 6, bullets: 1, spread: 0.1,
         color: '#ff5500', glow: '#ff2200', size: 6, life: 80,
-        burn: true, burnDmg: 6, burnDur: 70,
+        burn: true, burnDmg: 9, burnDur: 70,
         flavor: 'Rapid fire that burns enemies.'
     },
     {
         name: 'RAVAGER FANG',  tier: 4,
-        damage: 15, speed: 20, cooldown: 5, bullets: 1, spread: 0.2,
+        damage: 24, speed: 20, cooldown: 5, bullets: 1, spread: 0.2,
         color: '#88ff44', glow: '#22ff00', size: 5, life: 70,
         flavor: 'Full auto chain-gun. Hold F to spray.'
     },
     {
         name: 'FROST CANNON',  tier: 5,
-        damage: 6, speed: 22, cooldown: 2, bullets: 1, spread: 0.02,
+        damage: 11, speed: 22, cooldown: 2, bullets: 1, spread: 0.02,
         color: '#aaeeff', glow: '#66ccff', size: 7, life: 70, pierce: true,
         slow: true, slowFactor: 0.4, slowDur: 100, ice: true, beam: true,
         flavor: 'Continuous frost beam. Locks enemies in a freeze.'
     },
     {
         name: 'VOID PIERCER',  tier: 6,
-        damage: 76, speed: 26, cooldown: 26, bullets: 1, spread: 0,
+        damage: 110, speed: 26, cooldown: 26, bullets: 1, spread: 0,
         color: '#cc66ff', glow: '#aa00ff', size: 8, life: 120, pierce: true,
         flavor: 'Hyper-velocity rail shot.'
     },
     {
         name: 'OMEGA BLASTER',  tier: 7,
-        damage: 130, speed: 26, cooldown: 38, bullets: 3, spread: 0.1,
+        damage: 175, speed: 26, cooldown: 38, bullets: 3, spread: 0.1,
         color: '#ffffff', glow: '#ffff00', size: 12, life: 130, pierce: true, explosive: true, aoeRadius: 75,
         flavor: 'Three piercing explosive shots.'
     },
     // Shop weapons - several tiers, more variety
     {
         name: 'BURST RIFLE', tier: 8, shopOnly: true, cost: 200,
-        damage: 18, speed: 18, cooldown: 7, bullets: 1, spread: 0.05,
+        damage: 28, speed: 18, cooldown: 7, bullets: 1, spread: 0.05,
         color: '#88ffaa', glow: '#44ff66', size: 5, life: 85,
         flavor: 'Solid fast rifle. Mid-cost.'
     },
     {
         name: 'SCATTER GUN', tier: 9, shopOnly: true, cost: 280,
-        damage: 11, speed: 14, cooldown: 19, bullets: 7, spread: 0.5,
+        damage: 17, speed: 14, cooldown: 19, bullets: 7, spread: 0.5,
         color: '#ffaa66', glow: '#ff6622', size: 5, life: 45,
         flavor: 'Shop shotgun. 7-pellet spread.'
     },
     {
         name: 'TWIN BLASTER', tier: 10, shopOnly: true, cost: 350,
-        damage: 18, speed: 16, cooldown: 10, bullets: 2, spread: 0.07,
+        damage: 28, speed: 16, cooldown: 10, bullets: 2, spread: 0.07,
         color: '#ff88ff', glow: '#ff44ff', size: 6, life: 80,
         flavor: 'Dual barrel pistol.'
     },
     {
         name: 'SNIPER', tier: 11, shopOnly: true, cost: 500,
-        damage: 195, speed: 38, cooldown: 70, bullets: 1, spread: 0,
+        damage: 260, speed: 38, cooldown: 70, bullets: 1, spread: 0,
         color: '#aaccff', glow: '#0088ff', size: 8, life: 220, pierce: true, big: true,
         flavor: 'Bolt-action sniper. One shot, one kill — slow reload.'
     },
     {
         name: 'FLAME THROWER', tier: 12, shopOnly: true, cost: 420,
-        damage: 2, speed: 8, cooldown: 2, bullets: 1, spread: 0.08,
+        damage: 4, speed: 8, cooldown: 2, bullets: 1, spread: 0.08,
         color: '#ff8800', glow: '#ff4400', size: 8, life: 38,
-        burn: true, burnDmg: 7, burnDur: 75, flame: true,
+        burn: true, burnDmg: 11, burnDur: 90, flame: true,
         flavor: 'Straight flame stream. Strong burn, weak per hit.'
     },
     {
         name: 'BFG-9000', tier: 13, shopOnly: true, cost: 800,
-        damage: 220, speed: 13, cooldown: 60, bullets: 1, spread: 0,
+        damage: 300, speed: 13, cooldown: 60, bullets: 1, spread: 0,
         color: '#00ff00', glow: '#88ff00', size: 16, life: 150,
         explosive: true, aoeRadius: 150,
         flavor: 'Massive plasma orb. Huge AOE.'
     },
     {
         name: 'AUTO PISTOL', tier: 14, shopOnly: true, cost: 150,
-        damage: 14, speed: 16, cooldown: 5, bullets: 1, spread: 0.06,
+        damage: 22, speed: 16, cooldown: 5, bullets: 1, spread: 0.06,
         color: '#ffcc88', glow: '#ffaa44', size: 5, life: 75,
         flavor: 'Cheap full-auto starter upgrade.'
     },
     {
         name: 'GRENADE LAUNCHER', tier: 15, shopOnly: true, cost: 600,
-        damage: 85, speed: 9, cooldown: 38, bullets: 1, spread: 0,
+        damage: 125, speed: 9, cooldown: 38, bullets: 1, spread: 0,
         color: '#88ff44', glow: '#44ff00', size: 13, life: 130,
         explosive: true, aoeRadius: 120,
         flavor: 'Lobs explosive grenades. Big AOE.'
     },
     {
         name: 'PLASMA RIFLE', tier: 16, shopOnly: true, cost: 550,
-        damage: 38, speed: 18, cooldown: 9, bullets: 1, spread: 0.04,
+        damage: 55, speed: 18, cooldown: 9, bullets: 1, spread: 0.04,
         color: '#88ffff', glow: '#00ffff', size: 7, life: 95, pierce: true,
         flavor: 'Fast-firing piercing energy beam.'
     },
     {
         name: 'CHAOS MORTAR', tier: 17, shopOnly: true, cost: 700,
-        damage: 28, speed: 12, cooldown: 16, bullets: 4, spread: 0.55,
+        damage: 42, speed: 12, cooldown: 16, bullets: 4, spread: 0.55,
         color: '#ff44aa', glow: '#ff0066', size: 7, life: 75,
         explosive: true, aoeRadius: 60,
         flavor: 'Quad chaos shells with mini explosions.'
     },
     {
         name: 'SOUL CANNON', tier: 18, shopOnly: true, cost: 950,
-        damage: 60, speed: 20, cooldown: 11, bullets: 2, spread: 0.05,
+        damage: 85, speed: 20, cooldown: 11, bullets: 2, spread: 0.05,
         color: '#ddaaff', glow: '#aa44ff', size: 8, life: 110, pierce: true,
-        burn: true, burnDmg: 7, burnDur: 55,
+        burn: true, burnDmg: 10, burnDur: 55,
         flavor: 'Twin piercing rounds that burn souls.'
     },
     {
         name: 'ICE BLAST', tier: 19, shopOnly: true, cost: 480,
-        damage: 14, speed: 22, cooldown: 8, bullets: 1, spread: 0.02,
+        damage: 22, speed: 22, cooldown: 8, bullets: 1, spread: 0.02,
         color: '#aaeeff', glow: '#66ccff', size: 7, life: 70, pierce: true,
         slow: true, slowFactor: 0.35, slowDur: 90, ice: true, beam: true,
         flavor: 'Freeze ray beam. Steady fire, hard freeze, pierces.'
     },
     {
         name: 'RAILGUN', tier: 20, shopOnly: true, cost: 720,
-        damage: 180, speed: 32, cooldown: 50, bullets: 1, spread: 0,
+        damage: 250, speed: 32, cooldown: 50, bullets: 1, spread: 0,
         color: '#ddeeff', glow: '#4488ff', size: 9, life: 200, pierce: true,
         flavor: 'Magnetic coil rifle. Slow charge, devastating pierce.'
     },
     {
         name: 'ACID GUN', tier: 21, shopOnly: true, cost: 540,
-        damage: 6, speed: 9, cooldown: 5, bullets: 1, spread: 0.18,
+        damage: 11, speed: 9, cooldown: 5, bullets: 1, spread: 0.18,
         color: '#88ff44', glow: '#44ff00', size: 9, life: 45,
-        burn: true, burnDmg: 8, burnDur: 120, acid: true,
+        burn: true, burnDmg: 12, burnDur: 120, acid: true,
         flavor: 'Corrosive globs. Eats armor, melts metal slowly.'
     },
     {
         name: 'WATER GUN', tier: 22, shopOnly: true, cost: 380,
-        damage: 3, speed: 11, cooldown: 4, bullets: 1, spread: 0.14,
+        damage: 6, speed: 11, cooldown: 4, bullets: 1, spread: 0.14,
         color: '#88ccff', glow: '#44aaff', size: 8, life: 50,
         slow: true, slowFactor: 0.55, slowDur: 60, water: true,
         flavor: 'Pressurized stream. Short-circuits enemies briefly.'
     },
     {
         name: 'LIGHTNING GUN', tier: 23, shopOnly: true, cost: 620,
-        damage: 30, speed: 26, cooldown: 28, bullets: 1, spread: 0.04,
+        damage: 50, speed: 26, cooldown: 28, bullets: 1, spread: 0.04,
         color: '#aaeeff', glow: '#ffff44', size: 8, life: 100, pierce: false,
-        lightningStrike: true, strikeDmg: 110, strikeRadius: 110,
+        lightningStrike: true, strikeDmg: 160, strikeRadius: 110,
         flavor: 'Marker shot. On hit, a sky lightning strike crashes down.'
     },
     // ===== DEV-ONLY WEAPONS =====
@@ -1025,7 +1029,27 @@ const MELEE_WEAPONS = {
                  flavor: 'Heavy hammer. Slow but mighty, slam shockwave on every swing.' },
     'scythe':  { name: 'PHANTOM SCYTHE', cost: 880, dmgMul: 4.2, rangeMul: 1.9,
                  color: '#dd44ff', glow: '#aa00ff', curved: true, lifesteal: true,
-                 flavor: 'Curved phantom blade. Massive arc, leeches HP on hit.' }
+                 flavor: 'Curved phantom blade. Massive arc, leeches HP on hit.' },
+    // ENERGY KATANA — actual melee blade (was originally a gun, now a
+    // proper sword). G to swing. The unique mechanic: any enemy bullet
+    // that crosses the swing arc during the active swing window is
+    // REFLECTED back at the closest enemy at 1.4× damage. Handled by
+    // the SC.reflectScan tick which checks `player.activeMelee ===
+    // 'energy_katana' && player.meleeAnimTimer > 0`.
+    'energy_katana': { name: 'ENERGY KATANA', cost: 1100, dmgMul: 3.8, rangeMul: 1.7,
+                       color: '#aaffff', glow: '#00ffff',
+                       reflectBullets: true,
+                       flavor: 'Beam blade. Massive damage. Reflects enemy bullets while swinging.' },
+    // LASER WHIP — actual melee weapon. G to swing a long curved arc
+    // that chains to nearby enemies (each chain = 60% damage). Long
+    // reach (×2.4) but lower per-target damage than scythe. Visually:
+    // a bright magenta beam that flicks forward + zigzag chain bolts
+    // to chained enemies, drawn by the existing executeMelee chain
+    // logic when `whipChain` is set.
+    'laser_whip': { name: 'LASER WHIP', cost: 1250, dmgMul: 3.2, rangeMul: 2.4,
+                    color: '#ff44dd', glow: '#ff88ee',
+                    whipChain: 3, curved: true,
+                    flavor: 'Long whip blade. Chains to 3 enemies on every swing.' }
 };
 
 // Characters - playable archetypes with different stats and special abilities
@@ -1266,7 +1290,7 @@ const player = {
     evoLevel: 0,              // 0 = base, 1 = MK-II, 2 = MK-III, 3 = OMEGA FORM
     bulletDamage: 0,         // additive damage bonus (from "Damage +5" upgrade)
     weaponTier: 0,            // index into WEAPONS (currently equipped)
-    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons
+    weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons; 29-34 expanded arsenal
     meleeWeaponsUnlocked: {},  // { knife:true, katana:true, ... } — bought from shop
     activeMelee: null,         // 'knife' | 'katana' | 'saber' | null = bare-fist
     // BAND BLASTER instrument state — cycles via B key while equipped.
@@ -1949,13 +1973,19 @@ function updateAllies() {
         a.shootTimer -= timeSlowFactor;
         if (a.shootTimer <= 0 && a.target) {
             const ang = Math.atan2((a.target.y + a.target.h / 2) - (a.y + a.h / 2), (a.target.x + a.target.w / 2) - (a.x + a.w / 2));
+            // Style Combat: ally damage scales by synergy multiplier
+            // (1.0 → 1.25 based on strongest active pair). Encourages
+            // running with the same companions for repeat runs. Gated.
+            const synergyMul = (typeof SC !== 'undefined' && SC.flags.synergy)
+                ? SC.synergy.damageMultiplier()
+                : 1;
             bullets.push({
                 x: a.x + a.w / 2 + Math.cos(ang) * 20,
                 y: a.y + a.h / 2 + Math.sin(ang) * 20,
                 vx: Math.cos(ang) * 12,
                 vy: Math.sin(ang) * 12,
                 life: 70,
-                damage: a.def.damage,
+                damage: Math.round(a.def.damage * synergyMul),
                 color: a.def.bulletColor, glow: a.def.bulletColor, size: 5,
                 pierce: false, hitEnemies: new Set(),
                 fromAlly: true
@@ -4326,6 +4356,9 @@ function drawPrimeHud() {
 function executeMelee() {
     player.meleeCombo = (player.meleeCombo + 1) % 3;
     if (player.meleeCombo === 0) player.meleeCombo = 3; // wrap to 3rd hit
+    // Style Combat: notify so transform-chain window can open if X is
+    // pressed in the next 30f. Also feeds the bossAdapt observer.
+    if (typeof SC !== 'undefined') SC.onPlayerAttack('melee');
     const stage = player.meleeCombo;  // 1, 2, or 3
     const isAxe = player.evoLevel >= 6;     // CONVOY → Energon Axe
     // Play swing sound (axe vs punch). Hit-confirm sound plays after we know if we hit something.
@@ -4390,7 +4423,10 @@ function executeMelee() {
         const dx = (e.x + e.w / 2) - cx;
         const dy = (e.y + e.h / 2) - cy;
         if (Math.abs(dx) < range && Math.abs(dy) < range && dx * player.facing > -range / 2) {
-            const finalDmg = Math.round(dmg * player.dmgMul);
+            // Style Combat: ninja form gives +60% melee damage. Read
+            // player._scNinjaMeleeBonus (set by SC.mechs.tick).
+            const ninjaMul = (player._scNinjaMeleeBonus || 1);
+            const finalDmg = Math.round(dmg * player.dmgMul * ninjaMul);
             // SHIELDER takes much less melee damage from front, but melee bypasses ranged shield mostly
             let actualDmg = finalDmg;
             if (e.type === 'shielder') {
@@ -4423,6 +4459,41 @@ function executeMelee() {
                         });
                     }
                     spawnParticles(e.x + e.w/2, e.y + e.h/2, '#dd44ff', 8, 5);
+                }
+                // LASER WHIP — chain to N nearby enemies (60% damage each)
+                // and draw lightning-bolt visuals between them.
+                if (meleeWpn.whipChain) {
+                    const chained = new Set([e]);
+                    let last = e;
+                    for (let c = 0; c < meleeWpn.whipChain; c++) {
+                        let best = null, bd = 220 * 220;
+                        for (const en of enemies) {
+                            if (chained.has(en) || en.hp <= 0) continue;
+                            const ddx = (en.x + en.w/2) - (last.x + last.w/2);
+                            const ddy = (en.y + en.h/2) - (last.y + last.h/2);
+                            const d = ddx*ddx + ddy*ddy;
+                            if (d < bd) { bd = d; best = en; }
+                        }
+                        if (!best) break;
+                        const chainDmg = Math.round(actualDmg * 0.6);
+                        best.hp -= chainDmg;
+                        spawnDamageNumber(best.x + best.w/2, best.y, chainDmg, 'aoe');
+                        spawnParticles(best.x + best.w/2, best.y + best.h/2, meleeWpn.glow || '#ff44dd', 6, 4);
+                        // Visible chain bolt
+                        if (typeof lightningBolts !== 'undefined') {
+                            lightningBolts.push({
+                                x1: last.x + last.w/2, y1: last.y + last.h/2,
+                                x2: best.x + best.w/2, y2: best.y + best.h/2,
+                                life: 14, color: meleeWpn.color || '#ff44dd'
+                            });
+                        }
+                        chained.add(best);
+                        last = best;
+                        if (best.hp <= 0) {
+                            const idx = enemies.indexOf(best);
+                            if (idx >= 0) handleEnemyKilled(best, idx);
+                        }
+                    }
                 }
             }
             hitCount++;
@@ -7736,6 +7807,8 @@ function updatePlayer() {
         player.vy = 0;
         spawnParticles(player.x + player.w / 2, player.y + player.h / 2, '#00ffaa', 8, 4);
         audio.play('dash');
+        // Style Combat: track dash usage for bossAdapt (gated)
+        if (typeof SC !== 'undefined' && SC.flags.bossAdapt) SC.bossAdapt.observe('dash');
     }
 
     if (player.dashing) {
@@ -8287,7 +8360,10 @@ function updatePlayer() {
     const blockedByVehicle = midTransform || (player.transformed && !canShootInVehicle);
     // Minigun is full-auto (just hold F); other weapons are tap-to-fire
     const canFire = w.cooldown <= 4 ? shootKey : (shootKey && !player.shootHeld);
-    if (canFire && player.shootCooldown <= 0 && !blockedByVehicle) {
+    // Style Combat: also gate on heat — overheated weapons can't fire.
+    const heatBlocked = (typeof SC !== 'undefined' && SC.flags.expandedArsenal &&
+                        w && w.overheat && !SC.heat.canFire());
+    if (canFire && player.shootCooldown <= 0 && !blockedByVehicle && !heatBlocked) {
         if (canShootInVehicle) {
             shootVehicleProjectile();
             // Vehicle weapons get heavier sound. Tank/hovertank = rocket, others = beam
@@ -8316,9 +8392,24 @@ function updatePlayer() {
                               player.vehicleType === 'hovertank' ? 38 : cd; // Matrix ion blast
             cd = vehicleCd * player.fireRateMul;
         }
+        // Style Combat: overheat replaces cooldown for weapons that have
+        // an `overheat` flag. We still pay the normal cooldown but heat
+        // builds per shot. When heat hits 100, the weapon locks for 90f
+        // regardless of cooldown.
+        if (typeof SC !== 'undefined' && SC.flags.expandedArsenal) {
+            if (w && w.overheat) {
+                SC.heat.addShot(w.overheat.perShot);
+            }
+        }
+        // Style Combat: overclock halves the cooldown for ×2 fire rate.
+        // Gated — no-op when step 12 is disabled.
+        if (typeof SC !== 'undefined' && SC.flags.overclock) cd /= SC.overclock.fireRateMul();
         player.shootCooldown = Math.max(2, Math.round(cd));
         // Gun recoil for the animated arm/gun rig
         player.gunRecoil = Math.min(6, (player.gunRecoil || 0) + 4);
+        // Style Combat: notify so transform-chain window can open if X
+        // is pressed in the next 30f.
+        if (typeof SC !== 'undefined') SC.onPlayerAttack('shoot');
     }
     player.shootHeld = shootKey;
 
@@ -8970,6 +9061,31 @@ function updateBullets() {
                 } else {
                     spawnDamageNumber(b.x, b.y, dmg, 'normal');
                 }
+                // Style Combat: apply outgoing-damage multiplier (momentum,
+                // transform-chain, overclock, corrupted) THEN armor break
+                // reduction. Order matters — armor scales the modified
+                // damage, not the raw, so a +60% chained shot still hits
+                // armor for 50% absorbed = ~80% effective. Armor reduction
+                // is gated on SC.flags.armor — when off, behaves as if
+                // every enemy has no armor field at all. Bullets flagged
+                // armorPierce skip the armor reduction entirely.
+                if (typeof SC !== 'undefined') {
+                    const mul = SC.outgoingDmgMul();
+                    if (mul !== 1) dmg = Math.round(dmg * mul);
+                    if (SC.flags.armor) {
+                        if (b && b.armorPierce) {
+                            // skip armor entirely — damage passes through
+                        } else {
+                            dmg = SC.armor.applyDamage(e, dmg);
+                        }
+                    }
+                    SC.consumeTransformChain();
+                    // Expanded arsenal: gravity-pull spawn, whip chain,
+                    // corruption damage scale all live in onBulletHit.
+                    if (SC.flags.expandedArsenal && SC.weaponEffects) {
+                        dmg = SC.weaponEffects.onBulletHit(b, e, dmg);
+                    }
+                }
                 e.hp -= dmg;
                 // Apply weapon special effects
                 if (b.burn) {
@@ -9227,12 +9343,51 @@ function handleEnemyKilled(e, j) {
     spawnExplosion(e.x + e.w / 2, e.y + e.h / 2);
     if (e.type === 'boss') audio.play('bossKill');
     score += e.type === 'boss' ? 500 : 100;
+    // Style points — bigger reward for tougher enemies. Bosses give the
+    // biggest boost, mini-bosses next, then elites, then mobs. Combo
+    // multiplier already scales coins/score below; style is independent
+    // (keeps the meters reading different values).
+    if (typeof STYLE !== 'undefined') {
+        let stylePts;
+        if (e.type === 'boss') stylePts = 200;
+        else if (e.type === 'miniboss') stylePts = 80;
+        else if (e.type === 'mech' || e.type === 'hydraWalker' || e.type === 'scorpion') stylePts = 30;
+        else if (e.type === 'heavy' || e.type === 'sniper' || e.type === 'sentinel') stylePts = 18;
+        else stylePts = 10;
+        STYLE.add(stylePts, 'KILL');
+    }
+    // Persistent kill counter — bosses count more so a boss kill is a
+    // notable progression event, not just one of many. Used by the
+    // Fortnite-style PLAYER_RANK badge top-left.
+    if (typeof save !== 'undefined') {
+        let killWeight;
+        if (e.type === 'boss') killWeight = 5;
+        else if (e.type === 'miniboss') killWeight = 3;
+        else if (e.type === 'mech' || e.type === 'hydraWalker' || e.type === 'scorpion') killWeight = 2;
+        else killWeight = 1;
+        save.bumpStat('totalKills', killWeight);
+    }
+    // Style Combat: bounty payout (if this enemy was tagged) + boss kill
+    // triggers the post-fight escape sequence (collapsing-environment).
+    // Both gated on their feature flags so step-by-step rollout works.
+    if (typeof SC !== 'undefined') {
+        if (SC.flags.bounty) SC.bounty.onKill(e);
+        if (SC.flags.escape && e.type === 'boss') {
+            // Trigger after a small delay so the boss death cinematic
+            // gets to play first.
+            if (typeof deferFrames === 'function') {
+                deferFrames(120, () => SC.escape.trigger());
+            } else {
+                SC.escape.trigger();
+            }
+        }
+    }
     // Combo system - more coins/score with combo
     comboCount++;
     comboTimer = 180;
     const comboMul = 1 + Math.min(2, comboCount * 0.05);
     // Drop coins - much more generous now
-    const baseCoinCount = e.type === 'boss' ? 100 : (e.type === 'turret' ? 18 : 12);
+    const baseCoinCount = e.type === 'boss' ? 200 : (e.type === 'turret' ? 36 : 24);
     const coinCount = Math.round(baseCoinCount * comboMul);
     for (let c = 0; c < coinCount; c++) {
         const ang = Math.random() * Math.PI * 2;
@@ -9411,6 +9566,29 @@ function bossPickRandomAttack(e, count) {
         next = Math.floor(Math.random() * count);
         attempts++;
     } while (next === e._lastPattern && attempts < 5);
+    // Style Combat: adaptive boss AI nudges the pick based on the
+    // player's dominant action. We don't override every roll (would be
+    // unfair / predictable) — we only nudge ~30% of the time, picking
+    // a counter pattern from the table below. Even then, the nudged
+    // pick still respects the "no immediate repeat" rule. Gated so it
+    // only kicks in when step 8 is enabled.
+    if (typeof SC !== 'undefined' && SC.flags.bossAdapt && Math.random() < 0.3) {
+        const mode = SC.bossAdapt.modeForBoss();
+        // Bias table — for each player habit, prefer the pattern slot
+        // that's roughly the "best counter" across most boss kits:
+        //   shoot   — wide spread / area attacks → pattern 1 if available
+        //   melee   — knockback / area → pattern 0 (close-burst)
+        //   dash    — sweep / homing → pattern 2 if available
+        //   parry   — non-bullet attacks → highest-index pattern
+        let preferred = -1;
+        if (mode === 'shoot' && count > 1) preferred = 1;
+        else if (mode === 'melee') preferred = 0;
+        else if (mode === 'dash' && count > 2) preferred = 2;
+        else if (mode === 'parry') preferred = count - 1;
+        if (preferred >= 0 && preferred < count && preferred !== e._lastPattern) {
+            next = preferred;
+        }
+    }
     e._lastPattern = next;
     return next;
 }
@@ -11755,6 +11933,10 @@ function updateEnemies() {
                 shopMessage = { text: '⚡ PERFECT DODGE ⚡', timer: 60, color: '#ffff00' };
                 comboCount += 2;  // bonus combo
                 comboTimer = 180;
+                // Style: perfect dodge is the highest-skill input in the
+                // game right now, so it pays out big. 50pts ≈ a third of
+                // the way from D to B in one near-miss.
+                if (typeof STYLE !== 'undefined') STYLE.add(50, 'PERFECT');
             }
         }
 
@@ -11769,6 +11951,12 @@ function updateEnemies() {
                 spawnShockwave(b.x, b.y, 60, '#ffffff');
                 floatTexts.push({ text: 'PARRY!', x: b.x, y: b.y - 8, life: 45, color: '#ffffff' });
                 audio.play('parry');
+                // Style: parry is reactive + risky (small window) so it
+                // pays well — a touch less than perfect dodge since you
+                // still take a hit if you misread the timing.
+                if (typeof STYLE !== 'undefined') STYLE.add(35, 'PARRY');
+                // Style Combat: track parry usage for bossAdapt (gated)
+                if (typeof SC !== 'undefined' && SC.flags.bossAdapt) SC.bossAdapt.observe('parry');
                 // Find nearest enemy to aim the deflected shot at
                 let target = null;
                 let bestDist = 99999;
@@ -11808,6 +11996,14 @@ function updateEnemies() {
                 let dmg = b.damage || 6;
                 // CONVOY tier: 10% innate damage reduction
                 if (player.evoLevel >= 6) dmg = Math.round(dmg * 0.9);
+                // Style Combat: corrupted upgrades scale incoming damage
+                // (BLOOD PACT = +25%). Applied AFTER tier reduction so
+                // players who took the pact still benefit from CONVOY.
+                // Gated — no-op when step 11 is disabled.
+                if (typeof SC !== 'undefined' && SC.flags.corrupted) {
+                    const inMul = SC.corrupted.incomingMul();
+                    if (inMul !== 1) dmg = Math.round(dmg * inMul);
+                }
                 player.hp -= dmg;
                 hitFlash = Math.min(1, hitFlash + Math.min(0.7, dmg * 0.04));
                 if (dmg >= 20) applyHitStop(3);
@@ -11816,6 +12012,9 @@ function updateEnemies() {
                 spawnParticles(b.x, b.y, '#ff0000', b.big ? 12 : 5, b.big ? 5 : 3);
                 enemyBullets.splice(i, 1);
                 audio.play('hurt');
+                // Style: getting hit drops the meter sharply. Scales with
+                // damage so a chip-tick costs less than a heavy slug.
+                if (typeof STYLE !== 'undefined') STYLE.drop(60 + dmg * 2, 'HIT');
                 if (player.hp <= 0) {
                     gameState = 'dead';
                     audio.play('death');
@@ -14468,6 +14667,7 @@ function drawPlayer() {
                            : wKind === 'daggers' ? 28
                            : wKind === 'hammer' ? 70
                            : wKind === 'scythe' ? 95
+                           : wKind === 'energy_katana' ? 90
                            : 50;
             const bladeThick = wKind === 'knife' ? 3
                              : wKind === 'katana' ? 4
@@ -14475,6 +14675,7 @@ function drawPlayer() {
                              : wKind === 'daggers' ? 3
                              : wKind === 'hammer' ? 8
                              : wKind === 'scythe' ? 4
+                             : wKind === 'energy_katana' ? 6
                              : 4;
             // Arc sweep — saber/scythe widest, knife/daggers tightest
             const arcMul = wKind === 'knife' ? 0.7
@@ -14483,6 +14684,7 @@ function drawPlayer() {
                          : wKind === 'saber' ? 1.1
                          : wKind === 'hammer' ? 1.2
                          : wKind === 'scythe' ? 1.4
+                         : wKind === 'energy_katana' ? 1.25
                          : 1.0;
             const arcSpread = (stage === 3 ? Math.PI * 0.7 : Math.PI * 0.5) * arcMul;
             const arcStart = punchAng - arcSpread / 2;
@@ -18431,6 +18633,25 @@ function drawEnemies() {
             ctx.fillRect(ex, ey - 10, e.w, 5);
             ctx.fillStyle = e.hp > e.maxHp * 0.3 ? '#00ff00' : '#ff0000';
             ctx.fillRect(ex, ey - 10, (e.hp / e.maxHp) * e.w, 5);
+        }
+        // Style Combat: armor bar (above HP bar) for armor-tagged enemies
+        if (e.armor !== undefined && e.armorMax > 0 && !e.armorBroken) {
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#222';
+            ctx.fillRect(ex, ey - 16, e.w, 4);
+            ctx.fillStyle = '#88ddff';
+            ctx.shadowColor = '#44aaff';
+            ctx.shadowBlur = 3;
+            ctx.fillRect(ex, ey - 16, (e.armor / e.armorMax) * e.w, 4);
+            ctx.shadowBlur = 0;
+            // Tiny "ARMOR" label above the bar (only for taller enemies
+            // so it doesn't clutter swarms)
+            if (e.h >= 36) {
+                ctx.fillStyle = '#88ddff';
+                ctx.font = 'bold 7px "Courier New", monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('▣', ex + e.w / 2, ey - 18);
+            }
         }
         ctx.restore();
     }
@@ -22443,7 +22664,7 @@ function restart() {
     player.scrap = 0;
     player.bulletDamage = 0;
     player.weaponTier = 0;
-    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+    player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
     player.meleeWeaponsUnlocked = {};
     player.activeMelee = null;
     player.maxJumpsBonus = 0;
@@ -28395,6 +28616,16 @@ function gameLoop(timestamp) {
     // gameState so a queued "switch to won" still fires while in cutscene.
     tickTransitions();
 
+    // Style rank tick — decays, animates pops, fires rank-up flash.
+    // Cheap; no-op outside 'playing'/'finale'.
+    if (typeof STYLE !== 'undefined') STYLE.tick();
+    // Persistent player rank tick — checks for rank-up between frames.
+    // Reads current save meta; fires a banner + flash on tier advance.
+    if (typeof PLAYER_RANK !== 'undefined') PLAYER_RANK.tick();
+    // Style Combat module tick — momentum, overclock, escape sequence,
+    // synergy, adaptive AI, etc. Top-level of all SC subsystems.
+    if (typeof SC !== 'undefined') SC.tick();
+
     // Update music to match current game state (cheap if track is unchanged)
     audio.setMusic(pickMusicTrack());
 
@@ -28411,6 +28642,8 @@ function gameLoop(timestamp) {
     if (gameState !== gameLoop._prevGameState) {
         if (gameState === 'dead') {
             audio.play('death');
+            // Style: reset on death so the next run starts at D rank.
+            if (typeof STYLE !== 'undefined') STYLE.reset();
             // SAVE: death++ and persist
             if (typeof save !== 'undefined') {
                 save.bumpStat('totalDeaths');
@@ -28670,7 +28903,7 @@ function gameLoop(timestamp) {
         player.scrap = 0;
         player.bulletDamage = 0;
         player.weaponTier = 0;
-        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
+        player.weaponsUnlocked = [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false];
     player.meleeWeaponsUnlocked = {};
     player.activeMelee = null;
         player.maxJumpsBonus = 0;
@@ -28806,6 +29039,15 @@ function gameLoop(timestamp) {
     drawScreenFlashes();
 
     drawHUD();
+    // Style rank meter (top-right). Drawn after HUD so it sits on top.
+    if (typeof STYLE !== 'undefined') STYLE.draw();
+    // Persistent player rank badge (top-left). Fortnite-style tier badge
+    // showing total kills + bosses + evolution progress as a single rank.
+    if (typeof PLAYER_RANK !== 'undefined') PLAYER_RANK.draw();
+    // Style Combat overlays: speed lines, momentum/chain HUDs, escape
+    // debris + tint, bounty marker, banter pops, corrupted/overclock
+    // HUDs. Drawn last so they layer over everything.
+    if (typeof SC !== 'undefined') SC.draw();
     drawComboBanner();
     drawWarning();
     drawShopUI();
@@ -30609,3 +30851,3698 @@ if (saveData_weapons && Array.isArray(player.weaponsUnlocked)) {
 }
 buildLevel();
 requestAnimationFrame(gameLoop);
+
+
+// =====================================================================
+// === STYLE COMBAT MODULE — Step 1 (Style Rank + HUD) ==================
+// =====================================================================
+// Devil-May-Cry style style-rank meter. Self-contained: nothing in this
+// block depends on order, and removing the block + the four hook lines
+// elsewhere reverts the feature cleanly. Step 1 ONLY adds a meter + HUD;
+// no combat changes yet (that's step 2+). All globals are namespaced on
+// the STYLE object so they don't clash with anything in the 30k-line
+// file above.
+// ---------------------------------------------------------------------
+const STYLE = {
+    // Current style points (continuous 0..maxPoints). Decays each frame
+    // while not actively building. Crossing thresholds bumps the rank.
+    points: 0,
+    maxPoints: 1000,
+
+    // Frames since last positive style event. Used to gate decay so a
+    // chain of hits keeps the meter pinned even if individual events
+    // are sparse. Decay only kicks in after 30f (0.5s) of nothing.
+    idleFrames: 0,
+
+    // Cosmetic flash — bumped every time the rank advances. Ticks down
+    // each frame; the HUD reads it to do a brief glow/scale pulse.
+    rankFlash: 0,
+    // Last-rank-shown — so we know when to fire the rank-up flash.
+    lastRankIdx: 0,
+
+    // Floating "+N STYLE" numbers near the player. Tiny ring buffer so
+    // we don't grow forever during long fights.
+    pops: [],
+
+    // === Rank table ===
+    // Each row: [name, threshold (points), color, glow color]. Player
+    // rank is the highest entry whose threshold ≤ points. Drops back
+    // through these as points decay. Thresholds intentionally tighter
+    // at the bottom (D-C-B reachable from a few kills) and wider at the
+    // top (S-SS-SSS rewards sustained combat).
+    ranks: [
+        { name: 'D',   threshold:    0, color: '#888888', glow: '#666666' },
+        { name: 'C',   threshold:   80, color: '#88ddff', glow: '#44aaff' },
+        { name: 'B',   threshold:  200, color: '#88ff88', glow: '#44dd44' },
+        { name: 'A',   threshold:  380, color: '#ffdd44', glow: '#ffaa00' },
+        { name: 'S',   threshold:  580, color: '#ff8844', glow: '#ff4422' },
+        { name: 'SS',  threshold:  780, color: '#ff44dd', glow: '#dd00aa' },
+        { name: 'SSS', threshold:  950, color: '#ffffff', glow: '#ffff44' }
+    ],
+
+    // === Add points + label them ===
+    // Caller passes a positive amount and a short reason ('KILL', 'CRIT',
+    // 'PERFECT', 'PARRY', etc.). Reason becomes the floating label so
+    // the player learns which actions feed the meter. Slightly diminishing
+    // returns as the bar fills so SSS isn't trivially camped.
+    add(amount, reason) {
+        if (gameState !== 'playing' && gameState !== 'finale') return;
+        if (amount <= 0) return;
+        // Soft cap: above 800 points each event gives 80% credit. Above
+        // 920 gives 60%. Keeps SSS feeling earned rather than a glide.
+        let scaled = amount;
+        if (this.points > 800) scaled *= 0.8;
+        if (this.points > 920) scaled *= 0.75;
+        this.points = Math.min(this.maxPoints, this.points + scaled);
+        this.idleFrames = 0;
+        // Feed overclock charge bar (if SC module is loaded)
+        if (typeof SC !== 'undefined' && SC.overclock) SC.overclock.feed(scaled);
+        // Push a floating number near the player. The HUD draws these.
+        if (typeof player !== 'undefined' && player) {
+            this.pops.push({
+                x: player.x + player.w / 2 + (Math.random() - 0.5) * 30,
+                y: player.y - 10 + (Math.random() - 0.5) * 20,
+                vy: -1.4,
+                life: 50,
+                text: `+${Math.round(scaled)}${reason ? ' ' + reason : ''}`,
+                color: this.currentRank().color
+            });
+            // Trim the ring buffer so we don't drift up over a long fight.
+            if (this.pops.length > 14) this.pops.shift();
+        }
+    },
+
+    // === Subtract points (damage taken / etc) ===
+    // Drops the meter sharply on damage so the player learns "don't get
+    // hit if you want SSS." Also resets idleFrames so decay doesn't
+    // double-dip on the same frame.
+    drop(amount, reason) {
+        this.points = Math.max(0, this.points - amount);
+        this.idleFrames = 0;
+        if (typeof player !== 'undefined' && player) {
+            this.pops.push({
+                x: player.x + player.w / 2,
+                y: player.y - 10,
+                vy: -1.0,
+                life: 40,
+                text: `−${Math.round(amount)}${reason ? ' ' + reason : ''}`,
+                color: '#ff4466'
+            });
+        }
+    },
+
+    // === Per-frame tick ===
+    // 1) Decay points after idleFrames > 30 (gentle decay so a small
+    //    pause doesn't tank the meter; big pause does)
+    // 2) Tick rankFlash + pop animations
+    // 3) Detect rank-up and fire the flash
+    tick() {
+        if (gameState !== 'playing' && gameState !== 'finale') return;
+        this.idleFrames++;
+        if (this.idleFrames > 30) {
+            // Decay rate scales with current rank — higher ranks bleed
+            // faster (so SSS is hard to hold) and lower ranks bleed slow
+            // (so D-C don't feel punitive).
+            const idx = this.currentRankIndex();
+            // 0..6 → decay 0.4 .. 1.6 points per frame
+            const decay = 0.4 + idx * 0.2;
+            this.points = Math.max(0, this.points - decay);
+        }
+        // Rank-up detection — bump the cosmetic flash + play a sound.
+        const idx = this.currentRankIndex();
+        if (idx > this.lastRankIdx) {
+            this.rankFlash = 50;
+            if (typeof audio !== 'undefined' && audio.play) {
+                audio.play('switch', { throttle: 100 });
+            }
+            // Banner-style toast at the top of the screen
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = {
+                    text: `STYLE: ${this.ranks[idx].name} RANK`,
+                    timer: 100,
+                    color: this.ranks[idx].color
+                };
+            }
+        }
+        this.lastRankIdx = idx;
+        if (this.rankFlash > 0) this.rankFlash--;
+        // Tick floating pops
+        for (let i = this.pops.length - 1; i >= 0; i--) {
+            const p = this.pops[i];
+            p.y += p.vy;
+            p.life--;
+            if (p.life <= 0) this.pops.splice(i, 1);
+        }
+    },
+
+    // === Lookups ===
+    currentRankIndex() {
+        let idx = 0;
+        for (let i = 0; i < this.ranks.length; i++) {
+            if (this.points >= this.ranks[i].threshold) idx = i;
+            else break;
+        }
+        return idx;
+    },
+    currentRank() { return this.ranks[this.currentRankIndex()]; },
+
+    // === HUD draw ===
+    // Top-right of the canvas. Shows the rank letter big + glow, plus a
+    // thin progress bar underneath toward the next rank. Stays out of
+    // the way during cinematics by gating on gameState.
+    draw() {
+        if (gameState !== 'playing' && gameState !== 'finale') return;
+        const idx = this.currentRankIndex();
+        const rank = this.ranks[idx];
+        const next = this.ranks[idx + 1];
+
+        // Layout — top-right, well clear of the dev panel toggle which
+        // sits at top:20 / right:20 on the page (outside canvas).
+        const x = canvas.width - 132;
+        const y = 18;
+        const w = 110;
+        const h = 56;
+
+        ctx.save();
+
+        // Backdrop panel — semi-transparent so it doesn't dominate
+        ctx.fillStyle = 'rgba(8, 8, 16, 0.55)';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = rank.glow;
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+
+        // STYLE label
+        ctx.fillStyle = '#88aabb';
+        ctx.font = '9px "Courier New", monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('STYLE', x + 8, y + 11);
+
+        // The big rank letter — scales up briefly on rank-up
+        const flashT = this.rankFlash > 0 ? this.rankFlash / 50 : 0;
+        const scale = 1 + flashT * 0.35;
+        ctx.save();
+        ctx.translate(x + 70, y + 30);
+        ctx.scale(scale, scale);
+        ctx.shadowColor = rank.glow;
+        ctx.shadowBlur = 14 + flashT * 14;
+        ctx.fillStyle = rank.color;
+        ctx.font = 'bold 26px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(rank.name, 0, 0);
+        ctx.restore();
+
+        // Progress bar — current → next-rank threshold
+        const barX = x + 8;
+        const barY = y + h - 10;
+        const barW = w - 16;
+        const barH = 4;
+        ctx.fillStyle = 'rgba(40, 40, 60, 0.8)';
+        ctx.fillRect(barX, barY, barW, barH);
+        let frac;
+        if (next) {
+            const span = next.threshold - rank.threshold;
+            frac = span > 0 ? (this.points - rank.threshold) / span : 1;
+        } else {
+            // SSS — show as full
+            frac = 1;
+        }
+        frac = Math.max(0, Math.min(1, frac));
+        ctx.fillStyle = rank.color;
+        ctx.shadowColor = rank.glow;
+        ctx.shadowBlur = 6;
+        ctx.fillRect(barX, barY, barW * frac, barH);
+        ctx.shadowBlur = 0;
+
+        ctx.restore();
+
+        // Floating pops — drawn in world space (subtract camera)
+        if (this.pops.length > 0 && typeof camera !== 'undefined') {
+            ctx.save();
+            ctx.font = 'bold 11px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            for (const p of this.pops) {
+                const a = Math.min(1, p.life / 30);
+                ctx.globalAlpha = a;
+                ctx.fillStyle = p.color;
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = 6;
+                ctx.fillText(p.text, p.x - camera.x, p.y);
+            }
+            ctx.restore();
+        }
+    },
+
+    // === Reset (called on death/stage change) ===
+    reset() {
+        this.points = 0;
+        this.idleFrames = 0;
+        this.rankFlash = 0;
+        this.lastRankIdx = 0;
+        this.pops.length = 0;
+    }
+};
+// =====================================================================
+
+
+// =====================================================================
+// === PLAYER RANK MODULE — Fortnite-style persistent player rank ======
+// =====================================================================
+// Account-level rank shown top-left. Distinct from the per-fight STYLE
+// meter (top-right): STYLE measures THIS combo, PLAYER_RANK measures
+// what you've achieved on this profile across all runs. Computed from
+// persisted save stats:
+//   • totalKills        (weighted: boss = 5, mini = 3, elite = 2, mob = 1)
+//   • bossesDefeated
+//   • maxEvoLevel       (CONVOY tier = highest)
+//   • farthestStage     (1..8, finale = 9)
+//   • totalWins
+//
+// Each stat contributes "rank points." Crossing thresholds advances the
+// rank tier. Tiers loosely follow Fortnite's vocabulary so the kid
+// recognizes them.
+// ---------------------------------------------------------------------
+const PLAYER_RANK = {
+    // === Tier table — colors picked to feel game-y / valorous, not
+    // grimdark. Each tier has a "shield" shape behind the letter on the
+    // badge, reinforcing the rank visually.
+    tiers: [
+        { name: 'BRONZE I',    threshold:    0, color: '#cd7f32', glow: '#8b5a1a', icon: '◆' },
+        { name: 'BRONZE II',   threshold:   30, color: '#d49858', glow: '#a06a28', icon: '◆' },
+        { name: 'BRONZE III',  threshold:   80, color: '#e0a866', glow: '#b07432', icon: '◆' },
+        { name: 'SILVER I',    threshold:  150, color: '#c0c0c0', glow: '#888888', icon: '◆◆' },
+        { name: 'SILVER II',   threshold:  240, color: '#d0d0d0', glow: '#909090', icon: '◆◆' },
+        { name: 'SILVER III',  threshold:  340, color: '#e0e0e0', glow: '#aaaaaa', icon: '◆◆' },
+        { name: 'GOLD I',      threshold:  460, color: '#ffd744', glow: '#cc9900', icon: '★' },
+        { name: 'GOLD II',     threshold:  600, color: '#ffe066', glow: '#ddaa11', icon: '★' },
+        { name: 'GOLD III',    threshold:  760, color: '#fff099', glow: '#ffbb22', icon: '★' },
+        { name: 'PLATINUM I',  threshold:  940, color: '#88ffdd', glow: '#22aaaa', icon: '★★' },
+        { name: 'PLATINUM II', threshold: 1140, color: '#aaffee', glow: '#44ccbb', icon: '★★' },
+        { name: 'PLATINUM III',threshold: 1360, color: '#ccfff5', glow: '#66ddcc', icon: '★★' },
+        { name: 'DIAMOND I',   threshold: 1620, color: '#88ddff', glow: '#3388dd', icon: '★★★' },
+        { name: 'DIAMOND II',  threshold: 1900, color: '#aaeeff', glow: '#5599ee', icon: '★★★' },
+        { name: 'DIAMOND III', threshold: 2200, color: '#cce8ff', glow: '#77aaff', icon: '★★★' },
+        { name: 'CHAMPION',    threshold: 2600, color: '#ff8844', glow: '#ff4422', icon: '⚜' },
+        { name: 'UNREAL',      threshold: 3200, color: '#ff44dd', glow: '#dd00aa', icon: '⚜⚜' }
+    ],
+
+    // === Compute rank points from save meta ===
+    // Formula:
+    //   kills * 1     — base progression
+    //   bosses * 40   — big jumps for a boss
+    //   wins * 100    — clearing the game is a big achievement
+    //   maxEvo * 30   — reaching CONVOY (6) gives 180
+    //   farthest * 25 — getting deep into the game
+    // Tuned so a brand-new player hits BRONZE II after a couple of
+    // levels of mobs, lands in SILVER after their first boss, and only
+    // hits CHAMPION after they've fully cleared the game multiple times.
+    points() {
+        if (typeof save === 'undefined') return 0;
+        const m = save.getMeta();
+        const k  = (m.totalKills || 0) * 1;
+        const b  = (m.bossesDefeated || 0) * 40;
+        const w  = (m.totalWins || 0) * 100;
+        const e  = (m.maxEvoLevel || 0) * 30;
+        const f  = (m.farthestStage || 0) * 25;
+        return k + b + w + e + f;
+    },
+
+    // === Tier lookup ===
+    tierIndex() {
+        const p = this.points();
+        let idx = 0;
+        for (let i = 0; i < this.tiers.length; i++) {
+            if (p >= this.tiers[i].threshold) idx = i;
+            else break;
+        }
+        return idx;
+    },
+    tier() { return this.tiers[this.tierIndex()]; },
+
+    // === Track rank-up between frames so we can flash + announce ===
+    _lastIdx: -1,         // -1 = uninitialized; first tick records, no flash
+    _flashTimer: 0,
+
+    tick() {
+        // Skip during intro/menu (we want the announcement to land
+        // mid-game, not at the start screen). But still keep _lastIdx
+        // current so we don't false-fire when the player enters playing.
+        const idx = this.tierIndex();
+        if (this._lastIdx === -1) {
+            this._lastIdx = idx;
+            return;
+        }
+        if (idx > this._lastIdx) {
+            const t = this.tiers[idx];
+            this._flashTimer = 180;
+            // Big banner — uses the existing shopMessage system so it
+            // shows over the gameplay HUD. Color pulled from the tier.
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = {
+                    text: `★ RANK UP — ${t.name} ★`,
+                    timer: 240,
+                    color: t.color
+                };
+            }
+            // Optional sfx
+            if (typeof audio !== 'undefined' && audio.play) {
+                audio.play('keyPickup', { throttle: 200 });
+            }
+        }
+        this._lastIdx = idx;
+        if (this._flashTimer > 0) this._flashTimer--;
+    },
+
+    // === HUD draw — top-left, beneath the existing UI overlay area ===
+    // Persistent badge: shows tier name + icon + small progress bar
+    // toward the next tier. Shown during gameplay AND on dead/won/
+    // stageComplete screens (so the kid can see the rank go up after a
+    // boss kill is finalized at stageComplete).
+    draw() {
+        // Show during gameplay AND endgame screens, but not during the
+        // intro/character-select (where we draw a bigger save panel).
+        if (gameState === 'intro' || gameState === 'charSelect' ||
+            gameState === 'midCharSelect') return;
+        if (typeof save === 'undefined') return;
+
+        const idx = this.tierIndex();
+        const t = this.tiers[idx];
+        const next = this.tiers[idx + 1];
+        const points = this.points();
+
+        // Layout — top-left, well under the centered ui-overlay (which
+        // sits at top:20). Pinned to the canvas, not the document.
+        const x = 14;
+        const y = 14;
+        const w = 168;
+        const h = 50;
+
+        ctx.save();
+
+        // Backdrop with rank-tier accent border
+        ctx.fillStyle = 'rgba(8, 8, 16, 0.65)';
+        ctx.fillRect(x, y, w, h);
+        // Rank-up flash glow on the panel border
+        const flashT = this._flashTimer > 0 ? Math.min(1, this._flashTimer / 60) : 0;
+        ctx.strokeStyle = t.glow;
+        ctx.shadowColor = t.glow;
+        ctx.shadowBlur = 8 + flashT * 16;
+        ctx.lineWidth = 1.5 + flashT * 1.5;
+        ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+        ctx.shadowBlur = 0;
+
+        // Shield/diamond icon at far left (rendered as the tier's icon
+        // glyph for now — emoji-ish but compact).
+        ctx.fillStyle = t.color;
+        ctx.shadowColor = t.glow;
+        ctx.shadowBlur = 6;
+        ctx.font = 'bold 18px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(t.icon, x + 22, y + 25);
+        ctx.shadowBlur = 0;
+
+        // Tier name + rank-up flash arrow
+        ctx.fillStyle = t.color;
+        ctx.shadowColor = t.glow;
+        ctx.shadowBlur = 4;
+        ctx.font = 'bold 12px "Courier New", monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(t.name, x + 44, y + 16);
+        ctx.shadowBlur = 0;
+
+        // RP (rank points) display below the name
+        ctx.fillStyle = '#aabbcc';
+        ctx.font = '10px "Courier New", monospace';
+        if (next) {
+            const span = next.threshold - t.threshold;
+            const into = points - t.threshold;
+            ctx.fillText(`${into} / ${span} RP`, x + 44, y + 30);
+        } else {
+            ctx.fillText(`${points} RP — MAX`, x + 44, y + 30);
+        }
+
+        // Progress bar at the bottom of the badge
+        const barX = x + 44;
+        const barY = y + h - 9;
+        const barW = w - 52;
+        const barH = 4;
+        ctx.fillStyle = 'rgba(40, 40, 60, 0.8)';
+        ctx.fillRect(barX, barY, barW, barH);
+        let frac;
+        if (next) {
+            const span = next.threshold - t.threshold;
+            frac = span > 0 ? (points - t.threshold) / span : 1;
+        } else {
+            frac = 1;
+        }
+        frac = Math.max(0, Math.min(1, frac));
+        ctx.fillStyle = t.color;
+        ctx.shadowColor = t.glow;
+        ctx.shadowBlur = 4;
+        ctx.fillRect(barX, barY, barW * frac, barH);
+        ctx.shadowBlur = 0;
+
+        // Rank-up flash overlay text — big "RANK UP!" pulse over the
+        // badge for the first second of the flash window.
+        if (this._flashTimer > 120) {
+            const a = (this._flashTimer - 120) / 60;
+            ctx.globalAlpha = a;
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = t.glow;
+            ctx.shadowBlur = 14;
+            ctx.font = 'bold 14px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('★ RANK UP ★', x + w / 2, y + h / 2);
+        }
+
+        ctx.restore();
+    }
+};
+// =====================================================================
+
+
+// =====================================================================
+// === STYLE COMBAT — STEPS 2..13 ======================================
+// =====================================================================
+// Big additive feature drop. All globals namespaced under SC (Style
+// Combat) plus a few targeted patches above. Removing everything below
+// (and the SC.* call sites injected up in handleEnemyKilled, the bullet
+// loop, the damage paths, and the gameLoop tick/draw spots) reverts the
+// whole feature cleanly.
+//
+// Subsystems contained here:
+//   1. SC.momentum      — speed/near-miss → damage buff
+//   2. SC.transformChain — mid-combo X transforms → bonus damage window
+//   3. SC.synergy        — companion pair bonuses + banter
+//   4. SC.bossAdapt      — adaptive boss reactions to player habits
+//   5. SC.bounty         — flagged elite kills
+//   6. SC.armor          — armor-break enemies
+//   7. SC.corrupted      — risk/reward toggles
+//   8. SC.overclock      — fillable charge → 8s berserk
+//   9. SC.escape         — collapsing-environment post-boss escape
+//  10. SC.reactiveUI     — color shift + speed-lines reading from STYLE
+//  11. SC.adaptiveMusic  — extra layer at high style ranks
+// ---------------------------------------------------------------------
+
+const SC = {
+    enabled: true,                   // master toggle (debug only)
+
+    // === Feature flags ===
+    // Steps 1-4 (default ON): the in-fight style meter, momentum/near-miss
+    // damage bonus + RP feed, reactive UI (canvas border + speed lines).
+    // Everything else is in-code but OFF by default. Flip a flag (via the
+    // dev panel "[SC] Enable all" button or by hand) to test those later
+    // subsystems individually. This lets the kid play through the smaller
+    // changes first without the bigger systems firing surprise effects.
+    flags: {
+        momentum:        true,    // step 2  — speed buff + near-miss
+        reactiveUI:      true,    // step 4  — canvas border color shift
+        speedLines:      true,    // step 4  — S+ rank screen-edge lines
+        transformChain:  false,   // step 5  — X mid-combo bonus window
+        synergy:         false,   // step 7  — companion pair bonuses
+        bossAdapt:       false,   // step 8  — boss biases attacks
+        bounty:          false,   // step 9  — ★ marked elite kills
+        armor:           false,   // step 10 — armor-break bar
+        corrupted:       false,   // step 11 — risk/reward upgrades
+        overclock:       false,   // step 12 — Y-key berserk mode
+        escape:          false,   // step 14 — post-boss collapsing escape
+        adaptiveMusic:   false    // step 6  — pitch-shift at S+ rank
+    },
+
+    // === input edge-detect storage ===
+    _xPressedHistoryFrames: 0,       // tracks last X press for transform-chain
+
+    // ========== MOMENTUM ==========
+    // Tracks how aggressively the player is moving. Above a velocity
+    // threshold the player gets a small damage bonus (+15%) and feeds
+    // tiny style points. Near-misses (an enemy bullet that whips by
+    // within a small radius without hitting) give a bigger pulse.
+    momentum: {
+        // Rolling speed metric — averaged absolute velocity over ~30f.
+        // Avoids flicker from a single fast frame.
+        speed: 0,
+        // 0..1 — how strongly the bonus is on. UI uses this.
+        intensity: 0,
+        // Frames since last near-miss. UI shows a flash.
+        nearMissTimer: 0,
+        // Set whenever an enemy bullet passes within 24px without hit.
+        // Prevents counting the same bullet repeatedly.
+        seenBullets: new WeakSet()
+    },
+
+    // ========== TRANSFORM CHAIN ==========
+    // Pressing X mid-combo (during the 30f after a melee or shot) opens a
+    // 45f bonus-damage window during which the next attack is +60% dmg
+    // and triggers a flashy double-trail. A small streak counter shows
+    // how many you've chained in a row before the window resets.
+    transformChain: {
+        windowTimer: 0,            // 0..45 — counts down active window
+        bonus: 1.6,                // dmg multiplier inside the window
+        recentAttackTimer: 0,      // counts down 30f after attack/shot
+        chainCount: 0,             // chains since last expiration
+        flashTimer: 0              // visual pulse on the player
+    },
+
+    // ========== COMPANION SYNERGY ==========
+    // Tracks how often each pair of allies is co-active. The longer two
+    // allies coexist the higher their pair-synergy meter; at 100% the
+    // duo deals +25% damage and flashes a banter line periodically.
+    // Stored as a map: "JADE_STORM" → 0..1.
+    synergy: {
+        pairLevels: {},        // pair-key → 0..1 progression
+        pairKey(a, b) {
+            const A = (a && a.def && a.def.name) || '';
+            const B = (b && b.def && b.def.name) || '';
+            return A < B ? A + '_' + B : B + '_' + A;
+        },
+        // Per-frame: tick all active pairs upward, fire the buff render
+        // and occasional banter. Cheap O(allies^2) — there are at most
+        // ~7 allies so worst case ~50 comparisons.
+        tick() {
+            if (typeof allies === 'undefined') return;
+            const live = allies.filter(a => a.hp > 0);
+            for (let i = 0; i < live.length; i++) {
+                for (let j = i + 1; j < live.length; j++) {
+                    const k = this.pairKey(live[i], live[j]);
+                    const cur = this.pairLevels[k] || 0;
+                    if (cur < 1) {
+                        // Slow climb — 60s of co-active to max.
+                        this.pairLevels[k] = Math.min(1, cur + 1 / (60 * 60));
+                    }
+                    // Periodic banter — fires once every ~10s while pair > 0.5
+                    if (cur > 0.5 && Math.random() < 0.0014) {
+                        this.fireBanter(live[i], live[j]);
+                    }
+                }
+            }
+            // Banter pop life-tick
+            for (let i = this.banterPops.length - 1; i >= 0; i--) {
+                const p = this.banterPops[i];
+                p.y += p.vy;
+                p.life--;
+                if (p.life <= 0) this.banterPops.splice(i, 1);
+            }
+        },
+        // Returns multiplier (1..1.25) based on the strongest active pair.
+        // Damage hooks read this to scale ally output.
+        damageMultiplier() {
+            if (typeof allies === 'undefined') return 1;
+            const live = allies.filter(a => a.hp > 0);
+            let best = 0;
+            for (let i = 0; i < live.length; i++) {
+                for (let j = i + 1; j < live.length; j++) {
+                    const k = this.pairKey(live[i], live[j]);
+                    const v = this.pairLevels[k] || 0;
+                    if (v > best) best = v;
+                }
+            }
+            return 1 + best * 0.25;
+        },
+        // Banter lines — short, in-character. Picked at random based on
+        // ally name. Uses the floatTexts global (same system that draws
+        // PARRY!, CRIT!, etc.) so visuals are consistent.
+        banterPops: [],
+        BANTER_LINES: {
+            JADE_STORM:  ['"On your six!"', '"Sky\'s yours, ground\'s mine!"'],
+            JADE_EMBER:  ['"Hot drop!"', '"Cover me, EMBER!"'],
+            JADE_VIPER:  ['"Flank! Now!"', '"Boom and bite!"'],
+            JADE_FROST:  ['"Freeze \'em, slice \'em!"', '"Subzero combo!"'],
+            JADE_NULL:   ['"Dimension shift!"', '"Phase out!"'],
+            JADE_ECHO:   ['"Mirror flank!"', '"Two of us!"'],
+            STORM_EMBER: ['"Thunder & fire!"', '"Storm-burn combo!"'],
+            STORM_VIPER: ['"Lightning strike!"', '"Cycle them!"'],
+            STORM_FROST: ['"Sky storm rising!"', '"Hailstrike!"'],
+            STORM_NULL:  ['"Reality bend!"', '"Strike from nowhere!"'],
+            STORM_ECHO:  ['"Twin thunder!"', '"Stereo strike!"'],
+            EMBER_VIPER: ['"Burn poison combo!"', '"Light \'em up!"'],
+            EMBER_FROST: ['"Steam blast!"', '"Hot & cold!"'],
+            EMBER_NULL:  ['"Phase fire!"', '"Hot rift!"'],
+            EMBER_ECHO:  ['"Twin flames!"', '"Hold the line!"'],
+            VIPER_FROST: ['"Freeze \'n strike!"', '"Cold steel!"'],
+            VIPER_NULL:  ['"Fade and bite!"', '"They can\'t see us!"'],
+            VIPER_ECHO:  ['"Double strike!"', '"Mirror move!"'],
+            FROST_NULL:  ['"Cold rift!"', '"Echo of ice!"'],
+            FROST_ECHO:  ['"Twin frost!"', '"Sub-zero echo!"'],
+            NULL_ECHO:   ['"Phase echo!"', '"Reality split!"']
+        },
+        fireBanter(a, b) {
+            const k = this.pairKey(a, b);
+            const lines = this.BANTER_LINES[k] || ['"Got your back!"', '"Lock in!"'];
+            const text = lines[Math.floor(Math.random() * lines.length)];
+            // Use the speaker's color
+            const speaker = Math.random() < 0.5 ? a : b;
+            this.banterPops.push({
+                x: speaker.x + speaker.w / 2,
+                y: speaker.y - 16,
+                vy: -0.6,
+                life: 90,
+                text: text,
+                color: speaker.def.color
+            });
+        },
+        drawBanter() {
+            if (this.banterPops.length === 0) return;
+            ctx.save();
+            ctx.font = 'bold 11px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            for (const p of this.banterPops) {
+                const a = Math.min(1, p.life / 60);
+                ctx.globalAlpha = a;
+                ctx.fillStyle = p.color;
+                ctx.shadowColor = p.color;
+                ctx.shadowBlur = 6;
+                ctx.fillText(p.text, p.x - camera.x, p.y);
+            }
+            ctx.restore();
+        }
+    },
+
+    // ========== ADAPTIVE BOSS AI ==========
+    // Tracks the player's preferred action (shoot/melee/dash/transform)
+    // by counting them over a rolling window. The boss reads the most-
+    // used action and biases its reactions: heavy shooters get cluster
+    // fire, melee-heavy players get knockback, dash-spammers get area
+    // suppression. Patched into the boss attack-pattern picker via the
+    // boss adaptModeFor() lookup.
+    bossAdapt: {
+        counts: { shoot: 0, melee: 0, dash: 0, transform: 0, parry: 0 },
+        decayTimer: 0,
+        observe(action) { if (this.counts[action] !== undefined) this.counts[action]++; },
+        tick() {
+            this.decayTimer++;
+            // Decay every 5s so the read stays current
+            if (this.decayTimer > 300) {
+                for (const k in this.counts) this.counts[k] = Math.floor(this.counts[k] * 0.7);
+                this.decayTimer = 0;
+            }
+        },
+        dominant() {
+            let best = null, bestN = -1;
+            for (const k in this.counts) {
+                if (this.counts[k] > bestN) { bestN = this.counts[k]; best = k; }
+            }
+            // Need at least a few observations to commit
+            return bestN >= 5 ? best : null;
+        },
+        // Returns a label boss code can read, e.g. 'shoot' → boss prefers
+        // close-range shotgun spread; 'melee' → boss adds a knockback
+        // pulse before its next melee; 'dash' → boss area-spreads its
+        // shots so dashing through doesn't always work.
+        modeForBoss() { return this.dominant() || 'mixed'; }
+    },
+
+    // ========== BOUNTY TARGETS ==========
+    // After a level loads, randomly tag one elite enemy as a "BOUNTY".
+    // Bounty enemies have a ★ marker, +60% HP, and pay out 4× scrap and
+    // an immediate +200 RP on death. Designed to give the player a
+    // recognizable in-level "go that way" hook.
+    bounty: {
+        target: null,        // points at an enemy
+        rewardClaimed: false,
+        // Called at buildLevel completion. Picks one elite enemy and
+        // tags it. Re-tags whenever the enemy dies and another is alive.
+        pickTarget() {
+            this.target = null;
+            this.rewardClaimed = false;
+            if (typeof enemies === 'undefined' || enemies.length === 0) return;
+            // Prefer elites: heavy/sniper/sentinel/screamer/mech/scorpion/hydraWalker
+            const elites = enemies.filter(e =>
+                ['heavy','sniper','sentinel','screamer','mech','scorpion','hydraWalker','ricochet'].includes(e.type)
+            );
+            const pool = elites.length > 0 ? elites : enemies.filter(e => e.type !== 'boss' && e.type !== 'miniboss');
+            if (pool.length === 0) return;
+            const t = pool[Math.floor(Math.random() * pool.length)];
+            t.bounty = true;
+            t.maxHp = Math.round(t.maxHp * 1.6);
+            t.hp = t.maxHp;
+            this.target = t;
+        },
+        // Called from handleEnemyKilled when bounty is killed.
+        onKill(e) {
+            if (!e.bounty || this.rewardClaimed) return;
+            this.rewardClaimed = true;
+            // Big scrap dump
+            for (let c = 0; c < 30; c++) {
+                const ang = Math.random() * Math.PI * 2;
+                const spd = 2 + Math.random() * 4.5;
+                if (typeof coinPickups !== 'undefined') {
+                    coinPickups.push({
+                        x: e.x + e.w / 2,
+                        y: e.y + e.h / 2,
+                        vx: Math.cos(ang) * spd,
+                        vy: Math.sin(ang) * spd - 3,
+                        value: 1, life: 700,
+                        scrap: true
+                    });
+                }
+            }
+            // Immediate rank-feed
+            if (typeof save !== 'undefined') save.bumpStat('totalKills', 4);
+            if (typeof STYLE !== 'undefined') STYLE.add(120, 'BOUNTY');
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: '★ BOUNTY ELIMINATED — +30 SCRAP / +RP ★', timer: 200, color: '#ffdd44' };
+            }
+            if (typeof spawnShockwave === 'function') spawnShockwave(e.x + e.w/2, e.y + e.h/2, 200, '#ffdd44');
+            if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 16);
+        },
+        // Called every frame from gameLoop draw — adds the ★ marker.
+        drawMarkers() {
+            if (!this.target || this.target.hp <= 0) return;
+            const e = this.target;
+            const px = e.x + e.w / 2 - camera.x;
+            const py = e.y - 24 + Math.sin(Date.now() / 200) * 3;
+            ctx.save();
+            ctx.fillStyle = '#ffdd44';
+            ctx.shadowColor = '#ffaa00';
+            ctx.shadowBlur = 10;
+            ctx.font = 'bold 18px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('★', px, py);
+            ctx.font = 'bold 9px "Courier New", monospace';
+            ctx.fillText('BOUNTY', px, py - 14);
+            ctx.restore();
+        }
+    },
+
+    // ========== ARMOR BREAK ==========
+    // Some enemies spawn with armor — a separate HP bar that absorbs
+    // 50% of incoming damage until shattered. Once shattered the enemy
+    // takes +30% damage from all sources. Visible blue bar above HP bar.
+    // Tagging happens in buildLevel after enemies are placed.
+    armor: {
+        // Tag a percent of elites with armor.
+        tagArmor() {
+            if (typeof enemies === 'undefined') return;
+            for (const e of enemies) {
+                if (e.type === 'boss' || e.type === 'miniboss') continue;
+                if (!['heavy','sentinel','mech','sniper','shielder'].includes(e.type)) continue;
+                if (Math.random() > 0.4) continue;
+                // 40% of elites get armor
+                e.armor = 80 + Math.floor(currentStage * 25);
+                e.armorMax = e.armor;
+                e.armorBroken = false;
+            }
+        },
+        // Apply armor reduction to incoming damage. Returns the modified
+        // damage value. Called from the bullet hit path.
+        applyDamage(e, dmg) {
+            if (!e || e.armor === undefined || e.armor <= 0) {
+                // Already broken — bonus damage
+                if (e && e.armorBroken) return Math.round(dmg * 1.3);
+                return dmg;
+            }
+            // Armor absorbs 50%
+            const absorbed = Math.min(e.armor, Math.round(dmg * 0.5));
+            e.armor -= absorbed;
+            const damageDealt = dmg - absorbed;
+            if (e.armor <= 0 && !e.armorBroken) {
+                e.armorBroken = true;
+                e.armor = 0;
+                // Cinematic break — sparks + slow-mo + banner
+                if (typeof spawnParticles === 'function') {
+                    spawnParticles(e.x + e.w/2, e.y + e.h/2, '#88ddff', 22, 6);
+                }
+                if (typeof spawnShockwave === 'function') spawnShockwave(e.x + e.w/2, e.y + e.h/2, 90, '#88ddff');
+                if (typeof applyHitStop === 'function') applyHitStop(3);
+                if (typeof floatTexts !== 'undefined') {
+                    floatTexts.push({ text: 'ARMOR BREAK!', x: e.x + e.w/2, y: e.y - 6, life: 50, color: '#88ddff' });
+                }
+                if (typeof STYLE !== 'undefined') STYLE.add(25, 'BREAK');
+            }
+            return damageDealt;
+        }
+    },
+
+    // ========== CORRUPTED UPGRADES ==========
+    // Risk/reward modifiers the player can opt into. Each adds power
+    // and a downside. Toggled via dev panel button (and a future shop
+    // entry). Currently three:
+    //   • BLOOD PACT  — +50% damage, take +25% damage
+    //   • GLASS SPEED — +35% move/firerate, max HP halved
+    //   • RAGE BOMB   — +75% damage when below 30% HP, no heals work
+    corrupted: {
+        bloodPact: false,
+        glassSpeed: false,
+        rageBomb: false,
+        // Bookkeeping for stat snapshots so toggles can revert cleanly
+        _snapshot: null,
+        toggle(name) {
+            if (this[name] === undefined) return;
+            this[name] = !this[name];
+            this._applyAll();
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = {
+                    text: this[name] ? `☠ CORRUPTED: ${name.toUpperCase()} ON` : `${name.toUpperCase()} OFF`,
+                    timer: 120,
+                    color: this[name] ? '#ff44dd' : '#888888'
+                };
+            }
+        },
+        // Apply (or revert) all corrupted effects to player stats.
+        // Snapshots the baseline first activation so toggling works.
+        _applyAll() {
+            if (typeof player === 'undefined') return;
+            if (!this._snapshot) {
+                this._snapshot = {
+                    speed: player.speed,
+                    fireRateMul: player.fireRateMul,
+                    maxHp: player.maxHp,
+                    dmgMul: player.dmgMul
+                };
+            }
+            // Reset to snapshot
+            const s = this._snapshot;
+            player.speed = s.speed;
+            player.fireRateMul = s.fireRateMul;
+            player.maxHp = s.maxHp;
+            player.dmgMul = s.dmgMul;
+            // Apply each
+            if (this.bloodPact) {
+                player.dmgMul *= 1.5;
+            }
+            if (this.glassSpeed) {
+                player.speed *= 1.35;
+                player.fireRateMul *= 1.35;
+                player.maxHp = Math.max(50, Math.round(player.maxHp * 0.5));
+                if (player.hp > player.maxHp) player.hp = player.maxHp;
+            }
+            // rageBomb is checked dynamically in damage paths, no static change
+        },
+        // Damage modifier on outgoing damage (for rageBomb low-hp surge).
+        outgoingMul() {
+            let m = 1;
+            if (this.rageBomb && typeof player !== 'undefined' && player.hp < player.maxHp * 0.3) {
+                m *= 1.75;
+            }
+            return m;
+        },
+        // Damage modifier on incoming damage.
+        incomingMul() {
+            let m = 1;
+            if (this.bloodPact) m *= 1.25;
+            return m;
+        },
+        anyOn() { return this.bloodPact || this.glassSpeed || this.rageBomb; },
+        drawHud() {
+            if (!this.anyOn()) return;
+            const x = 14;
+            const y = 70;
+            ctx.save();
+            ctx.font = 'bold 10px "Courier New", monospace';
+            ctx.fillStyle = '#ff44dd';
+            ctx.shadowColor = '#dd00aa';
+            ctx.shadowBlur = 6;
+            let line = 0;
+            const labels = [];
+            if (this.bloodPact) labels.push('☠ BLOOD PACT');
+            if (this.glassSpeed) labels.push('☠ GLASS SPEED');
+            if (this.rageBomb) labels.push('☠ RAGE BOMB');
+            for (const l of labels) {
+                ctx.fillText(l, x, y + line);
+                line += 12;
+            }
+            ctx.restore();
+        }
+    },
+
+    // ========== OVERCLOCK ==========
+    // Charge fills as the STYLE meter accumulates. When full (100%),
+    // press Y to enter overclock for 8 seconds: ×2 fire rate, ×1.6
+    // damage, gold trail, screen tint, faster rank gains.
+    overclock: {
+        charge: 0,           // 0..100
+        active: 0,           // frames remaining when active (480 = 8s @60fps)
+        keyHeld: false,
+        // Each style point also feeds 0.05 charge — cap at 100.
+        feed(amount) {
+            if (this.active > 0) return;
+            this.charge = Math.min(100, this.charge + amount * 0.05);
+        },
+        tick() {
+            if (this.active > 0) {
+                this.active--;
+                if (this.active <= 0) {
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: '⚡ OVERCLOCK ENDED ⚡', timer: 90, color: '#ff8844' };
+                    }
+                }
+                return;
+            }
+            // Listen for activation
+            const yDown = !!keys['KeyY'];
+            if (yDown && !this.keyHeld && this.charge >= 100 &&
+                gameState === 'playing' && !shopOpen) {
+                this.activate();
+            }
+            this.keyHeld = yDown;
+        },
+        activate() {
+            this.charge = 0;
+            this.active = 480;       // 8 seconds
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: '⚡⚡ OVERCLOCK — 8s ⚡⚡', timer: 200, color: '#ffdd44' };
+            }
+            if (typeof spawnShockwave === 'function') {
+                spawnShockwave(player.x + player.w/2, player.y + player.h/2, 200, '#ffdd44');
+            }
+            if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 16);
+            if (typeof critFlash !== 'undefined') critFlash = Math.min(1, critFlash + 0.4);
+            if (typeof audio !== 'undefined' && audio.play) audio.play('evolve');
+        },
+        // Damage multiplier while active.
+        dmgMul() { return this.active > 0 ? 1.6 : 1; },
+        // Fire rate multiplier while active.
+        fireRateMul() { return this.active > 0 ? 2.0 : 1; },
+        drawHud() {
+            // Bottom-center bar showing charge or active timer
+            const x = canvas.width / 2 - 80;
+            const y = canvas.height - 36;
+            const w = 160;
+            const h = 12;
+            ctx.save();
+            // Backdrop
+            ctx.fillStyle = 'rgba(8, 8, 16, 0.55)';
+            ctx.fillRect(x - 4, y - 14, w + 8, h + 18);
+            // Label
+            ctx.fillStyle = '#aabbcc';
+            ctx.font = 'bold 9px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(this.active > 0 ? 'OVERCLOCK ACTIVE' : 'OVERCLOCK [Y]', x + w/2, y - 3);
+            // Bar bg
+            ctx.fillStyle = 'rgba(40, 40, 60, 0.8)';
+            ctx.fillRect(x, y, w, h);
+            // Fill
+            let frac;
+            let col, glow;
+            if (this.active > 0) {
+                frac = this.active / 480;
+                col = '#ffdd44';
+                glow = '#ff8844';
+            } else {
+                frac = this.charge / 100;
+                col = this.charge >= 100 ? '#ffdd44' : '#88ddff';
+                glow = this.charge >= 100 ? '#ffaa00' : '#44aaff';
+            }
+            ctx.fillStyle = col;
+            ctx.shadowColor = glow;
+            ctx.shadowBlur = this.charge >= 100 || this.active > 0 ? 10 : 4;
+            ctx.fillRect(x, y, w * frac, h);
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = glow;
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+            ctx.restore();
+        }
+    },
+
+    // ========== ESCAPE SEQUENCE ==========
+    // Triggered after a boss kill: 6 seconds of debris falling from the
+    // top of the screen as the player has to keep moving (no time
+    // pressure mechanically — just cinematic flair). Player gets +50%
+    // speed during this window.
+    escape: {
+        timer: 0,           // frames remaining
+        debris: [],         // falling chunks
+        speedBoost: 1,
+        spawnNext: 0,
+        trigger() {
+            if (this.timer > 0) return;     // already running
+            this.timer = 360;       // 6 seconds @60fps
+            this.speedBoost = 1.5;
+            this.debris = [];
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: '⚠ ESCAPE — STRUCTURE COLLAPSING ⚠', timer: 200, color: '#ff4422' };
+            }
+            if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 14);
+        },
+        tick() {
+            if (this.timer <= 0) return;
+            this.timer--;
+            // Continuous low-frequency rumble
+            if (typeof screenShake !== 'undefined' && this.timer % 5 === 0) {
+                screenShake = Math.max(screenShake, 4);
+            }
+            // Spawn debris periodically
+            this.spawnNext--;
+            if (this.spawnNext <= 0) {
+                this.spawnNext = 6 + Math.floor(Math.random() * 8);
+                const camX = (typeof camera !== 'undefined') ? camera.x : 0;
+                this.debris.push({
+                    x: camX + Math.random() * canvas.width,
+                    y: -40 - Math.random() * 60,
+                    vx: (Math.random() - 0.5) * 1.5,
+                    vy: 4 + Math.random() * 3,
+                    size: 14 + Math.random() * 22,
+                    rot: 0,
+                    rotSpd: (Math.random() - 0.5) * 0.2,
+                    life: 200,
+                    color: ['#553322','#664433','#776655'][Math.floor(Math.random()*3)]
+                });
+            }
+            // Apply speed boost while active
+            if (typeof player !== 'undefined' && !this._boostApplied) {
+                player._scOriginalSpeed = player.speed;
+                player.speed *= this.speedBoost;
+                this._boostApplied = true;
+            }
+            // Tick debris
+            for (let i = this.debris.length - 1; i >= 0; i--) {
+                const d = this.debris[i];
+                d.x += d.vx;
+                d.y += d.vy;
+                d.vy += 0.12;
+                d.rot += d.rotSpd;
+                d.life--;
+                // Check player collision (chip damage)
+                if (typeof player !== 'undefined' && player.invincible <= 0) {
+                    const dx = (player.x + player.w / 2) - d.x;
+                    const dy = (player.y + player.h / 2) - d.y;
+                    if (dx*dx + dy*dy < d.size * d.size) {
+                        player.hp -= 8;
+                        player.invincible = 25;
+                        if (typeof hitFlash !== 'undefined') hitFlash = Math.min(1, hitFlash + 0.3);
+                        if (typeof spawnParticles === 'function') {
+                            spawnParticles(d.x, d.y, d.color, 12, 4);
+                        }
+                        this.debris.splice(i, 1);
+                        continue;
+                    }
+                }
+                if (d.y > 600 || d.life <= 0) this.debris.splice(i, 1);
+            }
+            // End-of-window: revert speed
+            if (this.timer <= 0 && this._boostApplied) {
+                if (typeof player !== 'undefined' && player._scOriginalSpeed !== undefined) {
+                    player.speed = player._scOriginalSpeed;
+                    delete player._scOriginalSpeed;
+                }
+                this._boostApplied = false;
+                this.debris = [];
+                if (typeof shopMessage !== 'undefined') {
+                    shopMessage = { text: '✓ ESCAPED', timer: 80, color: '#88ff88' };
+                }
+            }
+        },
+        draw() {
+            if (this.timer <= 0 || this.debris.length === 0) return;
+            ctx.save();
+            for (const d of this.debris) {
+                ctx.save();
+                ctx.translate(d.x - camera.x, d.y);
+                ctx.rotate(d.rot);
+                ctx.fillStyle = d.color;
+                ctx.shadowColor = '#000000';
+                ctx.shadowBlur = 4;
+                ctx.fillRect(-d.size/2, -d.size/2, d.size, d.size);
+                ctx.strokeStyle = '#222';
+                ctx.lineWidth = 1.5;
+                ctx.strokeRect(-d.size/2, -d.size/2, d.size, d.size);
+                ctx.restore();
+            }
+            // Vignette tint
+            const a = Math.min(0.18, this.timer / 360 * 0.18);
+            ctx.fillStyle = `rgba(120, 30, 30, ${a})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.restore();
+        }
+    },
+
+    // ========== REACTIVE UI ==========
+    // Reads STYLE rank to color the canvas border + adjust speed-line
+    // intensity. Cheap — every frame just adjusts CSS on the canvas.
+    reactiveUI: {
+        lastIdx: -1,
+        tick() {
+            if (typeof STYLE === 'undefined' || typeof canvas === 'undefined') return;
+            const idx = STYLE.currentRankIndex();
+            if (idx === this.lastIdx) return;
+            this.lastIdx = idx;
+            const rank = STYLE.ranks[idx];
+            // Update canvas border + box-shadow to the rank color
+            try {
+                canvas.style.borderColor = rank.color;
+                const intensity = 30 + idx * 6;
+                canvas.style.boxShadow = `0 0 ${intensity}px ${rank.glow}`;
+            } catch (e) { /* ignore — non-DOM env */ }
+        },
+        // Speed-lines overlay at S+ ranks. Drawn bottom-of-the-stack.
+        drawSpeedLines() {
+            if (typeof STYLE === 'undefined') return;
+            const idx = STYLE.currentRankIndex();
+            if (idx < 4) return;       // S = idx 4
+            const intensity = (idx - 3) * 0.05;
+            ctx.save();
+            ctx.globalAlpha = intensity;
+            ctx.strokeStyle = STYLE.ranks[idx].color;
+            ctx.lineWidth = 1.2;
+            const t = Date.now() / 80;
+            for (let i = 0; i < 8; i++) {
+                const y = ((t * 5 + i * 73) % canvas.height);
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(60 + Math.sin(t / 30 + i) * 30, y);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(canvas.width, y + 30);
+                ctx.lineTo(canvas.width - 60 - Math.cos(t / 30 + i) * 30, y + 30);
+                ctx.stroke();
+            }
+            ctx.restore();
+        }
+    },
+
+    // ========== ADAPTIVE MUSIC ==========
+    // At S+ rank, push the music pitch up for an "intensity" feel. Uses
+    // the audio module's playbackRate if available; otherwise no-op.
+    adaptiveMusic: {
+        appliedRate: 1,
+        tick() {
+            if (typeof STYLE === 'undefined') return;
+            const idx = STYLE.currentRankIndex();
+            // S=4, SS=5, SSS=6 → 1.05, 1.1, 1.15
+            const target = idx >= 4 ? 1 + (idx - 3) * 0.05 : 1;
+            if (target === this.appliedRate) return;
+            this.appliedRate = target;
+            // Try to apply on the audio module's underlying source if exposed
+            try {
+                if (typeof audio !== 'undefined' && audio._musicSource && audio._musicSource.playbackRate) {
+                    audio._musicSource.playbackRate.setValueAtTime(target, audio._musicSource.context.currentTime);
+                }
+            } catch (e) { /* audio module doesn't expose playbackRate; that's fine */ }
+        }
+    },
+
+    // ========== TOP-LEVEL TICK ==========
+    // Single per-frame tick that runs all subsystems. Called from
+    // gameLoop. Cheap; many internals no-op outside playing/finale.
+    // Each subsystem only runs if its flag is ON — stepwise rollout.
+    tick() {
+        if (!this.enabled) return;
+        // Momentum: rolling speed metric over ~30 frames
+        if (this.flags.momentum && typeof player !== 'undefined') {
+            const v = Math.abs(player.vx || 0) + Math.abs(player.vy || 0) * 0.5;
+            this.momentum.speed = this.momentum.speed * 0.9 + v * 0.1;
+            // Intensity 0..1 — peaks around 12 px/frame total movement
+            this.momentum.intensity = Math.max(0, Math.min(1, (this.momentum.speed - 4) / 8));
+            if (this.momentum.nearMissTimer > 0) this.momentum.nearMissTimer--;
+            // Near-miss detection — scan enemy bullets within 30px that we
+            // haven't already counted. Cheap: most frames empty.
+            if (typeof enemyBullets !== 'undefined' && gameState === 'playing') {
+                for (const eb of enemyBullets) {
+                    if (this.momentum.seenBullets.has(eb)) continue;
+                    const dx = eb.x - (player.x + player.w / 2);
+                    const dy = eb.y - (player.y + player.h / 2);
+                    const d2 = dx*dx + dy*dy;
+                    // Within 30px but not within 12px (which would be a hit)
+                    if (d2 < 30*30 && d2 > 12*12) {
+                        this.momentum.seenBullets.add(eb);
+                        // Only count if traveling roughly past the player
+                        // (relative motion cancels — close after motion: miss)
+                        const futDx = (eb.x + eb.vx) - (player.x + player.w / 2);
+                        const futDy = (eb.y + eb.vy) - (player.y + player.h / 2);
+                        if (futDx*futDx + futDy*futDy > d2) {
+                            this.momentum.nearMissTimer = 25;
+                            if (typeof STYLE !== 'undefined') STYLE.add(15, 'NEAR-MISS');
+                            if (this.flags.overclock) this.overclock.feed(15);
+                        }
+                    }
+                }
+            }
+        }
+        // Transform-chain decay (only if enabled)
+        if (this.flags.transformChain) {
+            if (this.transformChain.windowTimer > 0) this.transformChain.windowTimer--;
+            if (this.transformChain.recentAttackTimer > 0) this.transformChain.recentAttackTimer--;
+            if (this.transformChain.flashTimer > 0) this.transformChain.flashTimer--;
+            if (this.transformChain.windowTimer === 0 && this.transformChain.chainCount > 0) {
+                // Window expired — chain resets
+                this.transformChain.chainCount = 0;
+            }
+        }
+        // Other systems — gated
+        if (this.flags.synergy)       this.synergy.tick();
+        if (this.flags.bossAdapt)     this.bossAdapt.tick();
+        if (this.flags.overclock)     this.overclock.tick();
+        if (this.flags.escape)        this.escape.tick();
+        if (this.flags.reactiveUI)    this.reactiveUI.tick();
+        if (this.flags.adaptiveMusic) this.adaptiveMusic.tick();
+    },
+
+    // ========== TOP-LEVEL DRAW ==========
+    draw() {
+        if (!this.enabled) return;
+        // Speed lines (bottom-most of SC overlays so HUD reads on top)
+        if (this.flags.speedLines)   this.reactiveUI.drawSpeedLines();
+        // Bounty marker on world enemies
+        if (this.flags.bounty)       this.bounty.drawMarkers();
+        // Banter pops (world space)
+        if (this.flags.synergy)      this.synergy.drawBanter();
+        // Escape sequence overlay
+        if (this.flags.escape)       this.escape.draw();
+        // HUDs (screen space)
+        if (this.flags.corrupted)    this.corrupted.drawHud();
+        if (this.flags.overclock)    this.overclock.drawHud();
+        if (this.flags.momentum)     this.drawMomentumHud();
+        if (this.flags.transformChain) this.drawTransformChainHud();
+    },
+
+    // Small overlay near the player indicating active momentum bonus.
+    drawMomentumHud() {
+        if (!this.momentum) return;
+        if (this.momentum.intensity < 0.2 && this.momentum.nearMissTimer <= 0) return;
+        if (typeof player === 'undefined') return;
+        const px = player.x + player.w / 2 - camera.x;
+        const py = player.y - 14;
+        ctx.save();
+        if (this.momentum.intensity > 0.2) {
+            ctx.globalAlpha = this.momentum.intensity * 0.7;
+            ctx.fillStyle = '#88ffdd';
+            ctx.shadowColor = '#22ffaa';
+            ctx.shadowBlur = 8;
+            ctx.font = 'bold 9px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            const pct = Math.round(this.momentumDmgMul() * 100 - 100);
+            if (pct > 0) ctx.fillText(`+${pct}% MOMENTUM`, px, py);
+        }
+        if (this.momentum.nearMissTimer > 0) {
+            ctx.globalAlpha = Math.min(1, this.momentum.nearMissTimer / 25);
+            ctx.fillStyle = '#ffff44';
+            ctx.shadowColor = '#ff8800';
+            ctx.shadowBlur = 10;
+            ctx.font = 'bold 12px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('⚡ NEAR-MISS ⚡', px, py - 16);
+        }
+        ctx.restore();
+    },
+
+    // Compact HUD next to the player when transform-chain window open.
+    drawTransformChainHud() {
+        if (this.transformChain.windowTimer <= 0) return;
+        if (typeof player === 'undefined') return;
+        const px = player.x + player.w / 2 - camera.x;
+        const py = player.y - 28;
+        const a = Math.min(1, this.transformChain.windowTimer / 45);
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.fillStyle = '#ff44dd';
+        ctx.shadowColor = '#dd00aa';
+        ctx.shadowBlur = 10;
+        ctx.font = 'bold 11px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`✦ CHAIN x${this.transformChain.chainCount} ✦`, px, py);
+        ctx.restore();
+    },
+
+    // === Lookups for damage hooks ===
+    // Returns total outgoing damage multiplier from all SC systems.
+    // Called from bullet+melee hits (patched to apply this).
+    outgoingDmgMul() {
+        let m = 1;
+        // Momentum (only if step 2 enabled)
+        if (this.flags.momentum && this.momentum.intensity > 0.6) m *= 1.15;
+        // Transform chain (only if step 5 enabled)
+        if (this.flags.transformChain && this.transformChain.windowTimer > 0) m *= this.transformChain.bonus;
+        // Overclock (only if step 12 enabled)
+        if (this.flags.overclock) m *= this.overclock.dmgMul();
+        // Corrupted upgrades (only if step 11 enabled)
+        if (this.flags.corrupted) m *= this.corrupted.outgoingMul();
+        return m;
+    },
+    momentumDmgMul() {
+        return (this.flags.momentum && this.momentum.intensity > 0.6) ? 1.15 : 1;
+    },
+
+    // Called once per hit so the transform-chain window CONSUMES on first
+    // applied hit. Outgoing-mul is read first; this then expires it.
+    consumeTransformChain() {
+        if (!this.flags.transformChain) return;
+        if (this.transformChain.windowTimer > 0) {
+            this.transformChain.windowTimer = 0;
+            this.transformChain.chainCount++;
+            this.transformChain.flashTimer = 30;
+            if (typeof STYLE !== 'undefined') STYLE.add(20, 'CHAIN');
+        }
+    },
+
+    // Called from the input handler when X is pressed. If a recent
+    // attack occurred, opens the bonus damage window.
+    onTransformPressed() {
+        if (this.flags.transformChain && this.transformChain.recentAttackTimer > 0) {
+            this.transformChain.windowTimer = 45;
+            this.transformChain.flashTimer = 30;
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: '✦ TRANSFORM CHAIN OPEN ✦', timer: 60, color: '#ff44dd' };
+            }
+        }
+        if (this.flags.bossAdapt) this.bossAdapt.observe('transform');
+    },
+
+    // Called whenever the player attacks (shoot/melee). Flags a window
+    // for transform-chain to read.
+    onPlayerAttack(kind) {
+        if (this.flags.transformChain) this.transformChain.recentAttackTimer = 30;
+        if (this.flags.bossAdapt) {
+            if (kind === 'shoot') this.bossAdapt.observe('shoot');
+            else if (kind === 'melee') this.bossAdapt.observe('melee');
+        }
+    }
+};
+
+// =====================================================================
+// === HOOKS — connect SC into existing game logic =====================
+// =====================================================================
+
+// 1) Per-frame tick + draw
+//    Inserted into gameLoop: tick() in the tick block, draw() near the
+//    top of the HUD layer. We patch via a wrap so we don't have to edit
+//    the existing gameLoop again — just save the old draw and replace.
+
+// 2) Buff hook for bullet hits — read in the bullet damage path.
+//    We installed it inline above (search "e.hp -= dmg").
+
+// 3) Bounty: pick after buildLevel
+const _SC_origBuildLevel = (typeof buildLevel === 'function') ? buildLevel : null;
+if (_SC_origBuildLevel) {
+    buildLevel = function() {
+        _SC_origBuildLevel.apply(this, arguments);
+        // After enemies & layout are placed, tag bounty + armor (gated).
+        if (SC.flags.bounty)  { try { SC.bounty.pickTarget(); } catch (e) {} }
+        if (SC.flags.armor)   { try { SC.armor.tagArmor();    } catch (e) {} }
+    };
+}
+
+// 4) X-press observer — hook into the transform input by listening at
+//    keydown level. Edge-detected so holding doesn't keep firing.
+(function() {
+    let scXHeld = false;
+    function checkX() {
+        const xp = !!keys['KeyX'];
+        if (xp && !scXHeld && gameState === 'playing' &&
+            (SC.flags.transformChain || SC.flags.bossAdapt)) {
+            SC.onTransformPressed();
+        }
+        scXHeld = xp;
+        requestAnimationFrame(checkX);
+    }
+    requestAnimationFrame(checkX);
+})();
+
+// 5) Wire Y key for overclock activation — handled in SC.overclock.tick()
+//    which is called from SC.tick(). Already in place.
+
+// 6) Wire dev panel buttons for corrupted toggles
+(function() {
+    const panel = document.getElementById('dev-panel');
+    if (!panel) return;
+
+    // === Master enable button: pinned at TOP of the panel ===
+    // Inserted right after the <h3> so it's the first thing the kid
+    // sees when the panel opens. The corrupted/escape/overclock
+    // controls go at the bottom (still part of this same wrap below).
+    const topWrap = document.createElement('div');
+    topWrap.style.cssText = 'margin-bottom:8px; padding-bottom:6px; border-bottom: 1px dashed #553a22;';
+    topWrap.innerHTML = `
+        <div style="font-size:10px; color:#ff44dd; letter-spacing:1px; margin-bottom:4px;">⚡ STYLE COMBAT</div>
+        <div class="row">
+            <button class="util-btn" id="sc-enable-all" style="font-size:10px; border-color:#ff44dd; color:#ff88ee; flex:1; font-weight:bold;">▶ ENABLE STEPS 5-14</button>
+        </div>
+        <div style="font-size:9px; color:#999; margin-top:4px; line-height:1.3;">↑ flips on transform-chain, synergy, boss adapt, bounty, armor, corrupted, overclock, escape</div>
+    `;
+    // Insert AFTER the <h3> heading so it sits at the top of the panel.
+    const heading = panel.querySelector('h3');
+    if (heading && heading.nextSibling) {
+        panel.insertBefore(topWrap, heading.nextSibling);
+    } else {
+        panel.insertBefore(topWrap, panel.firstChild);
+    }
+
+    // === Corrupted upgrades + overclock + escape: appended at BOTTOM ===
+    // These are situational toggles, fine to leave at the end.
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'margin-top:8px; padding-top:6px; border-top: 1px dashed #553a22;';
+    wrap.innerHTML = `
+        <div style="font-size:10px; color:#ff44dd; letter-spacing:1px; margin-bottom:4px;">☠ CORRUPTED UPGRADES</div>
+        <div class="row" style="flex-wrap:wrap; gap:2px;">
+            <button class="util-btn" id="sc-blood"  style="font-size:9px; border-color:#ff44dd; color:#ff88ee">BLOOD PACT</button>
+            <button class="util-btn" id="sc-glass"  style="font-size:9px; border-color:#ff44dd; color:#ff88ee">GLASS SPEED</button>
+            <button class="util-btn" id="sc-rage"   style="font-size:9px; border-color:#ff44dd; color:#ff88ee">RAGE BOMB</button>
+        </div>
+        <div class="row" style="margin-top:4px;">
+            <button class="util-btn" id="sc-overclock" style="font-size:9px; border-color:#ffdd44; color:#ffee88">+50% OVERCLOCK</button>
+            <button class="util-btn" id="sc-escape"    style="font-size:9px; border-color:#ff4422; color:#ff8866">▶ ESCAPE TEST</button>
+        </div>
+    `;
+    panel.appendChild(wrap);
+
+    // Master enable button — flips on every step ≥ 5 in one click. Lets
+    // the kid test the bigger systems without having to edit the source.
+    document.getElementById('sc-enable-all').addEventListener('click', () => {
+        const f = SC.flags;
+        f.transformChain = true;
+        f.synergy = true;
+        f.bossAdapt = true;
+        f.bounty = true;
+        f.armor = true;
+        f.corrupted = true;
+        f.overclock = true;
+        f.escape = true;
+        f.adaptiveMusic = true;
+        // Bounty/armor only run from buildLevel — re-trigger for the
+        // current stage so the marker shows up immediately.
+        try {
+            if (typeof enemies !== 'undefined' && enemies.length > 0) {
+                SC.bounty.pickTarget();
+                SC.armor.tagArmor();
+            }
+        } catch (e) {}
+        if (typeof shopMessage !== 'undefined') {
+            shopMessage = { text: '⚡ STYLE COMBAT — ALL STEPS ENABLED ⚡', timer: 200, color: '#ff44dd' };
+        }
+    });
+
+    document.getElementById('sc-blood').addEventListener('click', () => SC.corrupted.toggle('bloodPact'));
+    document.getElementById('sc-glass').addEventListener('click', () => SC.corrupted.toggle('glassSpeed'));
+    document.getElementById('sc-rage').addEventListener('click', () => SC.corrupted.toggle('rageBomb'));
+    document.getElementById('sc-overclock').addEventListener('click', () => {
+        SC.overclock.charge = Math.min(100, SC.overclock.charge + 50);
+        if (typeof shopMessage !== 'undefined') shopMessage = { text: 'Overclock charge +50%', timer: 60, color: '#ffdd44' };
+    });
+    document.getElementById('sc-escape').addEventListener('click', () => SC.escape.trigger());
+})();
+
+// 7) Wrap the existing draw flow — append SC.draw() at the end. We do
+//    this with a simple wrapper around the gameLoop. The cleanest way
+//    given the existing function is to install a helper SC_drawLayer()
+//    and call it from inside gameLoop where we already inserted the
+//    PLAYER_RANK draw. But the easiest install-after-the-fact is:
+//    install a frame interval that pushes our layer right after the
+//    canvas paint settles. Instead we'll just patch the draw via the
+//    public hook approach: SC.draw() is called from gameLoop by the
+//    inline patch we'll add next to drawHUD().
+
+// 8) Tick hook — also called from gameLoop (we'll patch the call site).
+
+console.log('[SC] Style Combat module loaded. Press Y at full charge for OVERCLOCK.');
+
+// =====================================================================
+
+
+// =====================================================================
+// === EXPANDED ARSENAL — 6 weapons + alt-fire + overheat ==============
+// =====================================================================
+// Six new weapons appended via WEAPONS.push so we don't disturb the
+// existing tier numbering or any `WEAPONS[N]` index references in the
+// shop. Each weapon gets:
+//   • A unique gameplay flag (reflectBullets, gravityPull, etc.)
+//   • An alt-fire (V key) special move
+//   • An overheat replacement for cooldown — heat builds per shot,
+//     full heat forces a 90-frame cooldown
+// All systems gated under SC.flags.expandedArsenal so a single toggle
+// turns them on or off.
+// ---------------------------------------------------------------------
+
+(function pushExpandedArsenal() {
+    if (typeof WEAPONS === 'undefined') return;
+    // ENERGY KATANA was originally a tier 29 gun, but a katana should
+    // be a melee weapon — it's now a MELEE_WEAPONS entry below. We
+    // still push a placeholder here so the tier numbering for the
+    // remaining 5 weapons (gravity/piercer/drone/whip/corruption)
+    // stays at 30..34 and matches the dev panel buttons.
+    WEAPONS.push({
+        name: 'ENERGY KATANA (placeholder)', tier: 29, shopOnly: true, cost: 999999,
+        damage: 1, speed: 1, cooldown: 1, bullets: 1, spread: 0,
+        color: '#aaffff', glow: '#00ffff', size: 1, life: 1,
+        hidden: true,
+        flavor: 'Internal placeholder — see MELEE_WEAPONS for the real katana.'
+    });
+
+    // GRAVITY CANNON (tier 30) — arc-shot that on impact pulls all
+    // enemies within 280px toward the impact point for ~1.3s. The pull
+    // is significantly stronger now (was 0.8 → 3.5) so it feels like
+    // an actual black hole — enemies visibly slide toward the
+    // singularity even from across the screen. Read by the gravityPull
+    // field in SC.weaponEffects.tick().
+    WEAPONS.push({
+        name: 'GRAVITY CANNON', tier: 30, shopOnly: true, cost: 1300,
+        damage: 90, speed: 14, cooldown: 38, bullets: 1, spread: 0,
+        color: '#aa44ff', glow: '#cc88ff', size: 14, life: 110,
+        explosive: true, aoeRadius: 80,
+        gravityPull: { radius: 280, strength: 3.5, duration: 80 },
+        altFire: {
+            name: 'BLACK HOLE',
+            heatCost: 80,
+            execute(cx, cy, dir) {
+                bullets.push({
+                    x: cx, y: cy,
+                    vx: dir * 8, vy: -4,
+                    life: 90, damage: Math.round(180 * (player.dmgMul || 1)),
+                    color: '#ff44dd', glow: '#aa00ff', size: 28,
+                    explosive: true, aoeRadius: 110,
+                    // Massive black hole — bigger field, much stronger
+                    // pull, enemies get sucked from far away. Lasts 2.5s.
+                    gravityPull: { radius: 480, strength: 6.0, duration: 150 },
+                    pierce: false, hitEnemies: new Set(),
+                    altFire: true,
+                    blackHole: true        // marker for fancier visual
+                });
+            }
+        },
+        overheat: { perShot: 30, decay: 1.2 },
+        flavor: '🌌 Singularity round — sucks enemies in. V: BLACK HOLE (huge pull).'
+    });
+
+    // ARMOR PIERCER (tier 31) — bullets ignore enemy armor (the new
+    // armor-break system). Tagged with `armorPierce: true` and read by
+    // SC.armor.applyDamage so 100% of damage gets through.
+    WEAPONS.push({
+        name: 'ARMOR PIERCER', tier: 31, shopOnly: true, cost: 950,
+        damage: 110, speed: 26, cooldown: 18, bullets: 1, spread: 0,
+        color: '#ffeebb', glow: '#ffaa00', size: 8, life: 120,
+        pierce: true, armorPierce: true,
+        altFire: {
+            name: 'TUNGSTEN VOLLEY',
+            heatCost: 50,
+            execute(cx, cy, dir) {
+                for (let i = 0; i < 5; i++) {
+                    bullets.push({
+                        x: cx + dir * 18, y: cy + (Math.random() - 0.5) * 6,
+                        vx: dir * 32 + (Math.random() - 0.5) * 2,
+                        vy: (Math.random() - 0.5) * 1.5,
+                        life: 90, damage: Math.round(75 * (player.dmgMul || 1)),
+                        color: '#ffeebb', glow: '#ffaa00', size: 6,
+                        pierce: true, hitEnemies: new Set(),
+                        armorPierce: true, altFire: true
+                    });
+                }
+                if (typeof spawnShockwave === 'function') spawnShockwave(cx, cy, 70, '#ffaa00');
+            }
+        },
+        overheat: { perShot: 25, decay: 1.3 },
+        flavor: '⚙ Ignores armor entirely. V: TUNGSTEN VOLLEY (5-round burst).'
+    });
+
+    // DRONE SWARM (tier 32) — fires homing drone bullets that orbit the
+    // closest enemy and slam it. Implemented as a bullet with the
+    // `drone: true` flag — patched into updateBullets to home + orbit.
+    WEAPONS.push({
+        name: 'DRONE SWARM', tier: 32, shopOnly: true, cost: 1450,
+        damage: 25, speed: 11, cooldown: 22, bullets: 4, spread: 0.3,
+        color: '#88ddff', glow: '#44aaff', size: 5, life: 240,
+        drone: true,
+        altFire: {
+            name: 'HUNTER PACK',
+            heatCost: 55,
+            execute(cx, cy, dir) {
+                for (let i = 0; i < 8; i++) {
+                    const ang = (i / 8) * Math.PI * 2;
+                    bullets.push({
+                        x: cx, y: cy,
+                        vx: Math.cos(ang) * 4,
+                        vy: Math.sin(ang) * 4,
+                        life: 360, damage: Math.round(40 * (player.dmgMul || 1)),
+                        color: '#88ddff', glow: '#0088ff', size: 6,
+                        pierce: false, hitEnemies: new Set(),
+                        drone: true, altFire: true
+                    });
+                }
+                if (typeof spawnShockwave === 'function') spawnShockwave(cx, cy, 90, '#88ddff');
+            }
+        },
+        overheat: { perShot: 18, decay: 1.5 },
+        flavor: '🛸 4 orbiting drones home in. V: HUNTER PACK (8 drones).'
+    });
+
+    // LASER WHIP — was originally a tier 33 gun. Now a melee weapon
+    // (see MELEE_WEAPONS['laser_whip']) — long curved whip you swing
+    // with G that chains to 3 nearby enemies. Tier 33 stays as a
+    // placeholder so the array indices for tiers 32 (drone) and 34
+    // (corruption) remain stable. Hidden from shop via `hidden:true`.
+    WEAPONS.push({
+        name: 'LASER WHIP (placeholder)', tier: 33, shopOnly: true, cost: 999999,
+        damage: 1, speed: 1, cooldown: 1, bullets: 1, spread: 0,
+        color: '#ff44dd', glow: '#ff88ee', size: 1, life: 1,
+        hidden: true,
+        flavor: 'Internal placeholder — see MELEE_WEAPONS for the real whip.'
+    });
+
+    // CORRUPTION CANNON (tier 34) — damage scales as your HP drops.
+    // 1.0× at full HP, 2.5× at 1 HP. The risk/reward weapon.
+    WEAPONS.push({
+        name: 'CORRUPTION CANNON', tier: 34, shopOnly: true, cost: 1500,
+        damage: 80, speed: 22, cooldown: 20, bullets: 1, spread: 0.04,
+        color: '#aa00ff', glow: '#ff44dd', size: 11, life: 130,
+        pierce: true, corrupted: true,
+        altFire: {
+            name: 'SACRIFICE BLAST',
+            heatCost: 100,        // expensive — fills entire heat bar
+            execute(cx, cy, dir) {
+                // Costs 25% of current HP, deals proportional damage.
+                const hpCost = Math.round(player.hp * 0.25);
+                player.hp = Math.max(1, player.hp - hpCost);
+                if (typeof hitFlash !== 'undefined') hitFlash = Math.min(1, hitFlash + 0.4);
+                bullets.push({
+                    x: cx, y: cy,
+                    vx: dir * 26, vy: 0,
+                    life: 200, damage: Math.round((250 + hpCost * 4) * (player.dmgMul || 1)),
+                    color: '#ff00aa', glow: '#aa00ff', size: 22,
+                    explosive: true, aoeRadius: 180, pierce: true,
+                    hitEnemies: new Set(),
+                    corrupted: true, altFire: true
+                });
+                if (typeof shopMessage !== 'undefined') {
+                    shopMessage = { text: `☠ SACRIFICE: ${hpCost} HP traded ☠`, timer: 90, color: '#ff00aa' };
+                }
+                if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 14);
+            }
+        },
+        overheat: { perShot: 22, decay: 1.2 },
+        flavor: '☠ Damage scales as your HP drops. V: SACRIFICE BLAST.'
+    });
+})();
+
+// =====================================================================
+// === SC.heat — overheat replacement for cooldown =====================
+// === SC.altFire — V key alt-fire dispatcher ==========================
+// === SC.weaponEffects — runtime hooks for new weapon flags ===========
+// =====================================================================
+SC.flags.expandedArsenal = true;     // ON by default — purpose of this batch
+
+SC.heat = {
+    level: 0,                       // 0..100
+    locked: 0,                      // frames of forced cooldown when overheated
+    // Returns true if firing is allowed right now.
+    canFire() {
+        if (!SC.flags.expandedArsenal) return true;
+        return this.locked <= 0;
+    },
+    // Adds heat for a shot. Returns true if just-overheated.
+    addShot(amount) {
+        if (!SC.flags.expandedArsenal) return false;
+        this.level = Math.min(100, this.level + amount);
+        if (this.level >= 100 && this.locked <= 0) {
+            this.locked = 90;
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: '🔥 OVERHEATED — venting…', timer: 90, color: '#ff4422' };
+            }
+            return true;
+        }
+        return false;
+    },
+    tick() {
+        if (!SC.flags.expandedArsenal) return;
+        if (this.locked > 0) {
+            this.locked--;
+            // While locked, heat decays faster
+            this.level = Math.max(0, this.level - 2.5);
+        } else if (this.level > 0) {
+            // Decay slowly during normal play
+            this.level = Math.max(0, this.level - 1.0);
+        }
+    },
+    drawHud() {
+        if (!SC.flags.expandedArsenal) return;
+        // Only show when there's heat OR locked OR equipped weapon has overheat
+        const w = (typeof WEAPONS !== 'undefined' && typeof player !== 'undefined')
+            ? WEAPONS[player.weaponTier] : null;
+        if (!w || !w.overheat) return;
+        if (this.level <= 0 && this.locked <= 0) return;
+        // Bar above the overclock bar (or where overclock would be)
+        const x = canvas.width / 2 - 80;
+        const y = canvas.height - 60;
+        const bw = 160;
+        const bh = 8;
+        ctx.save();
+        ctx.fillStyle = 'rgba(8, 8, 16, 0.6)';
+        ctx.fillRect(x - 4, y - 12, bw + 8, bh + 14);
+        ctx.fillStyle = this.locked > 0 ? '#ff8866' : '#ffaa66';
+        ctx.font = 'bold 9px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(this.locked > 0 ? '🔥 VENTING' : 'HEAT', x + bw / 2, y - 2);
+        ctx.fillStyle = 'rgba(40, 30, 20, 0.8)';
+        ctx.fillRect(x, y, bw, bh);
+        const frac = this.level / 100;
+        const heatColor = this.level > 80 ? '#ff2222' : (this.level > 50 ? '#ff8800' : '#ffcc44');
+        ctx.fillStyle = heatColor;
+        ctx.shadowColor = heatColor;
+        ctx.shadowBlur = this.level > 70 ? 8 : 3;
+        ctx.fillRect(x, y, bw * frac, bh);
+        ctx.restore();
+    }
+};
+
+// V-key alt-fire dispatcher. Reads the equipped weapon's altFire field
+// and runs it. Heat-gated — alt fires cost more heat than normal shots.
+SC.altFire = {
+    keyHeld: false,
+    tick() {
+        if (!SC.flags.expandedArsenal) return;
+        if (gameState !== 'playing') return;
+        const v = !!keys['KeyV'];
+        if (v && !this.keyHeld) {
+            this.execute();
+        }
+        this.keyHeld = v;
+    },
+    execute() {
+        if (typeof player === 'undefined') return;
+        const w = WEAPONS[player.weaponTier];
+        if (!w || !w.altFire) return;
+        if (!SC.heat.canFire()) {
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: '🔥 Cannot alt-fire while venting', timer: 60, color: '#ff8844' };
+            }
+            return;
+        }
+        // Pay the heat cost
+        SC.heat.addShot(w.altFire.heatCost || 50);
+        const cx = player.x + player.w / 2;
+        const cy = player.y + player.h / 2;
+        const dir = player.facing || 1;
+        try { w.altFire.execute(cx, cy, dir); } catch (e) { console.warn('alt-fire error', e); }
+        if (typeof shopMessage !== 'undefined' && w.altFire.name) {
+            shopMessage = { text: `✦ ${w.altFire.name} ✦`, timer: 80, color: w.glow || '#ffffff' };
+        }
+        if (typeof audio !== 'undefined' && audio.play) audio.play('shootHeavy', { throttle: 80 });
+    }
+};
+
+// ===== Runtime weapon effects (gravity, drone, whip chain, reflect) =====
+// These are tickers/handlers patched into the bullet update + bullet
+// hit paths. We don't modify those paths directly — we run our own
+// per-frame pass that scans the live bullets array.
+SC.weaponEffects = {
+    // Per-frame: drive drone homing, gravity-pull aura around active
+    // gravity rounds, corruption-cannon damage scaling.
+    tick() {
+        if (!SC.flags.expandedArsenal) return;
+        if (typeof bullets === 'undefined' || typeof enemies === 'undefined') return;
+        // Drone homing — find nearest enemy, steer toward it, slow vel
+        for (const b of bullets) {
+            if (b.drone && enemies.length > 0) {
+                let best = null, bd = 99999;
+                for (const e of enemies) {
+                    if (!e || e.hp <= 0) continue;
+                    const dx = (e.x + e.w/2) - b.x;
+                    const dy = (e.y + e.h/2) - b.y;
+                    const d = dx*dx + dy*dy;
+                    if (d < bd) { bd = d; best = { e, dx, dy, d }; }
+                }
+                if (best) {
+                    const len = Math.sqrt(best.d) || 1;
+                    const ax = best.dx / len * 0.6;
+                    const ay = best.dy / len * 0.6;
+                    b.vx = b.vx * 0.92 + ax;
+                    b.vy = b.vy * 0.92 + ay;
+                    // Cap speed
+                    const sp = Math.sqrt(b.vx*b.vx + b.vy*b.vy);
+                    if (sp > 14) { b.vx = b.vx / sp * 14; b.vy = b.vy / sp * 14; }
+                }
+            }
+            // Corruption cannon — damage scales with how low player HP is
+            if (b.corrupted && !b._corruptScaled) {
+                b._corruptScaled = true;
+                if (typeof player !== 'undefined' && player.maxHp > 0) {
+                    const hpFrac = Math.max(0.05, player.hp / player.maxHp);
+                    // 1.0× at full, 2.5× at 1HP
+                    const mul = 1 + (1 - hpFrac) * 1.5;
+                    b.damage = Math.round(b.damage * mul);
+                }
+            }
+        }
+        // Active gravity-pull regions — each frame any enemy inside the
+        // field gets velocity nudged toward the field center, scaled by
+        // remaining duration. Bosses get a 30% pull instead of immune so
+        // they're still affected (just less). Renders a swirling visual.
+        if (!this._fields) this._fields = [];
+        // Decay existing fields
+        for (let i = this._fields.length - 1; i >= 0; i--) {
+            const f = this._fields[i];
+            f.life--;
+            if (f.life <= 0) { this._fields.splice(i, 1); continue; }
+            // Pull effect — much stronger now. Strength is the px/frame
+            // velocity nudge; we apply directly to position so it
+            // visibly slides enemies in.
+            for (const e of enemies) {
+                const dx = f.x - (e.x + e.w/2);
+                const dy = f.y - (e.y + e.h/2);
+                const d = Math.sqrt(dx*dx + dy*dy);
+                if (d < f.radius && d > 4) {
+                    // Scale strength inversely with distance so close
+                    // enemies snap in fast (real black-hole feel) and
+                    // far enemies just slowly drift.
+                    const distScale = 1 - (d / f.radius);
+                    let pullStr = f.strength * (0.4 + distScale * 0.8);
+                    // Bosses resist (30% pull)
+                    if (e.type === 'boss') pullStr *= 0.3;
+                    e.x += (dx / d) * pullStr;
+                    e.y += (dy / d) * pullStr * 0.7;
+                }
+            }
+            // Visible swirling aura — multiple shockwave rings + dark
+            // core particles every other frame.
+            if (typeof shockwaves !== 'undefined' && f.life % 4 === 0) {
+                shockwaves.push({ x: f.x, y: f.y, r: f.radius * 0.3, maxR: f.radius * 0.95, color: '#aa44ff', alpha: 0.55 });
+                shockwaves.push({ x: f.x, y: f.y, r: f.radius * 0.15, maxR: f.radius * 0.7, color: '#ff44dd', alpha: 0.5 });
+            }
+            // Inner spinning particles for the actual "hole" feel
+            if (typeof spawnParticles === 'function' && f.life % 3 === 0) {
+                const ang = (Date.now() / 60 + f.life) * 0.1;
+                for (let p = 0; p < 4; p++) {
+                    const a = ang + (p * Math.PI / 2);
+                    const r = 30 + Math.sin(f.life * 0.2 + p) * 10;
+                    spawnParticles(f.x + Math.cos(a) * r, f.y + Math.sin(a) * r, '#ff88ff', 1, 1);
+                }
+            }
+        }
+    },
+    // Called from updateBullets when a bullet hits an enemy. Used by
+    // gravityPull (spawns a field) and whipChain (chains to nearby
+    // enemies). Returns the (possibly modified) damage.
+    onBulletHit(b, e, dmg) {
+        if (!SC.flags.expandedArsenal) return dmg;
+        if (b.gravityPull) {
+            this._fields = this._fields || [];
+            this._fields.push({
+                x: b.x, y: b.y,
+                radius: b.gravityPull.radius,
+                strength: b.gravityPull.strength,
+                life: b.gravityPull.duration
+            });
+            if (typeof spawnShockwave === 'function') spawnShockwave(b.x, b.y, b.gravityPull.radius, '#aa44ff');
+        }
+        if (b.whipChain && b.whipChain > 0) {
+            // Chain to up to N nearest other enemies, each at 60% damage
+            const chained = new Set([e]);
+            let last = e;
+            for (let i = 0; i < b.whipChain; i++) {
+                let best = null, bd = 200 * 200;
+                for (const en of enemies) {
+                    if (chained.has(en) || en.hp <= 0) continue;
+                    const dx = (en.x + en.w/2) - (last.x + last.w/2);
+                    const dy = (en.y + en.h/2) - (last.y + last.h/2);
+                    const d = dx*dx + dy*dy;
+                    if (d < bd) { bd = d; best = en; }
+                }
+                if (!best) break;
+                const chainDmg = Math.round(dmg * 0.6);
+                best.hp -= chainDmg;
+                if (typeof spawnDamageNumber === 'function') {
+                    spawnDamageNumber(best.x + best.w/2, best.y, chainDmg, 'aoe');
+                }
+                if (typeof spawnParticles === 'function') {
+                    spawnParticles(best.x + best.w/2, best.y + best.h/2, b.glow || '#ff44dd', 6, 4);
+                }
+                // Visible chain bolt
+                if (typeof lightningBolts !== 'undefined') {
+                    lightningBolts.push({
+                        x1: last.x + last.w/2, y1: last.y + last.h/2,
+                        x2: best.x + best.w/2, y2: best.y + best.h/2,
+                        life: 12, color: b.color || '#ff44dd'
+                    });
+                }
+                chained.add(best);
+                last = best;
+                if (best.hp <= 0 && typeof handleEnemyKilled === 'function') {
+                    const idx = enemies.indexOf(best);
+                    if (idx >= 0) handleEnemyKilled(best, idx);
+                }
+            }
+        }
+        return dmg;
+    }
+};
+
+// Patch: bullet outgoing-damage path also checks armorPierce. We hook
+// SC.armor.applyDamage via a wrapper.
+(function patchArmorPierce() {
+    if (!SC.armor) return;
+    const orig = SC.armor.applyDamage.bind(SC.armor);
+    SC.armor.applyDamage = function(e, dmg, b) {
+        // If the bullet is armor-piercing, skip armor entirely
+        if (b && b.armorPierce) return dmg;
+        return orig(e, dmg);
+    };
+})();
+
+// Pass the bullet object through to applyDamage so armorPierce works.
+// We do this by intercepting at the patch site — but the existing site
+// in updateBullets calls SC.armor.applyDamage(e, dmg). To pass `b` we'd
+// need to edit that line. Instead we just check `b.armorPierce` before
+// the call from a separate wrapper installed later.
+
+// Heat tick + altFire tick run each frame
+const _SC_origTick = SC.tick.bind(SC);
+SC.tick = function() {
+    _SC_origTick();
+    if (!this.flags.expandedArsenal) return;
+    this.heat.tick();
+    this.altFire.tick();
+    this.weaponEffects.tick();
+};
+const _SC_origDraw = SC.draw.bind(SC);
+SC.draw = function() {
+    _SC_origDraw();
+    if (!this.flags.expandedArsenal) return;
+    this.heat.drawHud();
+};
+
+// Reflect-incoming: a bullet flagged with reflectIncoming acts as a
+// "blade" — when an enemy bullet enters its hit-radius it bounces back
+// toward the originating enemy at 1.4× damage. We scan once per frame.
+// ALSO: the ENERGY KATANA melee weapon reflects enemy bullets that
+// enter the player's swing arc during an active melee swing — checked
+// here too so the same logic applies to the melee variant.
+SC.reflectScan = {
+    tick() {
+        if (!SC.flags.expandedArsenal) return;
+        if (typeof bullets === 'undefined' || typeof enemyBullets === 'undefined') return;
+
+        // === Energy katana melee swing — bullet reflect ===
+        // Active when the katana is equipped AND a swing is mid-anim.
+        // We check a wide arc in front of the player's facing.
+        const katanaActive = (typeof player !== 'undefined' &&
+                              player.activeMelee === 'energy_katana' &&
+                              player.meleeAnimTimer > 0);
+        if (katanaActive) {
+            const px = player.x + player.w / 2;
+            const py = player.y + player.h / 2;
+            const dir = player.facing || 1;
+            const reach = 110;     // arc reach
+            for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                const eb = enemyBullets[i];
+                const dx = eb.x - px;
+                const dy = eb.y - py;
+                // In front cone + within reach
+                if (dx * dir < 0) continue;     // behind player
+                if (Math.abs(dy) > reach * 0.6) continue;
+                if (dx * dx + dy * dy > reach * reach) continue;
+
+                // Find target enemy (closest)
+                let target = null, bd = 99999;
+                if (typeof enemies !== 'undefined') {
+                    for (const e of enemies) {
+                        const tdx = (e.x + e.w/2) - eb.x;
+                        const tdy = (e.y + e.h/2) - eb.y;
+                        const d = tdx*tdx + tdy*tdy;
+                        if (d < bd) { bd = d; target = e; }
+                    }
+                }
+                let nvx, nvy;
+                if (target) {
+                    const tdx = (target.x + target.w/2) - eb.x;
+                    const tdy = (target.y + target.h/2) - eb.y;
+                    const len = Math.sqrt(tdx*tdx + tdy*tdy) || 1;
+                    nvx = (tdx / len) * 18;
+                    nvy = (tdy / len) * 18;
+                } else {
+                    nvx = -eb.vx * 1.6;
+                    nvy = -eb.vy * 1.6;
+                }
+                bullets.push({
+                    x: eb.x, y: eb.y,
+                    vx: nvx, vy: nvy,
+                    life: 90,
+                    damage: Math.round((eb.damage || 8) * 1.4),
+                    color: '#aaffff', glow: '#00ffff', size: 7,
+                    pierce: false, hitEnemies: new Set()
+                });
+                enemyBullets.splice(i, 1);
+                if (typeof spawnParticles === 'function') {
+                    spawnParticles(eb.x, eb.y, '#aaffff', 10, 5);
+                }
+                if (typeof STYLE !== 'undefined') STYLE.add(15, 'KATANA');
+                if (typeof floatTexts !== 'undefined') {
+                    floatTexts.push({ text: '⚔ REFLECT!', x: eb.x, y: eb.y - 8, life: 35, color: '#aaffff' });
+                }
+            }
+        }
+
+        // === Bullet-flagged reflect (for any leftover gun-bullets that
+        // still set reflectIncoming, e.g. the placeholder weapon) ===
+        for (const b of bullets) {
+            if (!b.reflectIncoming) continue;
+            for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                const eb = enemyBullets[i];
+                const dx = eb.x - b.x;
+                const dy = eb.y - b.y;
+                if (dx*dx + dy*dy < (b.size + 12) * (b.size + 12)) {
+                    let target = null, bd = 99999;
+                    if (typeof enemies !== 'undefined') {
+                        for (const e of enemies) {
+                            const tdx = (e.x + e.w/2) - eb.x;
+                            const tdy = (e.y + e.h/2) - eb.y;
+                            const d = tdx*tdx + tdy*tdy;
+                            if (d < bd) { bd = d; target = e; }
+                        }
+                    }
+                    let nvx, nvy;
+                    if (target) {
+                        const tdx = (target.x + target.w/2) - eb.x;
+                        const tdy = (target.y + target.h/2) - eb.y;
+                        const len = Math.sqrt(tdx*tdx + tdy*tdy) || 1;
+                        nvx = (tdx / len) * 16;
+                        nvy = (tdy / len) * 16;
+                    } else {
+                        nvx = -eb.vx * 1.6;
+                        nvy = -eb.vy * 1.6;
+                    }
+                    bullets.push({
+                        x: eb.x, y: eb.y,
+                        vx: nvx, vy: nvy,
+                        life: 90,
+                        damage: Math.round((eb.damage || 8) * 1.4),
+                        color: '#aaffff', glow: '#00ffff', size: 6,
+                        pierce: false, hitEnemies: new Set()
+                    });
+                    enemyBullets.splice(i, 1);
+                    if (typeof spawnParticles === 'function') {
+                        spawnParticles(eb.x, eb.y, '#aaffff', 8, 4);
+                    }
+                    if (typeof STYLE !== 'undefined') STYLE.add(8, 'KATANA');
+                }
+            }
+        }
+    }
+};
+// Hook reflect scan into tick
+const _SC_tick2 = SC.tick.bind(SC);
+SC.tick = function() {
+    _SC_tick2();
+    if (!this.flags.expandedArsenal) return;
+    this.reflectScan.tick();
+};
+
+console.log('[SC] Expanded Arsenal loaded — 6 new weapons + V alt-fire + heat system.');
+
+
+// =====================================================================
+// === NEW MECH FORMS — NINJA / TITAN / BERSERKER / SPIDER / STEALTH ===
+// =====================================================================
+// Adds five new vehicle types layered on top of the existing transform
+// system. Each is selected via a dev-panel button which sets:
+//   • player.vehicleType = '<id>'
+//   • player.transformed = true
+//   • player.transformAnim = 1
+// And applies per-form stat overrides each frame via SC.mechs.tick().
+// Removing this entire block reverts the feature.
+// ---------------------------------------------------------------------
+
+SC.mechs = {
+    // === Mech definitions ===
+    // Each entry describes a manually-selectable form. Values are
+    // applied incrementally each frame so transforming back to robot
+    // restores the player.
+    //
+    // === Rebalance philosophy ===
+    // Removed permanent invincibility. All forms have a clear weakness
+    // and a finite ENERGY pool that drains during the form's signature
+    // ability (cloak / titan-buff / berserk-burn / wall-stick / etc).
+    // When energy hits 0 the form ends. Some forms regen energy by
+    // hitting enemies or staying aggressive — encourages combat, not
+    // turtling. Damage scaling capped + paired with downsides.
+    defs: {
+        ninja: {
+            name: 'NINJA MECH',
+            color: '#aa00ff', accent: '#ff66ff',
+            speedMul: 1.55,         // (was 1.65) very fast but more managable
+            jumpMul: 1.30,          // (was 1.35)
+            gravityMul: 0.62,       // (was 0.55) less floaty so you can land precisely
+            extraJumps: 2,          // quad-jump (3 base + 2 extra)
+            dmgMul: 0.85,           // (was 1.0) less raw damage — you trade for mobility
+            // === Signature: AIRDASH +12 STYLE per perfect-dodge ===
+            // While airborne, dashes do 1.5× the normal travel and
+            // give i-frames. Read in the dash hook (already wired
+            // via SC.bossAdapt.observe('dash')).
+            airDashBoost: 1.5,
+            // === Combat tweak: melee bonus ===
+            // Encourage close-range play to compensate for low dmgMul.
+            meleeBonus: 1.6,        // 60% extra melee damage
+            // === Visuals ===
+            afterImageCount: 5,
+            sizeMul: 1.3,
+            // Weakness: low HP scaling when in form
+            hpScaleMul: 0.85,        // -15% effective HP
+            tagline: '⚡ NINJA — fastest form. Strong melee, fragile body.',
+            abilities: [
+                { keys: 'A / D',     what: 'Run +55% speed' },
+                { keys: 'SPACE × 4', what: 'Quad-jump (3+1 extra)' },
+                { keys: 'SHIFT',     what: 'Dash 1.5× longer in air' },
+                { keys: 'G',         what: 'MELEE 1.6× damage' },
+                { keys: 'WEAK',      what: '-15% HP, low ranged damage' }
+            ]
+        },
+        titan: {
+            name: 'TITAN MECH',
+            color: '#ffd744', accent: '#ff8844',
+            speedMul: 0.65,          // (was 0.7) properly slow now
+            jumpMul: 0.80,
+            gravityMul: 1.55,
+            extraJumps: 0,
+            dmgMul: 1.85,            // (was 2.2) cap shot damage
+            // === Signature: shock stomp on landing ===
+            // Hitting the ground from a jump emits a 200px AOE that
+            // staggers + damages enemies. Implemented in tick() by
+            // detecting onGround edge.
+            shockStomp: { radius: 200, damage: 80, knockback: 16 },
+            // === Defense ===
+            damageReductionMul: 0.65,    // (was 0.7) 35% less damage taken
+            // === Energy / time limit (was just a 12s timer) ===
+            // Now ENERGY-based: 100 energy at activate, drains 1/frame
+            // (60s base) but +20 energy per kill so heavy combat extends
+            // the form. Maxes at 200 (so spammy kills can keep you
+            // titan ~3 mins, but never permanent without effort).
+            energyMax: 200,
+            energyStart: 100,
+            energyDrainPerFrame: 1.0,
+            energyPerKill: 20,
+            energyOnHit: -3,         // taking a hit also drains
+            sizeMul: 1.55,           // (was 1.6, slightly smaller hitbox)
+            tagline: '🛡 TITAN — slow but mighty. Shock stomps, energy via kills.',
+            abilities: [
+                { keys: 'F',     what: 'Shots ×1.85 damage' },
+                { keys: 'JUMP',  what: 'SHOCK STOMP on land (200px AOE)' },
+                { keys: 'ARMOR', what: 'Take 35% less damage' },
+                { keys: 'KILL',  what: '+20 energy per kill (extends form)' },
+                { keys: 'WEAK',  what: 'Slow speed/jump, big hitbox' }
+            ]
+        },
+        berserker: {
+            name: 'BERSERKER MECH',
+            color: '#ff2244', accent: '#ff8866',
+            speedMul: 1.20,
+            jumpMul: 1.0,
+            gravityMul: 1.0,
+            extraJumps: 1,
+            dmgMul: 0.95,
+            // === Signature: heat = damage, but heat = damage taken ===
+            // At max heat: +70% outgoing dmg AND +25% incoming dmg.
+            // (was +80% / +30% — slightly tamer.) Heat decays slow when
+            // you stop firing, fast when you take a hit (penalty for
+            // panic-firing into a boss).
+            heatPowered: true,
+            heatDmgScaleMax: 0.70,   // 0..70% bonus
+            heatTakenPenaltyMax: 0.25,
+            heatDecayOnHit: 30,      // taking a hit dumps 30 heat
+            // === Combat tweak ===
+            // Melee at high heat: built-in burn-on-hit
+            heatBurnThreshold: 60,
+            sizeMul: 1.3,
+            tagline: '🔥 BERSERKER — heat = power AND vulnerability.',
+            abilities: [
+                { keys: 'F / V',  what: 'Build heat (more = more dmg)' },
+                { keys: 'MAX',    what: '+70% damage at full heat' },
+                { keys: 'HIT',    what: 'Hit while hot = burn enemies' },
+                { keys: 'WEAK',   what: '+25% damage taken at max heat' },
+                { keys: 'PENALTY',what: 'Taking a hit drops heat by 30' }
+            ]
+        },
+        spider: {
+            name: 'SPIDER MECH',
+            color: '#88ff88', accent: '#44dd44',
+            speedMul: 1.0,
+            jumpMul: 1.10,
+            gravityMul: 0.55,        // (was 0.4) still floaty but landable
+            extraJumps: 2,           // (was 3) triple jump
+            dmgMul: 0.95,
+            wallStick: true,
+            // === Signature: web shot on melee ===
+            // Every melee hit slows the target by 60% for 90f.
+            webMelee: { slowFactor: 0.4, slowDur: 90 },
+            // === Multi-target: bouncing minor projectile after each shot ===
+            // Every primary shot also fires 1 small "spiderling" homer
+            // for 25% damage. Encourages crowd-control playstyle.
+            spiderling: true,
+            sizeMul: 1.3,
+            tagline: '🕷 SPIDER — wall-climber, web-melee, swarms enemies.',
+            abilities: [
+                { keys: 'SPACE × 3', what: 'Triple jump' },
+                { keys: 'WALL',      what: 'Stick to walls (slow fall)' },
+                { keys: 'G',         what: 'Melee SLOWS enemies (web)' },
+                { keys: 'F',         what: 'Each shot spawns spiderling' },
+                { keys: 'WEAK',      what: 'No raw damage bonus' }
+            ]
+        },
+        stealth: {
+            name: 'STEALTH MECH',
+            color: '#444466', accent: '#aaaaff',
+            speedMul: 1.40,
+            jumpMul: 1.10,
+            gravityMul: 0.85,
+            extraJumps: 1,
+            dmgMul: 1.65,            // (was 1.5) backstab fantasy
+            // === Signature: cloak with ENERGY drain ===
+            // Cloak is no longer permanent invincibility. Instead:
+            //   • You take 65% less damage (not 100%)
+            //   • Enemies prefer to ignore you while cloaked (target
+            //     allies / stand still)
+            //   • Cloak drains energy each frame
+            //   • Breaking cloak (dealing damage) costs 25 energy
+            // When energy hits 0 form ends. Reward: massive crit
+            // bonus on the FIRST shot after activation (×3 dmg).
+            cloak: true,
+            cloakDamageReduction: 0.65,
+            firstShotMul: 3.0,
+            energyMax: 100,
+            energyStart: 100,
+            energyDrainPerFrame: 0.55,    // ~3s @60fps if untouched
+            energyOnAttack: -25,           // attacking burns 25 energy
+            energyOnDodge: 8,              // perfect-dodging refills
+            sizeMul: 1.25,
+            tagline: '🌑 STEALTH — backstab fantasy. First shot ×3.',
+            abilities: [
+                { keys: 'F',      what: 'First shot deals ×3 damage' },
+                { keys: 'CLOAK',  what: 'Take 65% less damage' },
+                { keys: 'ENERGY', what: 'Drains while active' },
+                { keys: 'DODGE',  what: 'Perfect-dodge refills energy' },
+                { keys: 'WEAK',   what: 'Form ends at 0 energy' }
+            ]
+        }
+    },
+
+    // === State ===
+    activeForm: null,           // 'ninja' | 'titan' | etc.
+    formTimer: 0,               // for time-limited forms (titan/stealth)
+    snapshot: null,             // baseline player stats to restore
+    afterImages: [],
+    heat: 0,                    // berserker only
+
+    // === Activate a mech form ===
+    activate(formId) {
+        const def = this.defs[formId];
+        if (!def) return;
+        // Snapshot baseline if not already
+        if (!this.snapshot) {
+            this.snapshot = {
+                speed: player.speed,
+                jumpForce: player.jumpForce,
+                gravity: player.gravity,
+                maxJumpsBonus: player.maxJumpsBonus || 0,
+                dmgMul: player.dmgMul,
+                w: player.w, h: player.h, y: player.y,
+                maxHp: player.maxHp
+            };
+        }
+        // Apply def
+        const s = this.snapshot;
+        player.speed = s.speed * def.speedMul;
+        player.jumpForce = s.jumpForce * def.jumpMul;
+        player.gravity = s.gravity * def.gravityMul;
+        player.maxJumpsBonus = s.maxJumpsBonus + (def.extraJumps || 0);
+        player.dmgMul = s.dmgMul * def.dmgMul;
+        if (def.hpScaleMul) {
+            player.maxHp = Math.max(50, Math.round(s.maxHp * def.hpScaleMul));
+            if (player.hp > player.maxHp) player.hp = player.maxHp;
+        }
+        // === Resize + snap-to-ground ===
+        // Scale the hitbox up. Keep the BOTTOM of the player anchored
+        // to the same y-coordinate (so a bigger sprite grows upward
+        // from where the feet are, not downward into the floor).
+        // Then nudge slightly above the platform so the next physics
+        // tick doesn't think the player is intersecting the platform
+        // surface from inside.
+        if (def.sizeMul) {
+            const oldH = player.h;
+            const oldW = player.w;
+            const oldBottom = player.y + oldH;
+            const newH = Math.round(s.h * def.sizeMul);
+            const newW = Math.round(s.w * def.sizeMul);
+            player.w = newW;
+            player.h = newH;
+            // Anchor the new bottom to the SAME y as the old bottom,
+            // then lift by 1px to clear platform tops.
+            player.y = oldBottom - newH - 1;
+            // Center horizontally on the same midpoint
+            player.x = player.x + (oldW - newW) / 2;
+            // If the lift put us through a ceiling, push back down to
+            // the nearest platform top BELOW the player's middle.
+            this._snapToGround();
+        }
+        player.transformed = false;
+        player.transformAnim = 0;
+        this.activeForm = formId;
+        this.formTimer = def.tempFormDuration || (def.cloak ? def.cloakDuration : 0);
+        // === Energy system ===
+        // Either a number from def.energyMax/Start or null (form has
+        // no energy gating, just stat overrides).
+        if (def.energyMax) {
+            this.energy = def.energyStart || def.energyMax;
+            this.energyMax = def.energyMax;
+        } else {
+            this.energy = null;
+            this.energyMax = null;
+        }
+        // === Per-form per-instance state ===
+        this.firstShotPending = !!def.firstShotMul;     // stealth
+        this.afterImages = [];
+        this.heat = 0;
+        // === Activation cinematic — bigger flash + ring ===
+        spawnParticles(player.x + player.w/2, player.y + player.h/2, def.color, 30, 8);
+        if (typeof spawnShockwave === 'function') {
+            spawnShockwave(player.x + player.w/2, player.y + player.h/2, 140, def.color);
+            spawnShockwave(player.x + player.w/2, player.y + player.h/2, 60, '#ffffff');
+        }
+        // Brief screen shake + crit flash for the transformation feel
+        if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 12);
+        if (typeof critFlash !== 'undefined') critFlash = Math.min(1, critFlash + 0.25);
+        // Brief hit-stop so the activation feels weighty
+        if (typeof applyHitStop === 'function') applyHitStop(4);
+        if (typeof audio !== 'undefined' && audio.play) audio.play('transform');
+        if (typeof shopMessage !== 'undefined') {
+            shopMessage = { text: def.tagline, timer: 200, color: def.color };
+        }
+    },
+
+    // === Snap to ground ===
+    // Find the nearest platform top within 200px below the player and
+    // place the player's bottom on it. Used after resizing to prevent
+    // "stuck in ground" bugs.
+    _snapToGround() {
+        if (typeof platforms === 'undefined') return;
+        const cx = player.x + player.w / 2;
+        const py = player.y + player.h;
+        let bestTop = null;
+        let bestDist = 200;
+        for (const p of platforms) {
+            // Skip non-solid platform types
+            if (p.type === 'spike' || p.type === 'laser' || p.type === 'recovery') continue;
+            // Player horizontally over this platform?
+            if (cx < p.x || cx > p.x + p.w) continue;
+            const top = p.y;
+            // Platform must be below the player's CURRENT bottom or
+            // very close above it (within 30px overlap)
+            const dy = top - py;
+            // Allow up to 60px UP (player was overlapping) and 200px down
+            if (dy > -60 && dy < bestDist) {
+                bestDist = dy;
+                bestTop = top;
+            }
+        }
+        if (bestTop !== null) {
+            // Place the bottom of the player exactly on the platform top
+            player.y = bestTop - player.h;
+            player.vy = 0;
+            player.onGround = true;
+        }
+    },
+
+    deactivate() {
+        if (!this.activeForm) return;
+        const s = this.snapshot;
+        if (s) {
+            player.speed = s.speed;
+            player.jumpForce = s.jumpForce;
+            player.gravity = s.gravity;
+            player.maxJumpsBonus = s.maxJumpsBonus;
+            player.dmgMul = s.dmgMul;
+            player.maxHp = s.maxHp;
+            if (player.hp > player.maxHp) player.hp = player.maxHp;
+            // Restore size + ground-snap to prevent falling through
+            const oldBottom = player.y + player.h;
+            player.w = s.w;
+            player.h = s.h;
+            player.y = oldBottom - player.h;
+            player.x = player.x + (player.w * 0); // x already centered
+            this._snapToGround();
+        }
+        player.transformed = false;
+        player.transformAnim = 0;
+        this.activeForm = null;
+        this.snapshot = null;
+        this.formTimer = 0;
+        this.energy = null;
+        this.energyMax = null;
+        if (typeof shopMessage !== 'undefined') {
+            shopMessage = { text: 'Mech form ended', timer: 80, color: '#888888' };
+        }
+        if (typeof spawnShockwave === 'function') {
+            spawnShockwave(player.x + player.w/2, player.y + player.h/2, 80, '#888888');
+        }
+    },
+
+    tick() {
+        if (!this.activeForm) return;
+        const def = this.defs[this.activeForm];
+        if (!def) return;
+        // Tick the tutorial overlay timer (legacy — kept harmless)
+        if (this.tutorialTimer > 0) this.tutorialTimer--;
+        // === Energy drain (cloak / titan / etc.) ===
+        // When energy reaches 0 the form ends. The hook for "energy on
+        // kill" / "energy on hit" is wired through the kill counter
+        // (see _SC_origHandleKilled below) and damage path patches.
+        if (this.energy !== null && def.energyDrainPerFrame) {
+            this.energy -= def.energyDrainPerFrame;
+            if (this.energy <= 0) {
+                this.energy = 0;
+                this.deactivate();
+                return;
+            }
+        }
+        // Time-limited forms expire automatically (kept as fallback)
+        if (def.tempFormDuration && this.energy === null) {
+            if (this.formTimer > 0) this.formTimer--;
+            else { this.deactivate(); return; }
+        }
+        // After-images for ninja
+        if (def.afterImageCount) {
+            this.afterImages.push({
+                x: player.x, y: player.y,
+                w: player.w, h: player.h,
+                color: def.color,
+                life: 12
+            });
+            for (let i = this.afterImages.length - 1; i >= 0; i--) {
+                this.afterImages[i].life--;
+                if (this.afterImages[i].life <= 0) this.afterImages.splice(i, 1);
+            }
+            while (this.afterImages.length > def.afterImageCount * 3) this.afterImages.shift();
+        }
+        // Berserker — heat-driven dmgMul update
+        if (def.heatPowered) {
+            const hp = (typeof SC !== 'undefined' && SC.heat) ? SC.heat.level : this.heat;
+            const hf = hp / 100;
+            const base = this.snapshot ? this.snapshot.dmgMul : 1;
+            player.dmgMul = base * (1 + hf * (def.heatDmgScaleMax || 0.7));
+        }
+        // Spider wall-stick
+        if (def.wallStick && !player.onGround) {
+            if (player.wallContact || keys['KeyA'] || keys['KeyD'] ||
+                keys['ArrowLeft'] || keys['ArrowRight']) {
+                if (player.vy > 1.5) player.vy = Math.min(player.vy, 1.5);
+            }
+        }
+        // Titan damage reduction (HP refund per frame)
+        if (def.damageReductionMul && this._lastHp !== undefined) {
+            const lost = this._lastHp - player.hp;
+            if (lost > 0) {
+                const refund = Math.round(lost * (1 - def.damageReductionMul));
+                player.hp = Math.min(player.maxHp, player.hp + refund);
+            }
+        }
+        // === Titan: SHOCK STOMP on landing ===
+        // Detect ground edge-trigger (was airborne, now grounded) +
+        // recently moving downward. Spawns 200px AOE.
+        if (def.shockStomp) {
+            if (this._wasAirborne && player.onGround) {
+                this._fireShockStomp(def);
+            }
+            this._wasAirborne = !player.onGround;
+        }
+        // Stealth — energy regenerates on perfect-dodge (read flag)
+        if (def.cloak && player.perfectDodgeTimer === 60) {
+            // Edge-trigger: just got perfect dodge
+            if (!this._lastDodgeMark) {
+                this.energy = Math.min(this.energyMax, this.energy + (def.energyOnDodge || 8));
+                this._lastDodgeMark = true;
+            }
+        }
+        if (player.perfectDodgeTimer === 0) this._lastDodgeMark = false;
+        // Stealth no longer = full invincibility. Apply soft damage
+        // reduction by refunding partial HP loss like titan.
+        if (def.cloak && def.cloakDamageReduction && this._lastHp !== undefined) {
+            const lost = this._lastHp - player.hp;
+            if (lost > 0) {
+                const refund = Math.round(lost * def.cloakDamageReduction);
+                player.hp = Math.min(player.maxHp, player.hp + refund);
+            }
+        }
+        this._lastHp = player.hp;
+    },
+
+    // === Titan shock stomp ===
+    _fireShockStomp(def) {
+        const cx = player.x + player.w / 2;
+        const cy = player.y + player.h;
+        const r = def.shockStomp.radius || 200;
+        const dmg = def.shockStomp.damage || 80;
+        if (typeof spawnShockwave === 'function') {
+            spawnShockwave(cx, cy, r, '#ffd744');
+            spawnShockwave(cx, cy, r * 0.6, '#ffffff');
+        }
+        if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 18);
+        if (typeof applyHitStop === 'function') applyHitStop(4);
+        // Damage all enemies in radius
+        if (typeof enemies !== 'undefined') {
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const e = enemies[i];
+                const dx = (e.x + e.w / 2) - cx;
+                const dy = (e.y + e.h / 2) - cy;
+                if (dx * dx + dy * dy < r * r) {
+                    const finalDmg = e.type === 'boss' ? Math.round(dmg * 0.4)
+                                  : e.type === 'miniboss' ? Math.round(dmg * 0.6)
+                                  : dmg;
+                    e.hp -= finalDmg;
+                    if (typeof spawnDamageNumber === 'function') {
+                        spawnDamageNumber(e.x + e.w/2, e.y, finalDmg, 'aoe');
+                    }
+                    // Knockback
+                    const ang = Math.atan2(dy, dx);
+                    e.vx = (e.vx || 0) + Math.cos(ang) * 8;
+                    e.vy = (e.vy || 0) - 5;
+                    if (e.hp <= 0 && typeof handleEnemyKilled === 'function') {
+                        const idx = enemies.indexOf(e);
+                        if (idx >= 0) handleEnemyKilled(e, idx);
+                    }
+                }
+            }
+        }
+    },
+
+    // === Kill feed → energy refill (titan) ===
+    onEnemyKilled() {
+        if (!this.activeForm) return;
+        const def = this.defs[this.activeForm];
+        if (!def || !def.energyPerKill) return;
+        if (this.energy !== null) {
+            this.energy = Math.min(this.energyMax, this.energy + def.energyPerKill);
+        }
+    },
+
+    draw() {
+        if (!this.activeForm) return;
+        const def = this.defs[this.activeForm];
+        if (!def) return;
+        // After-images (ninja)
+        if (this.afterImages.length > 0) {
+            ctx.save();
+            for (const a of this.afterImages) {
+                const alpha = (a.life / 12) * 0.4;
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = a.color;
+                ctx.shadowColor = a.color;
+                ctx.shadowBlur = 12;
+                ctx.fillRect(a.x - camera.x, a.y, a.w, a.h);
+            }
+            ctx.restore();
+        }
+        // Form-color outline glow on the player
+        ctx.save();
+        const px = player.x - camera.x;
+        ctx.globalAlpha = 0.6;
+        ctx.strokeStyle = def.color;
+        ctx.shadowColor = def.glow || def.color;
+        ctx.shadowBlur = 14;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(px - 2, player.y - 2, player.w + 4, player.h + 4);
+        ctx.restore();
+        // Stealth cloak — translucent player overlay
+        if (def.cloak) {
+            ctx.save();
+            ctx.fillStyle = 'rgba(8, 8, 24, 0.45)';
+            ctx.fillRect(px, player.y, player.w, player.h);
+            ctx.restore();
+        }
+        // Time bar for time-limited forms
+        if (def.tempFormDuration || (def.cloak && def.cloakDuration)) {
+            const total = def.tempFormDuration || def.cloakDuration;
+            const frac = this.formTimer / total;
+            ctx.save();
+            ctx.fillStyle = 'rgba(8, 8, 16, 0.6)';
+            ctx.fillRect(px - 2, player.y - 14, player.w + 4, 6);
+            ctx.fillStyle = def.color;
+            ctx.shadowColor = def.color;
+            ctx.shadowBlur = 5;
+            ctx.fillRect(px - 2, player.y - 14, (player.w + 4) * frac, 6);
+            ctx.restore();
+        }
+        // Berserker — heat aura
+        if (def.heatPowered) {
+            const hp = (typeof SC !== 'undefined' && SC.heat) ? SC.heat.level : 0;
+            if (hp > 30) {
+                ctx.save();
+                ctx.globalAlpha = (hp - 30) / 70 * 0.6;
+                ctx.strokeStyle = '#ff2244';
+                ctx.shadowColor = '#ff8866';
+                ctx.shadowBlur = 16;
+                ctx.lineWidth = 2 + (hp / 100) * 3;
+                ctx.beginPath();
+                ctx.arc(px + player.w/2, player.y + player.h/2,
+                    player.w * 0.7 + Math.sin(Date.now() / 80) * 4,
+                    0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            }
+        }
+    }
+};
+
+// Hook tick + draw into SC's existing pipeline
+const _SC_tick3 = SC.tick.bind(SC);
+SC.tick = function() {
+    _SC_tick3();
+    this.mechs.tick();
+};
+const _SC_draw3 = SC.draw.bind(SC);
+SC.draw = function() {
+    _SC_draw3();
+    this.mechs.draw();
+};
+
+console.log('[SC] Mech forms loaded — NINJA, TITAN, BERSERKER, SPIDER, STEALTH.');
+
+
+// =====================================================================
+// === MECH SPRITES — actual visual designs for each form ==============
+// =====================================================================
+// Replaces the simple "outline glow + tint" look from earlier with full
+// per-mech silhouettes drawn ON TOP of the existing player render.
+// Order matters: this runs late (after the normal player body draws)
+// so the mech silhouette covers the default character.
+//
+// Each design is hand-drawn with rectangles + arcs + glow lines so the
+// mech reads instantly:
+//   • NINJA — slim, hooded silhouette, twin shoulder katanas, scarf trail
+//   • TITAN — bulky shoulders, twin chest cannons, crown crest, glowing core
+//   • BERSERKER — exposed coils, heat vents on shoulders, skull faceplate
+//   • SPIDER — extra walking legs sprouting from torso, segmented carapace
+//   • STEALTH — phase-glitched outline, ghost crests on shoulders, faded
+//
+// All renders take (px, py) where px = player.x - camera.x.
+// ---------------------------------------------------------------------
+
+SC.mechs.renderSprite = function() {
+    if (!this.activeForm) return;
+    const def = this.defs[this.activeForm];
+    if (!def) return;
+    const px = player.x - camera.x;
+    const py = player.y;
+    const cx = px + player.w / 2;
+    const cy = py + player.h / 2;
+    const w = player.w;
+    const h = player.h;
+    const facing = player.facing || 1;
+
+    ctx.save();
+
+    // === NINJA MECH ===
+    if (this.activeForm === 'ninja') {
+        // Body: dark slim torso with magenta accents
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 14;
+        // Hooded helm
+        ctx.fillStyle = '#1a0a22';
+        ctx.fillRect(px + w * 0.18, py - 4, w * 0.64, h * 0.32);
+        // Hood spike top (anime ninja silhouette)
+        ctx.beginPath();
+        ctx.moveTo(px + w * 0.18, py - 2);
+        ctx.lineTo(cx - 2, py - 14);
+        ctx.lineTo(cx + 2, py - 14);
+        ctx.lineTo(px + w * 0.82, py - 2);
+        ctx.closePath();
+        ctx.fill();
+        // Glowing visor slit (single horizontal line, magenta)
+        ctx.fillStyle = def.color;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 18;
+        ctx.fillRect(px + w * 0.28, py + h * 0.12, w * 0.44, 3);
+        // Slim torso (tapered)
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = '#2a0033';
+        ctx.beginPath();
+        ctx.moveTo(px + w * 0.22, py + h * 0.30);
+        ctx.lineTo(px + w * 0.78, py + h * 0.30);
+        ctx.lineTo(px + w * 0.62, py + h * 0.74);
+        ctx.lineTo(px + w * 0.38, py + h * 0.74);
+        ctx.closePath();
+        ctx.fill();
+        // Chest core diamond
+        ctx.fillStyle = def.accent;
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.moveTo(cx, py + h * 0.36);
+        ctx.lineTo(cx + 6, py + h * 0.46);
+        ctx.lineTo(cx, py + h * 0.56);
+        ctx.lineTo(cx - 6, py + h * 0.46);
+        ctx.closePath();
+        ctx.fill();
+        // Twin shoulder katana hilts (black with magenta tip)
+        for (const sx of [px + w * 0.16, px + w * 0.84]) {
+            ctx.fillStyle = '#000';
+            ctx.shadowBlur = 0;
+            ctx.fillRect(sx - 2, py + h * 0.22, 4, h * 0.40);
+            ctx.fillStyle = def.color;
+            ctx.shadowColor = def.color;
+            ctx.shadowBlur = 12;
+            ctx.fillRect(sx - 1, py + h * 0.22, 2, 6);
+        }
+        // Slim legs
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#1a0022';
+        ctx.fillRect(px + w * 0.30, py + h * 0.74, w * 0.16, h * 0.26);
+        ctx.fillRect(px + w * 0.54, py + h * 0.74, w * 0.16, h * 0.26);
+        // Magenta knee accents
+        ctx.fillStyle = def.accent;
+        ctx.shadowColor = def.accent;
+        ctx.shadowBlur = 8;
+        ctx.fillRect(px + w * 0.30, py + h * 0.85, w * 0.16, 2);
+        ctx.fillRect(px + w * 0.54, py + h * 0.85, w * 0.16, 2);
+        // Trailing scarf — animated horizontal sine wave behind the back
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = def.color;
+        const t = Date.now() / 100;
+        const scarfX = facing > 0 ? px + w * 0.18 : px + w * 0.82;
+        for (let i = 0; i < 8; i++) {
+            const sy = py + h * 0.34 + i * 4;
+            const sx = scarfX - facing * (i * 3 + 4) + Math.sin(t + i * 0.6) * 3;
+            ctx.fillRect(sx, sy, 4, 3);
+        }
+    }
+
+    // === TITAN MECH ===
+    else if (this.activeForm === 'titan') {
+        // Pulsing yellow core glow behind the body
+        const pulse = 0.7 + Math.sin(Date.now() / 200) * 0.3;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 20 * pulse;
+        // Helm — square with raised crown
+        ctx.fillStyle = '#3a1d00';
+        ctx.fillRect(px + w * 0.10, py, w * 0.80, h * 0.30);
+        // Crown crests (3 spikes top)
+        ctx.fillStyle = def.color;
+        ctx.shadowBlur = 14;
+        for (const sx of [px + w * 0.20, cx - 3, px + w * 0.74]) {
+            ctx.beginPath();
+            ctx.moveTo(sx, py);
+            ctx.lineTo(sx + 3, py - 8);
+            ctx.lineTo(sx + 6, py);
+            ctx.closePath();
+            ctx.fill();
+        }
+        // Glowing wide visor
+        ctx.fillStyle = def.accent;
+        ctx.shadowColor = def.accent;
+        ctx.shadowBlur = 18;
+        ctx.fillRect(px + w * 0.16, py + h * 0.10, w * 0.68, 5);
+        // Massive shoulder pauldrons (trapezoidal, gold-banded)
+        ctx.fillStyle = '#552200';
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.moveTo(px - w * 0.05, py + h * 0.28);
+        ctx.lineTo(px + w * 0.20, py + h * 0.22);
+        ctx.lineTo(px + w * 0.30, py + h * 0.42);
+        ctx.lineTo(px - w * 0.10, py + h * 0.46);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(px + w * 1.05, py + h * 0.28);
+        ctx.lineTo(px + w * 0.80, py + h * 0.22);
+        ctx.lineTo(px + w * 0.70, py + h * 0.42);
+        ctx.lineTo(px + w * 1.10, py + h * 0.46);
+        ctx.closePath();
+        ctx.fill();
+        // Gold bands across pauldrons
+        ctx.fillStyle = def.color;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 8;
+        ctx.fillRect(px - w * 0.08, py + h * 0.36, w * 0.30, 3);
+        ctx.fillRect(px + w * 0.78, py + h * 0.36, w * 0.30, 3);
+        // Heavy chest with twin chest-mounted cannons
+        ctx.fillStyle = '#2a1500';
+        ctx.shadowBlur = 0;
+        ctx.fillRect(px + w * 0.18, py + h * 0.30, w * 0.64, h * 0.40);
+        // Cannon barrels (left + right of chest, glowing)
+        ctx.fillStyle = '#1a0a00';
+        ctx.fillRect(px + w * 0.22, py + h * 0.40, w * 0.18, 8);
+        ctx.fillRect(px + w * 0.60, py + h * 0.40, w * 0.18, 8);
+        // Cannon glow tips
+        ctx.fillStyle = def.color;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 14 * pulse;
+        ctx.fillRect(px + w * 0.20, py + h * 0.40, 4, 8);
+        ctx.fillRect(px + w * 0.76, py + h * 0.40, 4, 8);
+        // Glowing core (Matrix-of-Leadership look) center chest
+        ctx.beginPath();
+        ctx.fillStyle = def.color;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 24 * pulse;
+        ctx.arc(cx, py + h * 0.50, 7 * pulse, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(cx, py + h * 0.50, 3, 0, Math.PI * 2);
+        ctx.fill();
+        // Heavy legs — wide stance
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#3a1d00';
+        ctx.fillRect(px + w * 0.18, py + h * 0.70, w * 0.26, h * 0.30);
+        ctx.fillRect(px + w * 0.56, py + h * 0.70, w * 0.26, h * 0.30);
+        // Foot plates (big stompy boots)
+        ctx.fillStyle = def.color;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 6;
+        ctx.fillRect(px + w * 0.16, py + h - 4, w * 0.30, 4);
+        ctx.fillRect(px + w * 0.54, py + h - 4, w * 0.30, 4);
+    }
+
+    // === BERSERKER MECH ===
+    else if (this.activeForm === 'berserker') {
+        const heat = (typeof SC !== 'undefined' && SC.heat) ? SC.heat.level : 0;
+        const heatFrac = Math.min(1, heat / 100);
+        // Heat-driven red/orange tint scaling
+        const torsoTint = heat > 50 ? '#5a1a1a' : '#3a0a0a';
+        // Skull faceplate (square with eye sockets glowing red)
+        ctx.shadowColor = '#ff8866';
+        ctx.shadowBlur = 14 + heatFrac * 14;
+        ctx.fillStyle = '#1a0000';
+        ctx.fillRect(px + w * 0.16, py - 2, w * 0.68, h * 0.30);
+        // Top "horns" (two angular spikes — demonic feel)
+        ctx.fillStyle = def.accent;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.moveTo(px + w * 0.18, py - 2);
+        ctx.lineTo(px + w * 0.06, py - 14);
+        ctx.lineTo(px + w * 0.26, py + 2);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(px + w * 0.82, py - 2);
+        ctx.lineTo(px + w * 0.94, py - 14);
+        ctx.lineTo(px + w * 0.74, py + 2);
+        ctx.closePath();
+        ctx.fill();
+        // Glowing eye sockets — get hotter with heat
+        ctx.fillStyle = `rgb(${Math.floor(255)}, ${Math.floor(80 + heatFrac * 80)}, ${Math.floor(40)})`;
+        ctx.shadowColor = '#ff2244';
+        ctx.shadowBlur = 14 + heatFrac * 18;
+        ctx.fillRect(px + w * 0.28, py + h * 0.10, w * 0.16, 5);
+        ctx.fillRect(px + w * 0.56, py + h * 0.10, w * 0.16, 5);
+        // Torso — exposed coils on the chest (red-hot lines)
+        ctx.fillStyle = torsoTint;
+        ctx.shadowBlur = 0;
+        ctx.fillRect(px + w * 0.18, py + h * 0.30, w * 0.64, h * 0.42);
+        // Coil lines across chest — flicker harder with heat
+        ctx.shadowColor = '#ff4422';
+        ctx.shadowBlur = 8 + heatFrac * 12;
+        ctx.fillStyle = `rgba(255, ${100 + Math.floor(heatFrac * 100)}, 60, ${0.6 + heatFrac * 0.4})`;
+        for (let i = 0; i < 4; i++) {
+            const cy0 = py + h * 0.34 + i * 6;
+            ctx.fillRect(px + w * 0.22, cy0, w * 0.56, 2);
+        }
+        // Shoulder heat vents (triangular, glowing orange)
+        ctx.fillStyle = '#ff4422';
+        ctx.shadowColor = '#ff8800';
+        ctx.shadowBlur = 10 + heatFrac * 10;
+        ctx.beginPath();
+        ctx.moveTo(px + w * 0.06, py + h * 0.32);
+        ctx.lineTo(px + w * 0.24, py + h * 0.30);
+        ctx.lineTo(px + w * 0.16, py + h * 0.42);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(px + w * 0.94, py + h * 0.32);
+        ctx.lineTo(px + w * 0.76, py + h * 0.30);
+        ctx.lineTo(px + w * 0.84, py + h * 0.42);
+        ctx.closePath();
+        ctx.fill();
+        // Legs
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#2a0a0a';
+        ctx.fillRect(px + w * 0.22, py + h * 0.72, w * 0.22, h * 0.28);
+        ctx.fillRect(px + w * 0.56, py + h * 0.72, w * 0.22, h * 0.28);
+        // Knee accents
+        ctx.fillStyle = def.accent;
+        ctx.shadowColor = def.accent;
+        ctx.shadowBlur = 6;
+        ctx.fillRect(px + w * 0.22, py + h * 0.84, w * 0.22, 3);
+        ctx.fillRect(px + w * 0.56, py + h * 0.84, w * 0.22, 3);
+        // Heat steam puffs around shoulders when high heat
+        if (heatFrac > 0.4) {
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = `rgba(255, 200, 150, ${heatFrac * 0.5})`;
+            for (let i = 0; i < 4; i++) {
+                const ang = (Date.now() / 120 + i * 1.5) % (Math.PI * 2);
+                const r = 6 + (Date.now() / 200 + i * 3) % 12;
+                ctx.beginPath();
+                ctx.arc(cx + Math.cos(ang) * (w * 0.5 + 4), py + h * 0.30 + Math.sin(ang) * 6 - r * 0.3,
+                        2 + Math.sin(Date.now() / 80 + i) * 1, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+    }
+
+    // === SPIDER MECH ===
+    else if (this.activeForm === 'spider') {
+        // Compact rounded body + 4 extra spider legs sprouting from torso
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 12;
+        // Torso — segmented carapace, oval green with darker bands
+        ctx.fillStyle = '#0a2a0a';
+        ctx.beginPath();
+        ctx.ellipse(cx, py + h * 0.48, w * 0.42, h * 0.34, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Segment lines
+        ctx.strokeStyle = def.accent;
+        ctx.shadowColor = def.accent;
+        ctx.shadowBlur = 8;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.ellipse(cx, py + h * 0.42, w * 0.32, h * 0.10, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.ellipse(cx, py + h * 0.55, w * 0.36, h * 0.14, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        // Head — small, top of body, with multi-eye look
+        ctx.fillStyle = '#1a3a1a';
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.ellipse(cx, py + h * 0.18, w * 0.28, h * 0.18, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // 4 glowing eyes (2 rows of 2)
+        ctx.fillStyle = def.color;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 8;
+        for (const ey of [py + h * 0.13, py + h * 0.20]) {
+            ctx.beginPath();
+            ctx.arc(cx - 5, ey, 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(cx + 5, ey, 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        // Spider legs — 4 legs sprouting from torso (2 each side, segmented)
+        ctx.shadowBlur = 6;
+        ctx.strokeStyle = '#0a2a0a';
+        ctx.lineWidth = 3;
+        const legAnim = Math.sin(Date.now() / 80) * 4;
+        for (let side = -1; side <= 1; side += 2) {
+            for (let leg = 0; leg < 2; leg++) {
+                const baseX = cx + side * w * 0.30;
+                const baseY = py + h * (0.40 + leg * 0.20);
+                const reach = w * 0.6;
+                const dropY = h * 0.4 + leg * 8;
+                const offset = leg === 0 ? legAnim : -legAnim;
+                ctx.beginPath();
+                ctx.moveTo(baseX, baseY);
+                // Knee
+                ctx.lineTo(baseX + side * reach * 0.5, baseY - 6 + offset);
+                // Foot
+                ctx.lineTo(baseX + side * reach, baseY + dropY + offset);
+                ctx.stroke();
+            }
+        }
+        // Tiny standard legs at bottom (vestigial — the player still
+        // walks with regular legs visually)
+        ctx.fillStyle = '#0a2a0a';
+        ctx.shadowBlur = 0;
+        ctx.fillRect(px + w * 0.36, py + h * 0.78, w * 0.12, h * 0.22);
+        ctx.fillRect(px + w * 0.52, py + h * 0.78, w * 0.12, h * 0.22);
+    }
+
+    // === STEALTH MECH ===
+    else if (this.activeForm === 'stealth') {
+        const flicker = 0.55 + Math.sin(Date.now() / 50) * 0.15;
+        ctx.globalAlpha = 0.6 + flicker * 0.2;
+        // Thin pointed helm — wraith silhouette
+        ctx.shadowColor = def.accent;
+        ctx.shadowBlur = 16;
+        ctx.fillStyle = '#0a0a1a';
+        ctx.beginPath();
+        ctx.moveTo(px + w * 0.20, py + h * 0.04);
+        ctx.lineTo(cx, py - 12);
+        ctx.lineTo(px + w * 0.80, py + h * 0.04);
+        ctx.lineTo(px + w * 0.78, py + h * 0.30);
+        ctx.lineTo(px + w * 0.22, py + h * 0.30);
+        ctx.closePath();
+        ctx.fill();
+        // Glowing single cyclops visor (horizontal slit)
+        ctx.fillStyle = def.accent;
+        ctx.shadowColor = def.accent;
+        ctx.shadowBlur = 18;
+        ctx.fillRect(px + w * 0.26, py + h * 0.14, w * 0.48, 3);
+        // Slim cape-like torso (tapered + shadow body)
+        ctx.fillStyle = '#0a0a14';
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.moveTo(px + w * 0.22, py + h * 0.30);
+        ctx.lineTo(px + w * 0.78, py + h * 0.30);
+        ctx.lineTo(px + w * 0.62, py + h * 0.78);
+        ctx.lineTo(px + w * 0.38, py + h * 0.78);
+        ctx.closePath();
+        ctx.fill();
+        // Two ghost-crest shoulder spikes (translucent feather/wisp)
+        ctx.fillStyle = def.accent;
+        ctx.shadowColor = def.accent;
+        ctx.shadowBlur = 14;
+        ctx.globalAlpha = 0.4;
+        for (const side of [-1, 1]) {
+            ctx.beginPath();
+            ctx.moveTo(cx + side * w * 0.30, py + h * 0.30);
+            ctx.lineTo(cx + side * w * 0.50, py + h * 0.10);
+            ctx.lineTo(cx + side * w * 0.40, py + h * 0.20);
+            ctx.lineTo(cx + side * w * 0.30, py + h * 0.40);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.globalAlpha = 0.7;
+        // Phase-glitch lines: random horizontal ghost tears
+        ctx.strokeStyle = def.accent;
+        ctx.shadowBlur = 8;
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 3; i++) {
+            const ty = py + h * (0.15 + i * 0.27) + (Date.now() / 80 + i * 30) % 16 - 8;
+            ctx.beginPath();
+            ctx.moveTo(px - 6, ty);
+            ctx.lineTo(px + w + 6, ty + (Math.random() - 0.5) * 4);
+            ctx.stroke();
+        }
+        // Slim legs
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#0a0a14';
+        ctx.fillRect(px + w * 0.34, py + h * 0.78, w * 0.14, h * 0.22);
+        ctx.fillRect(px + w * 0.52, py + h * 0.78, w * 0.14, h * 0.22);
+    }
+
+    ctx.restore();
+};
+
+// Replace the old SC.mechs.draw() (which only drew an outline glow)
+// with the full sprite render plus the original UI bits (timer bars,
+// after-images, heat aura). Order:
+//   1. After-images (behind mech)
+//   2. Mech sprite (covers default character body)
+//   3. Timer bar / heat aura (above mech, on top of everything)
+SC.mechs.draw = function() {
+    if (!this.activeForm) return;
+    const def = this.defs[this.activeForm];
+    if (!def) return;
+    // After-images first so they sit behind
+    if (this.afterImages.length > 0) {
+        ctx.save();
+        for (const a of this.afterImages) {
+            const alpha = (a.life / 12) * 0.45;
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = a.color;
+            ctx.shadowColor = a.color;
+            ctx.shadowBlur = 12;
+            ctx.fillRect(a.x - camera.x, a.y, a.w, a.h);
+        }
+        ctx.restore();
+    }
+    // Mech sprite
+    this.renderSprite();
+    // Timer bar (above the mech)
+    if (def.tempFormDuration || (def.cloak && def.cloakDuration)) {
+        const total = def.tempFormDuration || def.cloakDuration;
+        const frac = this.formTimer / total;
+        const px = player.x - camera.x;
+        ctx.save();
+        ctx.fillStyle = 'rgba(8, 8, 16, 0.6)';
+        ctx.fillRect(px - 2, player.y - 22, player.w + 4, 6);
+        ctx.fillStyle = def.color;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 5;
+        ctx.fillRect(px - 2, player.y - 22, (player.w + 4) * frac, 6);
+        ctx.restore();
+    }
+    // Berserker heat aura (above the mech)
+    if (def.heatPowered) {
+        const hp = (typeof SC !== 'undefined' && SC.heat) ? SC.heat.level : 0;
+        if (hp > 30) {
+            const px = player.x - camera.x;
+            ctx.save();
+            ctx.globalAlpha = (hp - 30) / 70 * 0.6;
+            ctx.strokeStyle = '#ff2244';
+            ctx.shadowColor = '#ff8866';
+            ctx.shadowBlur = 16;
+            ctx.lineWidth = 2 + (hp / 100) * 3;
+            ctx.beginPath();
+            ctx.arc(px + player.w/2, player.y + player.h/2,
+                player.w * 0.7 + Math.sin(Date.now() / 80) * 4,
+                0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+    // Tutorial overlay — shown for ~4s on form activation. Big panel
+    // top-center listing the form's abilities so the kid knows what
+    // each form does. Fades in/out at the edges.
+    if (this.tutorialTimer > 0 && def.abilities) {
+        const total = 240;
+        const t = this.tutorialTimer;
+        // Fade-in the first 30f, fade-out the last 30f
+        let alpha = 1;
+        if (t > total - 30) alpha = (total - t) / 30;
+        else if (t < 30) alpha = t / 30;
+        const x = canvas.width / 2 - 180;
+        const y = 80;
+        const w = 360;
+        const h = 30 + def.abilities.length * 22 + 14;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        // Backdrop
+        ctx.fillStyle = 'rgba(8, 8, 18, 0.92)';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeStyle = def.color;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 16;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+        ctx.shadowBlur = 0;
+        // Title
+        ctx.fillStyle = def.color;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 8;
+        ctx.font = 'bold 16px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(this.tutorialName || def.name, x + w/2, y + 8);
+        ctx.shadowBlur = 0;
+        // Each ability row
+        ctx.font = 'bold 11px "Courier New", monospace';
+        ctx.textAlign = 'left';
+        let row = 0;
+        for (const ab of def.abilities) {
+            const ry = y + 30 + row * 22;
+            // Key column (left, glowing color)
+            ctx.fillStyle = def.color;
+            ctx.shadowColor = def.color;
+            ctx.shadowBlur = 6;
+            ctx.fillText(ab.keys, x + 14, ry + 2);
+            ctx.shadowBlur = 0;
+            // What column (right, white)
+            ctx.fillStyle = '#ddddee';
+            ctx.font = '11px "Courier New", monospace';
+            ctx.fillText('→ ' + ab.what, x + 130, ry + 2);
+            ctx.font = 'bold 11px "Courier New", monospace';
+            row++;
+        }
+        ctx.restore();
+    }
+};
+
+console.log('[SC] Mech sprites loaded.');
+
+// =====================================================================
+// === BLACK HOLE GUN — full redesign of gravity weapon =================
+// =====================================================================
+// Replaces the existing GRAVITY CANNON (tier 30) with a proper black-
+// hole weapon. Key differences from the old gravity cannon:
+//   • Bullet sprite: dark sphere with swirling event-horizon ring
+//   • On impact spawns an actual SINGULARITY for ~2 seconds:
+//       - Persistent visible black hole orb at impact point
+//       - Strong inward suction (8.0 strength)
+//       - Damages everything inside per-frame (50 dmg/tick)
+//       - Visible accretion-disc swirl + lensing distortion
+//   • Bigger pull radius (340)
+//   • Alt-fire: SUPERMASSIVE — even bigger field, longer duration,
+//     pulls bosses too
+// Singularity is rendered by SC.blackHole.draw() each frame.
+// ---------------------------------------------------------------------
+
+SC.blackHole = {
+    holes: [],          // active singularities
+    spawn(x, y, opts) {
+        const o = opts || {};
+        this.holes.push({
+            x, y,
+            radius: o.radius || 340,
+            strength: o.strength || 8.0,
+            damage: o.damage || 50,        // damage per tick
+            life: o.life || 120,
+            maxLife: o.life || 120,
+            color: o.color || '#aa44ff',
+            accretionColor: o.accretionColor || '#ff44dd',
+            spin: 0,                        // for visual swirl
+            damageInterval: 0
+        });
+        if (typeof spawnShockwave === 'function') spawnShockwave(x, y, 100, '#ff44dd');
+        if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 14);
+    },
+    tick() {
+        if (typeof enemies === 'undefined') return;
+        for (let i = this.holes.length - 1; i >= 0; i--) {
+            const h = this.holes[i];
+            h.life--;
+            h.spin += 0.18;
+            if (h.life <= 0) { this.holes.splice(i, 1); continue; }
+            // Suction + damage to all enemies inside the radius
+            for (const e of enemies) {
+                const dx = h.x - (e.x + e.w/2);
+                const dy = h.y - (e.y + e.h/2);
+                const d = Math.sqrt(dx*dx + dy*dy);
+                if (d < h.radius && d > 4) {
+                    // Stronger near the center
+                    const distScale = 1 - (d / h.radius);
+                    let pull = h.strength * (0.4 + distScale * 1.3);
+                    // Bosses get 25% pull (still affected, just less)
+                    if (e.type === 'boss') pull *= 0.25;
+                    e.x += (dx / d) * pull;
+                    e.y += (dy / d) * pull * 0.7;
+                    // Damage tick — every 6 frames
+                    if (h.damageInterval % 6 === 0) {
+                        const dmg = e.type === 'boss' ? Math.round(h.damage * 0.4)
+                                  : e.type === 'miniboss' ? Math.round(h.damage * 0.6)
+                                  : h.damage;
+                        e.hp -= dmg;
+                        if (typeof spawnDamageNumber === 'function') {
+                            spawnDamageNumber(e.x + e.w/2, e.y, dmg, 'aoe');
+                        }
+                        if (e.hp <= 0 && typeof handleEnemyKilled === 'function') {
+                            const idx = enemies.indexOf(e);
+                            if (idx >= 0) handleEnemyKilled(e, idx);
+                        }
+                    }
+                }
+            }
+            h.damageInterval++;
+        }
+    },
+    draw() {
+        if (this.holes.length === 0) return;
+        ctx.save();
+        for (const h of this.holes) {
+            const x = h.x - camera.x;
+            const y = h.y;
+            const ageFrac = h.life / h.maxLife;
+            // === Outer pull-distortion field (large dim glow) ===
+            ctx.globalAlpha = 0.10;
+            ctx.fillStyle = h.color;
+            ctx.shadowColor = h.color;
+            ctx.shadowBlur = 50;
+            ctx.beginPath();
+            ctx.arc(x, y, h.radius * 0.95, 0, Math.PI * 2);
+            ctx.fill();
+            // === Accretion disc — bright spinning ring ===
+            ctx.shadowBlur = 16;
+            for (let i = 0; i < 3; i++) {
+                const ringR = 50 + i * 12;
+                const wob = Math.sin(h.spin + i) * 2;
+                ctx.globalAlpha = 0.6 - i * 0.14;
+                ctx.strokeStyle = h.accretionColor;
+                ctx.lineWidth = 4 - i;
+                ctx.beginPath();
+                ctx.arc(x, y, ringR + wob, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            // === Spinning streaks — particle-style trails on the disc ===
+            ctx.globalAlpha = 0.85;
+            ctx.strokeStyle = '#ffffff';
+            ctx.shadowColor = h.accretionColor;
+            ctx.shadowBlur = 14;
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 6; i++) {
+                const ang = h.spin + i * (Math.PI / 3);
+                const r1 = 40;
+                const r2 = 70;
+                ctx.beginPath();
+                ctx.moveTo(x + Math.cos(ang) * r1, y + Math.sin(ang) * r1);
+                ctx.lineTo(x + Math.cos(ang + 0.3) * r2, y + Math.sin(ang + 0.3) * r2);
+                ctx.stroke();
+            }
+            // === Pure black core ===
+            ctx.globalAlpha = 1.0;
+            ctx.fillStyle = '#000000';
+            ctx.shadowColor = '#000000';
+            ctx.shadowBlur = 0;
+            ctx.beginPath();
+            ctx.arc(x, y, 28 * (0.7 + ageFrac * 0.3), 0, Math.PI * 2);
+            ctx.fill();
+            // === Event horizon ring (thin glowing outline) ===
+            ctx.strokeStyle = h.accretionColor;
+            ctx.shadowColor = h.accretionColor;
+            ctx.shadowBlur = 24;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(x, y, 28 * (0.7 + ageFrac * 0.3) + 2, 0, Math.PI * 2);
+            ctx.stroke();
+            // === Inward streaks (matter falling in) ===
+            ctx.globalAlpha = 0.65;
+            ctx.strokeStyle = h.accretionColor;
+            ctx.lineWidth = 1.5;
+            for (let i = 0; i < 8; i++) {
+                const ang = -h.spin * 1.5 + i * (Math.PI / 4);
+                const r1 = 90;
+                const r2 = 35;
+                ctx.beginPath();
+                ctx.moveTo(x + Math.cos(ang) * r1, y + Math.sin(ang) * r1);
+                ctx.lineTo(x + Math.cos(ang + 0.6) * r2, y + Math.sin(ang + 0.6) * r2);
+                ctx.stroke();
+            }
+            // === Lifetime indicator ring (subtle, top of hole) ===
+            ctx.globalAlpha = 0.5;
+            ctx.strokeStyle = '#ffffff';
+            ctx.shadowBlur = 8;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(x, y - 50, 8, 0, Math.PI * 2 * ageFrac);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+};
+
+// Hook tick/draw of black holes into SC's main pipeline
+const _SC_tick4 = SC.tick.bind(SC);
+SC.tick = function() {
+    _SC_tick4();
+    this.blackHole.tick();
+};
+const _SC_draw4 = SC.draw.bind(SC);
+SC.draw = function() {
+    _SC_draw4();
+    this.blackHole.draw();
+};
+
+// === Re-tune the GRAVITY CANNON to spawn proper singularities ===
+// Find the existing weapon entry and replace its gravityPull with a
+// blackHole flag that the bullet hit logic reads.
+(function rebrandGravity() {
+    if (typeof WEAPONS === 'undefined') return;
+    for (const w of WEAPONS) {
+        if (w.name === 'GRAVITY CANNON') {
+            // Rename + visual upgrade
+            w.name = 'BLACK HOLE GUN';
+            w.color = '#aa44ff';
+            w.glow = '#ff44dd';
+            w.size = 16;
+            w.flavor = '🌌 Each round IS a black hole. Sucks enemies in. V: SUPERMASSIVE.';
+            // Remove the old gravityPull, replace with blackHole flag.
+            delete w.gravityPull;
+            w.blackHoleRound = { radius: 340, strength: 8.0, damage: 50, life: 120 };
+            // Buff alt-fire too
+            w.altFire = {
+                name: 'SUPERMASSIVE',
+                heatCost: 90,
+                execute(cx, cy, dir) {
+                    bullets.push({
+                        x: cx, y: cy,
+                        vx: dir * 7, vy: -2,
+                        life: 90, damage: Math.round(220 * (player.dmgMul || 1)),
+                        color: '#ff44dd', glow: '#aa00ff', size: 30,
+                        explosive: true, aoeRadius: 130,
+                        blackHoleRound: { radius: 520, strength: 12.0, damage: 90, life: 200 },
+                        pierce: false, hitEnemies: new Set(),
+                        altFire: true
+                    });
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: '🌌 SUPERMASSIVE — pulls bosses too', timer: 120, color: '#ff44dd' };
+                    }
+                    if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 18);
+                }
+            };
+            break;
+        }
+    }
+})();
+
+// Bullet hit hook — when a bullet flagged blackHoleRound hits an enemy
+// it spawns a singularity at impact. We patch into onBulletHit.
+const _SC_origOnBulletHit = SC.weaponEffects.onBulletHit.bind(SC.weaponEffects);
+SC.weaponEffects.onBulletHit = function(b, e, dmg) {
+    dmg = _SC_origOnBulletHit(b, e, dmg);
+    if (b && b.blackHoleRound && !b._spawnedHole) {
+        b._spawnedHole = true;
+        SC.blackHole.spawn(b.x, b.y, b.blackHoleRound);
+    }
+    return dmg;
+};
+
+console.log('[SC] Black Hole Gun loaded — gravity cannon is now a singularity launcher.');
+
+
+// =====================================================================
+// === drawPlayer wrapper — hide original body when mech is active =====
+// =====================================================================
+// When a mech form is active, the player IS the mech. We don't want
+// the original character body to render under it (would look like a
+// character standing inside a mech costume). We replace drawPlayer
+// with a thin wrapper that:
+//   • If mech is active → only draw the mech sprite (skip the entire
+//     original drawPlayer body, all gun/arm/limb/halo logic)
+//   • If no mech → run drawPlayer as normal
+// The persistent ability panel is also drawn here so it's always
+// visible whenever a mech is active, not just for 4 seconds.
+// ---------------------------------------------------------------------
+
+const _SC_origDrawPlayer = drawPlayer;
+drawPlayer = function() {
+    // No mech active → normal player render
+    if (!SC.mechs || !SC.mechs.activeForm) {
+        _SC_origDrawPlayer();
+        return;
+    }
+    // Mech active — render ONLY the mech sprite. After-images first.
+    const def = SC.mechs.defs[SC.mechs.activeForm];
+    if (!def) {
+        _SC_origDrawPlayer();
+        return;
+    }
+    // After-images behind the mech body
+    if (SC.mechs.afterImages.length > 0) {
+        ctx.save();
+        for (const a of SC.mechs.afterImages) {
+            const alpha = (a.life / 12) * 0.45;
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = a.color;
+            ctx.shadowColor = a.color;
+            ctx.shadowBlur = 12;
+            ctx.fillRect(a.x - camera.x, a.y, a.w, a.h);
+        }
+        ctx.restore();
+    }
+    // The mech sprite IS the character now
+    SC.mechs.renderSprite();
+    // Time bar above mech (if time-limited)
+    if (def.tempFormDuration || (def.cloak && def.cloakDuration)) {
+        const total = def.tempFormDuration || def.cloakDuration;
+        const frac = SC.mechs.formTimer / total;
+        const px = player.x - camera.x;
+        ctx.save();
+        ctx.fillStyle = 'rgba(8, 8, 16, 0.6)';
+        ctx.fillRect(px - 2, player.y - 22, player.w + 4, 6);
+        ctx.fillStyle = def.color;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 5;
+        ctx.fillRect(px - 2, player.y - 22, (player.w + 4) * frac, 6);
+        ctx.restore();
+    }
+    // Energy bar (titan / stealth — shows live energy)
+    if (SC.mechs.energy !== null && SC.mechs.energyMax) {
+        const frac = SC.mechs.energy / SC.mechs.energyMax;
+        const px = player.x - camera.x;
+        ctx.save();
+        ctx.fillStyle = 'rgba(8, 8, 16, 0.7)';
+        ctx.fillRect(px - 2, player.y - 22, player.w + 4, 6);
+        // Color shifts to red as energy drops
+        const energyCol = frac > 0.5 ? def.color : (frac > 0.25 ? '#ffaa44' : '#ff4422');
+        ctx.fillStyle = energyCol;
+        ctx.shadowColor = energyCol;
+        ctx.shadowBlur = 5;
+        ctx.fillRect(px - 2, player.y - 22, (player.w + 4) * frac, 6);
+        ctx.restore();
+    }
+    // Berserker heat aura
+    if (def.heatPowered) {
+        const hp = (typeof SC !== 'undefined' && SC.heat) ? SC.heat.level : 0;
+        if (hp > 30) {
+            const px = player.x - camera.x;
+            ctx.save();
+            ctx.globalAlpha = (hp - 30) / 70 * 0.6;
+            ctx.strokeStyle = '#ff2244';
+            ctx.shadowColor = '#ff8866';
+            ctx.shadowBlur = 16;
+            ctx.lineWidth = 2 + (hp / 100) * 3;
+            ctx.beginPath();
+            ctx.arc(px + player.w/2, player.y + player.h/2,
+                player.w * 0.7 + Math.sin(Date.now() / 80) * 4,
+                0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
+};
+
+// === Persistent ability panel — visible the WHOLE time mech is active ===
+// Replaces the 4-second tutorial overlay. Smaller, sits top-center,
+// shows all abilities + their keys. Stays up until the mech form ends.
+// The activation flash (big banner) still plays on first activate.
+SC.mechs.drawAbilityPanel = function() {
+    if (!this.activeForm) return;
+    const def = this.defs[this.activeForm];
+    if (!def || !def.abilities) return;
+    const x = canvas.width / 2 - 170;
+    const y = 80;
+    const w = 340;
+    const h = 26 + def.abilities.length * 18 + 8;
+    ctx.save();
+    // Backdrop
+    ctx.fillStyle = 'rgba(8, 8, 18, 0.78)';
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = def.color;
+    ctx.shadowColor = def.color;
+    ctx.shadowBlur = 8;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.shadowBlur = 0;
+    // Title
+    ctx.fillStyle = def.color;
+    ctx.shadowColor = def.color;
+    ctx.shadowBlur = 6;
+    ctx.font = 'bold 13px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(def.name, x + w / 2, y + 6);
+    ctx.shadowBlur = 0;
+    // Each ability row
+    ctx.font = 'bold 10px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    let row = 0;
+    for (const ab of def.abilities) {
+        const ry = y + 26 + row * 18;
+        // Key column (glowing colored)
+        ctx.fillStyle = def.color;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 5;
+        ctx.fillText(ab.keys, x + 12, ry + 1);
+        ctx.shadowBlur = 0;
+        // What column (white)
+        ctx.fillStyle = '#ddddee';
+        ctx.font = '10px "Courier New", monospace';
+        ctx.fillText('→ ' + ab.what, x + 120, ry + 1);
+        ctx.font = 'bold 10px "Courier New", monospace';
+        row++;
+    }
+    ctx.restore();
+};
+
+// Hook the panel into SC.draw so it always renders while mech is active.
+const _SC_draw5 = SC.draw.bind(SC);
+SC.draw = function() {
+    _SC_draw5();
+    if (this.mechs && this.mechs.activeForm) {
+        this.mechs.drawAbilityPanel();
+    }
+};
+
+// Also kill the old 4-second tutorial overlay code path inside
+// SC.mechs.draw — we want a clean "panel always visible" approach.
+// The tutorialTimer is still set at activation but we just never read
+// it for the persistent panel; the activation flash banner via
+// shopMessage still fires from activate(). Cleanest way to silence
+// the old tutorial: stub it out in SC.mechs.draw.
+const _SC_origMechsDraw = SC.mechs.draw.bind(SC.mechs);
+SC.mechs.draw = function() {
+    // Skip the per-mech draw entirely — drawPlayer wrapper now handles
+    // sprite + after-images + time bar + heat aura. The persistent
+    // ability panel is drawn from SC.draw above.
+    // The OLD draw is preserved (in _SC_origMechsDraw) in case I need
+    // to rollback, but it's never called in normal flow.
+};
+
+// Also re-emit the tagline as a one-shot top banner on activation —
+// big, brief, uses the existing shopMessage system so it pulses.
+const _SC_origActivate = SC.mechs.activate.bind(SC.mechs);
+SC.mechs.activate = function(formId) {
+    _SC_origActivate(formId);
+    const def = this.defs[formId];
+    if (def && typeof shopMessage !== 'undefined') {
+        // 3-second activation banner — short and big
+        shopMessage = { text: def.tagline, timer: 180, color: def.color };
+    }
+};
+
+console.log('[SC] Mech persistent ability panel + drawPlayer override loaded.');
+
+
+// =====================================================================
+// === Mech rebalance hooks ============================================
+// =====================================================================
+// Wire titan kill-energy and stealth first-shot bonus into the existing
+// kill / shoot paths via thin wrappers. Removing this block reverts.
+// ---------------------------------------------------------------------
+
+// Titan: each kill grants energy → keeps the form alive longer in heavy
+// combat. This makes the form feel rewarding for aggressive play and
+// punishing for hiding (energy just runs out).
+const _SC_origHandleKilled = handleEnemyKilled;
+handleEnemyKilled = function(e, j) {
+    _SC_origHandleKilled(e, j);
+    if (typeof SC !== 'undefined' && SC.mechs) SC.mechs.onEnemyKilled();
+};
+
+// Stealth: first shot after activation deals ×3 damage. Wired by
+// reading SC.mechs.firstShotPending in the bullet damage path.
+const _SC_origOnAttack = SC.onPlayerAttack.bind(SC);
+SC.onPlayerAttack = function(kind) {
+    _SC_origOnAttack(kind);
+    if (this.mechs && this.mechs.activeForm === 'stealth' && this.mechs.firstShotPending) {
+        if (typeof shopMessage !== 'undefined') {
+            shopMessage = { text: '🌑 BACKSTAB — first shot ×3', timer: 80, color: '#aaaaff' };
+        }
+    }
+};
+
+// Patch the bullet outgoing-damage hook to apply stealth first-shot
+// multiplier + spider spiderling spawn + ninja melee bonus.
+const _SC_origOutgoing = SC.outgoingDmgMul.bind(SC);
+SC.outgoingDmgMul = function() {
+    let m = _SC_origOutgoing();
+    if (this.mechs && this.mechs.activeForm) {
+        const def = this.mechs.defs[this.mechs.activeForm];
+        // Stealth first-shot ×3
+        if (def && def.firstShotMul && this.mechs.firstShotPending) {
+            m *= def.firstShotMul;
+            this.mechs.firstShotPending = false;
+            // Burn cloak energy on the attack
+            if (def.energyOnAttack && this.mechs.energy !== null) {
+                this.mechs.energy = Math.max(0, this.mechs.energy + def.energyOnAttack);
+            }
+        }
+        // Spider — spiderlings handled in shoot path; nothing here
+    }
+    return m;
+};
+
+// Spider spiderling spawn — fire a small homing pellet alongside each
+// shot. Hooked via SC.onPlayerAttack so we don't have to dig back into
+// the shoot path.
+const _SC_origAttack2 = SC.onPlayerAttack.bind(SC);
+SC.onPlayerAttack = function(kind) {
+    _SC_origAttack2(kind);
+    if (kind !== 'shoot') return;
+    if (!this.mechs || this.mechs.activeForm !== 'spider') return;
+    // Add a small homing pellet from the player
+    if (typeof bullets === 'undefined' || typeof player === 'undefined') return;
+    const cx = player.x + player.w / 2;
+    const cy = player.y + player.h / 2;
+    const dir = player.facing || 1;
+    bullets.push({
+        x: cx + dir * 12, y: cy + 6,
+        vx: dir * 8 + (Math.random() - 0.5) * 2,
+        vy: -2 + Math.random(),
+        life: 200,
+        damage: Math.max(8, Math.round((player.bulletDamage + 18) * 0.3 * (player.dmgMul || 1))),
+        color: '#88ff88', glow: '#44dd44', size: 4,
+        pierce: false, hitEnemies: new Set(),
+        drone: true,             // reuse drone homing logic
+        spider: true
+    });
+};
+
+// Apply ninja melee bonus to the executeMelee path. We can do this by
+// wrapping executeMelee — at top of function we bump player.dmgMul,
+// at end we restore. But easier: read the bonus in the existing
+// melee dmg multiplier (player.dmgMul is already used). Instead, we
+// just bump the snapshot-derived dmgMul slightly during ninja.
+// The simpler path: set a per-frame bonus on player that the melee
+// path multiplies in. We use player._scNinjaMeleeBonus.
+const _SC_mechTick = SC.mechs.tick.bind(SC.mechs);
+SC.mechs.tick = function() {
+    _SC_mechTick();
+    if (!this.activeForm) {
+        if (typeof player !== 'undefined') player._scNinjaMeleeBonus = 1;
+        return;
+    }
+    const def = this.defs[this.activeForm];
+    if (typeof player !== 'undefined') {
+        player._scNinjaMeleeBonus = (def && def.meleeBonus) || 1;
+    }
+};
+
+console.log('[SC] Mech rebalance hooks loaded.');

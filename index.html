@@ -67,6 +67,10 @@
             box-shadow: 0 0 18px rgba(255, 136, 68, 0.35);
             z-index: 10;
             min-width: 200px;
+            /* Cap the panel height so newly added sections don't push
+               buttons below the viewport. Inner content scrolls. */
+            max-height: calc(100vh - 100px);
+            overflow-y: auto;
         }
         #dev-panel h3 {
             margin: 0 0 8px 0;
@@ -367,6 +371,34 @@
             <button class="util-btn" data-util="giveDaggers" style="font-size:9px">DAGGERS</button>
             <button class="util-btn" data-util="giveHammer" style="font-size:9px">HAMMER</button>
             <button class="util-btn" data-util="giveScythe" style="font-size:9px">SCYTHE</button>
+        </div>
+        <!-- ===== EXPANDED ARSENAL — 6 new weapons + V alt-fire ====== -->
+        <div style="font-size:10px; color:#aa44ff; letter-spacing:1px; margin:6px 0 4px 0; padding-top:4px; border-top:1px dashed #553a22;">⚔ EXPANDED ARSENAL — V = ALT FIRE</div>
+        <div class="row">
+            <button class="util-btn" data-util="giveKatana" style="font-size:9px;border-color:#aaffff;color:#aaffff">⚔ ENERGY KATANA</button>
+            <button class="util-btn" data-util="giveGravity" style="font-size:9px;border-color:#aa44ff;color:#cc88ff">🌌 BLACK HOLE GUN</button>
+        </div>
+        <div class="row">
+            <button class="util-btn" data-util="givePiercer" style="font-size:9px;border-color:#ffaa00;color:#ffeebb">⚙ ARMOR PIERCER</button>
+            <button class="util-btn" data-util="giveDrone" style="font-size:9px;border-color:#44aaff;color:#88ddff">🛸 DRONE SWARM</button>
+        </div>
+        <div class="row">
+            <button class="util-btn" data-util="giveWhip" style="font-size:9px;border-color:#ff44dd;color:#ff88ee">⚡ LASER WHIP</button>
+            <button class="util-btn" data-util="giveCorrupt" style="font-size:9px;border-color:#aa00ff;color:#ff44dd">☠ CORRUPTION</button>
+        </div>
+        <!-- ===== NEW MECH FORMS ===== -->
+        <div style="font-size:10px; color:#44ddff; letter-spacing:1px; margin:6px 0 4px 0; padding-top:4px; border-top:1px dashed #553a22;">🤖 MECH FORMS</div>
+        <div class="row">
+            <button class="util-btn" data-util="mechNinja" style="font-size:9px;border-color:#aa00ff;color:#ff66ff">⚡ NINJA</button>
+            <button class="util-btn" data-util="mechTitan" style="font-size:9px;border-color:#ffd744;color:#ff8844">🛡 TITAN (12s)</button>
+        </div>
+        <div class="row">
+            <button class="util-btn" data-util="mechBerserker" style="font-size:9px;border-color:#ff2244;color:#ff8866">🔥 BERSERKER</button>
+            <button class="util-btn" data-util="mechSpider" style="font-size:9px;border-color:#88ff88;color:#44dd44">🕷 SPIDER</button>
+        </div>
+        <div class="row">
+            <button class="util-btn" data-util="mechStealth" style="font-size:9px;border-color:#444466;color:#aaaaff">🌑 STEALTH (8s)</button>
+            <button class="util-btn" data-util="mechRobot" style="font-size:9px;border-color:#888888;color:#cccccc">↶ BACK TO ROBOT</button>
         </div>
         <div class="row">
             <button class="util-btn" data-util="resetsave" style="border-color:#ff3366;color:#ff6688">⚠ RESET SAVE</button>
@@ -949,6 +981,106 @@
                         if (typeof shopMessage !== 'undefined') {
                             shopMessage = { text: 'PHANTOM SCYTHE equipped (G to swing)', timer: 120, color: '#aa00ff' };
                         }
+                        break;
+                    // ===== Expanded arsenal weapons (tiers 29-34) =====
+                    // Each unlocks + equips. V key fires the alt-fire
+                    // (defined per-weapon in WEAPONS[*].altFire). Heat
+                    // bar shows up automatically when these are equipped.
+                    case 'giveKatana':
+                        // ENERGY KATANA is now a proper melee weapon
+                        // (G to swing). It auto-reflects enemy bullets
+                        // that cross the swing arc.
+                        if (player.meleeWeaponsUnlocked) {
+                            player.meleeWeaponsUnlocked.energy_katana = true;
+                        }
+                        player.activeMelee = 'energy_katana';
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '⚔ ENERGY KATANA equipped — G to swing · reflects bullets', timer: 280, color: '#aaffff' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'giveGravity':
+                        player.weaponsUnlocked[30] = true;
+                        player.weaponTier = 30;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '🌌 BLACK HOLE GUN — F: singularity rounds · V: SUPERMASSIVE', timer: 280, color: '#ff44dd' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'givePiercer':
+                        player.weaponsUnlocked[31] = true;
+                        player.weaponTier = 31;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '⚙ ARMOR PIERCER — F: bypasses armor · V: TUNGSTEN VOLLEY', timer: 280, color: '#ffeebb' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'giveDrone':
+                        player.weaponsUnlocked[32] = true;
+                        player.weaponTier = 32;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '🛸 DRONE SWARM — F: 4 homing drones · V: HUNTER PACK (8 drones)', timer: 280, color: '#88ddff' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'giveWhip':
+                        // LASER WHIP is a MELEE weapon — long curved arc
+                        // that chains 3 enemies on each swing. Equip it
+                        // as the active melee.
+                        if (player.meleeWeaponsUnlocked) {
+                            player.meleeWeaponsUnlocked.laser_whip = true;
+                        }
+                        player.activeMelee = 'laser_whip';
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '⚡ LASER WHIP equipped — G to swing · chains 3 enemies', timer: 280, color: '#ff88ee' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'giveCorrupt':
+                        player.weaponsUnlocked[34] = true;
+                        player.weaponTier = 34;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '☠ CORRUPTION CANNON — F: scales with low HP · V: SACRIFICE BLAST', timer: 280, color: '#ff44dd' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    // ===== Mech form activations =====
+                    // Each switches the player into the named form via
+                    // SC.mechs.activate(). Forms with timers (titan,
+                    // stealth) auto-revert when the timer runs out.
+                    case 'mechNinja':
+                        if (typeof SC !== 'undefined' && SC.mechs) SC.mechs.activate('ninja');
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'mechTitan':
+                        if (typeof SC !== 'undefined' && SC.mechs) SC.mechs.activate('titan');
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'mechBerserker':
+                        if (typeof SC !== 'undefined' && SC.mechs) SC.mechs.activate('berserker');
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'mechSpider':
+                        if (typeof SC !== 'undefined' && SC.mechs) SC.mechs.activate('spider');
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'mechStealth':
+                        if (typeof SC !== 'undefined' && SC.mechs) SC.mechs.activate('stealth');
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'mechRobot':
+                        if (typeof SC !== 'undefined' && SC.mechs) SC.mechs.deactivate();
                         break;
                     case 'resetsave':
                         // Wipe persisted save (unlocks, audio settings, meta stats)
