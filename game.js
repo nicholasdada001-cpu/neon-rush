@@ -1391,6 +1391,14 @@ const SHOP_ITEMS = [
       melee: 'hammer', meleeName: 'WAR HAMMER',  meleeColor: '#ff6600' },
     { key: 'K', name: 'Buy: PHANTOM SCYTHE', cost: 1380, action: p => { p.meleeWeaponsUnlocked.scythe = true; p.activeMelee = 'scythe'; },
       melee: 'scythe', meleeName: 'PHANTOM SCYTHE', meleeColor: '#aa00ff' },
+    // Expanded arsenal — ENERGY KATANA reflects bullets while swinging,
+    // LASER WHIP chains 3 enemies on every swing. Both are MELEE weapons
+    // (G to swing once equipped). Higher cost than other blades because
+    // their on-hit effects are stronger.
+    { key: 'U', name: 'Buy: ENERGY KATANA',  cost: 1500, action: p => { p.meleeWeaponsUnlocked.energy_katana = true; p.activeMelee = 'energy_katana'; },
+      melee: 'energy_katana', meleeName: 'ENERGY KATANA', meleeColor: '#00ffff' },
+    { key: 'Y', name: 'Buy: LASER WHIP',     cost: 1650, action: p => { p.meleeWeaponsUnlocked.laser_whip = true; p.activeMelee = 'laser_whip'; },
+      melee: 'laser_whip', meleeName: 'LASER WHIP', meleeColor: '#ff44dd' },
     { key: 'N', name: 'Buy: BFG-9000',       cost: 1250, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
     // Dev-only weapons — hidden from non-developers (gated by window.isDeveloper())
     // Free for devs (cost 0) so the kid + friends can grab them anytime.
@@ -29089,6 +29097,14 @@ function gameLoop(timestamp) {
             updateCoins();
             updateHealthDrops();
             updateStageHazards();
+            // Style Combat: pull-pass for active black holes runs AFTER
+            // updateEnemies so its position deltas don't get overwritten
+            // by the AI's own velocity integration. The earlier SC.tick
+            // already advanced the singularity life; this second pass
+            // applies the actual suction force on the post-AI positions.
+            if (typeof SC !== 'undefined' && SC.blackHole && SC.blackHole.applyPull) {
+                SC.blackHole.applyPull();
+            }
         }
         updateHealingStations();
         updateShop();
@@ -34189,41 +34205,52 @@ SC.blackHole = {
         if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 14);
     },
     tick() {
-        if (typeof enemies === 'undefined') return;
+        // Just lifecycle — life decay + spin animation. The actual
+        // suction now happens in applyPull() which runs AFTER
+        // updateEnemies so its position changes aren't overwritten.
         for (let i = this.holes.length - 1; i >= 0; i--) {
             const h = this.holes[i];
             h.life--;
             h.spin += 0.18;
             if (h.life <= 0) { this.holes.splice(i, 1); continue; }
-            // Suction + damage to all enemies inside the radius
+        }
+    },
+
+    // === applyPull — runs AFTER updateEnemies ===
+    // Pulls every enemy inside any active singularity toward its center.
+    // Position-deltas + velocity-overrides + damage tick. Bosses get
+    // 30% pull strength so they're affected but not trivialized.
+    applyPull() {
+        if (typeof enemies === 'undefined') return;
+        for (const h of this.holes) {
             for (const e of enemies) {
-                const dx = h.x - (e.x + e.w/2);
-                const dy = h.y - (e.y + e.h/2);
+                const ex = e.x + e.w / 2;
+                const ey = e.y + e.h / 2;
+                const dx = h.x - ex;
+                const dy = h.y - ey;
                 const d = Math.sqrt(dx*dx + dy*dy);
                 if (d < h.radius && d > 4) {
-                    // Stronger near the center — distance-scaled
                     const distScale = 1 - (d / h.radius);
-                    // Use TRUE strength (was halved by 0.4..1.7 earlier).
-                    // Now full strength close-up so enemies actually slide in.
                     let pull = h.strength * (0.6 + distScale * 1.6);
-                    // Bosses get 30% pull (still affected, just less)
                     if (e.type === 'boss') pull *= 0.30;
+                    // Apply BOTH position delta AND velocity override so
+                    // the suction beats the enemy's AI movement.
                     e.x += (dx / d) * pull;
                     e.y += (dy / d) * pull * 0.8;
-                    // Cancel any outward velocity so the pull actually
-                    // sticks. Bosses skip this so their attack movements
-                    // still feel weighty.
-                    if (e.type !== 'boss' && e.vx !== undefined) {
-                        e.vx = (e.vx || 0) * 0.7 + (dx / d) * 0.5;
+                    if (e.type !== 'boss') {
+                        // Force velocity to point INWARD. This kills any
+                        // outward AI motion (charge, dash, etc.).
+                        e.vx = (dx / d) * pull * 0.6;
+                        e.vy = (dy / d) * pull * 0.5;
                     }
                     // Damage tick — every 6 frames
-                    if (h.damageInterval % 6 === 0) {
+                    if ((h.damageInterval || 0) % 6 === 0) {
                         const dmg = e.type === 'boss' ? Math.round(h.damage * 0.4)
                                   : e.type === 'miniboss' ? Math.round(h.damage * 0.6)
                                   : h.damage;
                         e.hp -= dmg;
                         if (typeof spawnDamageNumber === 'function') {
-                            spawnDamageNumber(e.x + e.w/2, e.y, dmg, 'aoe');
+                            spawnDamageNumber(ex, e.y, dmg, 'aoe');
                         }
                         if (e.hp <= 0 && typeof handleEnemyKilled === 'function') {
                             const idx = enemies.indexOf(e);
@@ -34232,7 +34259,7 @@ SC.blackHole = {
                     }
                 }
             }
-            h.damageInterval++;
+            h.damageInterval = (h.damageInterval || 0) + 1;
         }
     },
     draw() {
