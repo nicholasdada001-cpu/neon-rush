@@ -14658,6 +14658,105 @@ function drawPlayer() {
         if (meleeWpnDef && !player.meleeAxe) {
             // Per-weapon visual settings
             const wKind = player.activeMelee;
+            // === LASER WHIP — render as a curved whip, not a blade ===
+            // The whip flicks forward in a sine-wave curve made of N
+            // small glowing segments. During windup it coils back; during
+            // snap it whip-cracks forward with a tip flare. Renders
+            // BEFORE the regular blade branch so we skip that for whips.
+            if (wKind === 'laser_whip') {
+                const cxP = torsoCx;
+                const cyP = py + player.h / 2;
+                const dir = player.facing || 1;
+                // Whip extension — short during windup, long during snap
+                const whipLen = 160 * (windup > 0 ? (0.3 + (1 - windup) * 0.4) : (0.4 + extend * 1.0));
+                // Animation phase 0..1 across the swing
+                const phase = windup > 0 ? -windup : extend;
+                // Number of segments along the whip
+                const segs = 18;
+                const whipColor = meleeWpnDef.color || '#ff44dd';
+                const whipGlow  = meleeWpnDef.glow  || '#ff88ee';
+                ctx.save();
+                // Draw segments — each follows a sine wave perpendicular
+                // to the forward direction. Wave amplitude peaks mid-whip
+                // and tapers at base + tip.
+                const wavePhase = phase * Math.PI * 1.6;
+                for (let i = 0; i < segs; i++) {
+                    const t0 = i / segs;
+                    const t1 = (i + 1) / segs;
+                    // Position along the whip
+                    const dist0 = whipLen * t0;
+                    const dist1 = whipLen * t1;
+                    // Vertical wave — bigger amplitude in the middle
+                    const ampScale0 = Math.sin(t0 * Math.PI);
+                    const ampScale1 = Math.sin(t1 * Math.PI);
+                    const ampMax = 26 * (windup > 0 ? 0.4 : 1.0);
+                    const wy0 = Math.sin(wavePhase + t0 * 5) * ampMax * ampScale0;
+                    const wy1 = Math.sin(wavePhase + t1 * 5) * ampMax * ampScale1;
+                    const x0 = cxP + dir * dist0;
+                    const y0 = cyP + wy0;
+                    const x1 = cxP + dir * dist1;
+                    const y1 = cyP + wy1;
+                    // Outer glow line
+                    ctx.globalAlpha = 0.5;
+                    ctx.shadowColor = whipGlow;
+                    ctx.shadowBlur = 14;
+                    ctx.strokeStyle = whipGlow;
+                    ctx.lineWidth = 8 * (1 - t0 * 0.6);
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(x0, y0);
+                    ctx.lineTo(x1, y1);
+                    ctx.stroke();
+                    // Inner bright core line
+                    ctx.globalAlpha = 0.95;
+                    ctx.shadowBlur = 8;
+                    ctx.strokeStyle = whipColor;
+                    ctx.lineWidth = 4 * (1 - t0 * 0.5);
+                    ctx.beginPath();
+                    ctx.moveTo(x0, y0);
+                    ctx.lineTo(x1, y1);
+                    ctx.stroke();
+                    // White hot inner sparks at every 3rd segment
+                    if (i % 3 === 0) {
+                        ctx.globalAlpha = 0.9;
+                        ctx.shadowColor = '#ffffff';
+                        ctx.shadowBlur = 10;
+                        ctx.fillStyle = '#ffffff';
+                        ctx.beginPath();
+                        ctx.arc(x0, y0, 2 * (1 - t0 * 0.5), 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+                // Hilt — small black grip at the player's hand
+                ctx.globalAlpha = 1;
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#1a1a1a';
+                ctx.fillRect(cxP - 3, cyP - 4, dir * 14, 8);
+                ctx.strokeStyle = whipGlow;
+                ctx.lineWidth = 1;
+                ctx.shadowColor = whipGlow;
+                ctx.shadowBlur = 6;
+                ctx.strokeRect(cxP - 3, cyP - 4, dir * 14, 8);
+                // Tip flare — bright burst at the very end of the whip
+                const tipDist = whipLen;
+                const tipAmp = Math.sin(wavePhase + 1.0 * 5) * 26 * Math.sin(Math.PI);
+                const tipX = cxP + dir * tipDist;
+                const tipY = cyP + tipAmp;
+                ctx.globalAlpha = 0.9;
+                ctx.fillStyle = whipColor;
+                ctx.shadowColor = whipGlow;
+                ctx.shadowBlur = 18;
+                ctx.beginPath();
+                ctx.arc(tipX, tipY, 6 + extend * 4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowBlur = 12;
+                ctx.beginPath();
+                ctx.arc(tipX, tipY, 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+                // SKIP the regular blade-arc render for whips
+            } else {
             const bladeColor = meleeWpnDef.color || '#ffeecc';
             const bladeGlow  = meleeWpnDef.glow  || '#ff6644';
             // Blade length scales with weapon. Hammer/scythe override default.
@@ -14866,6 +14965,7 @@ function drawPlayer() {
                 ctx.restore();
             }
             ctx.restore();
+            } // close the `} else {` from the laser-whip branch
         } else
         // ----- ENERGON AXE swing (CONVOY only) -----
         // Replaces the fist visual at CONVOY tier. The axe swings in an arc
@@ -18844,6 +18944,61 @@ function drawPlatforms() {
 function drawBullets() {
     // Player bullets - color and size from weapon
     for (const b of bullets) {
+        // === BLACK HOLE GUN bullets — render as a dark void with a
+        // magenta event-horizon glow + spinning swirl. The bullet itself
+        // looks like a singularity in flight; on impact it spawns the
+        // full SC.blackHole singularity.
+        if (b.blackHoleRound) {
+            const sx = b.x - camera.x;
+            const sy = b.y - camera.y;
+            const r = b.size || 16;
+            const spin = (b.life || 0) * 0.18;
+            ctx.save();
+            // Outer pull glow (large, dim magenta)
+            ctx.globalAlpha = 0.35;
+            ctx.shadowColor = b.glow || '#ff44dd';
+            ctx.shadowBlur = 32;
+            ctx.fillStyle = b.glow || '#ff44dd';
+            ctx.beginPath();
+            ctx.arc(sx, sy, r * 1.7, 0, Math.PI * 2);
+            ctx.fill();
+            // Spinning event-horizon ring
+            ctx.globalAlpha = 0.85;
+            ctx.shadowBlur = 18;
+            ctx.strokeStyle = b.glow || '#ff44dd';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(sx, sy, r * 1.05, 0, Math.PI * 2);
+            ctx.stroke();
+            // Inner accretion streaks (4 white dashes orbiting)
+            ctx.globalAlpha = 0.9;
+            ctx.strokeStyle = '#ffffff';
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 10;
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 4; i++) {
+                const ang = spin + i * (Math.PI / 2);
+                ctx.beginPath();
+                ctx.arc(sx, sy, r * 0.95, ang, ang + 0.5);
+                ctx.stroke();
+            }
+            // Pure black core (the void)
+            ctx.globalAlpha = 1;
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#000000';
+            ctx.beginPath();
+            ctx.arc(sx, sy, r * 0.85, 0, Math.PI * 2);
+            ctx.fill();
+            // Tiny center sparkle
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = b.glow || '#ff44dd';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(sx, sy, r * 0.18, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+            continue;
+        }
         // BEAM bullets — render as a glowing line segment instead of a dot.
         // Uses the bullet's velocity to project a tail. Reads as a
         // continuous beam when many of them are fired in close succession.
