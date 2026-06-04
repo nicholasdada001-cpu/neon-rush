@@ -33620,6 +33620,14 @@ SC.mechs.renderSprite = function() {
     if (!this.activeForm) return;
     const def = this.defs[this.activeForm];
     if (!def) return;
+    // Don't render the mech sprite during cinematics / boss intros where
+    // the player isn't supposed to be visible — those screens have their
+    // own actor rendering and the mech sprite would float in oddly.
+    if (gameState === 'bossIntro' || gameState === 'evoCutscene' ||
+        gameState === 'cutscene' || gameState === 'throneCutscene' ||
+        gameState === 'spaceTransition' || gameState === 'stageComplete') {
+        return;
+    }
     // === Pacific Rim sprite scaling ===
     // The hitbox is the small standard player size. The sprite is
     // drawn at spriteScale× that size, centered horizontally on the
@@ -33627,11 +33635,17 @@ SC.mechs.renderSprite = function() {
     // of the hitbox (so the mech's feet land where the player feet
     // would land). Result: sprite looks like a giant Jaeger but the
     // player still fits through the same doorways.
+    //
+    // FOOT_LIFT — visual nudge UP so the mech's feet sit clearly
+    // above the platform top instead of clipping into the visible
+    // floor band (some stages have thick decorative floor visuals
+    // below the platform's collision top).
+    const FOOT_LIFT = 6;
     const scale = def.spriteScale || 1.3;
     const w = player.w * scale;
     const h = player.h * scale;
     const px = (player.x + player.w / 2) - (w / 2) - camera.x;
-    const py = (player.y + player.h) - h;
+    const py = (player.y + player.h) - h - FOOT_LIFT;
     const cx = px + w / 2;
     const cy = py + h / 2;
     const facing = player.facing || 1;
@@ -34414,9 +34428,10 @@ drawPlayer = function() {
     // the visible mech, not above the small invisible hitbox. So we
     // compute the sprite top each frame.
     const _spriteScale = def.spriteScale || 1.3;
+    const _FOOT_LIFT = 6;
     const _spriteW = player.w * _spriteScale;
     const _spriteX = (player.x + player.w / 2) - (_spriteW / 2) - camera.x;
-    const _spriteTopY = (player.y + player.h) - (player.h * _spriteScale);
+    const _spriteTopY = (player.y + player.h) - (player.h * _spriteScale) - _FOOT_LIFT;
     // Time bar above mech (if time-limited)
     if (def.tempFormDuration || (def.cloak && def.cloakDuration)) {
         const total = def.tempFormDuration || def.cloakDuration;
