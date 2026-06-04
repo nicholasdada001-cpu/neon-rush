@@ -4,6 +4,129 @@ A 2D action platformer + space dogfighter built in vanilla HTML5 Canvas + JavaSc
 
 ---
 
+## ⚡ MOST RECENT SESSION (Jun 3, 2026 — dev-weapon arsenal explosion + arena rework + balance pass)
+
+Another long kid-led session. ~21 commits. The session focused on **dev-only weapons** (kid + 2 friends Micah + Jax each get themed weapons), **friendly-summon systems** (minecraft mobs, primus titan), **boss-arena rework**, and a sweeping **balance pass** to make the game properly hard. File grew from ~25,000 → ~30,600 lines.
+
+### Big new systems
+
+**Cache-bust on game.js load** (`b0c3001`) — every page load fetches `game.js?v=Date.now()` via a generated script tag + 3 no-cache meta tags. Solves the recurring "I don't see my changes" report from the kid because GitHub Pages + browser caching kept serving stale builds. Now every reload pulls fresh code regardless of cache state.
+
+**🛠 DEV panel quick-give buttons** (`e627f60`, then expanded across the session) — instead of going through the shop to grab a dev weapon, the panel now has one-click buttons that unlock + equip + close-the-panel:
+- ⚽ JAX BLASTER · ⛏ MICAH MINECRAFTER · 🎵 BAND BLASTER · ⚙ CONVOY ION BLASTER (Nicholas)
+- DAGGERS · HAMMER · SCYTHE (the new melee weapons added below)
+- UNLOCK ALL also extends to flip on all 6 melee weapons
+
+**3 new melee weapons** (`8cec2e8` follow-up + earlier session work) added to the shop:
+- DUAL DAGGERS [H], 360c, dmg×2.0 — twin-blade flurry, second blade renders alongside main during swings AND in idle
+- WAR HAMMER [J], 760c, dmg×3.0 — heavy slam with ground shockwave on every swing (extra AOE for fraction of damage)
+- PHANTOM SCYTHE [K], 1380c, dmg×4.2 — long curved arc, **lifesteal 8%** of damage dealt as HP, capped at 60/swing
+Each gets a per-weapon swing render (custom blade shape + trail count + glow color) plus a persistent idle-blade visual when held still.
+
+**Improved melee animation curves** — replaced linear extend with **windup → snap → hold → recover**: 0.18 windup (blade pulls back visually), 0.27 snap with easeOutCubic + 1.03 overshoot, 0.20 hold near peak, 0.35 eased retract. Animation length scales per weapon (knife/daggers 14f, katana/saber 18f, scythe 22f, hammer 24f). Adds anticipation telegraph + "lands like a real strike" follow-through.
+
+### Dev weapons (4 total — one per kid + their two friends + a band)
+
+**⚽ JAX BLASTER** (tier 24, free for devs) — soccer-themed gun. 5-ball volley per shot. Every ball has **homing + bouncing (4 ricochets) + on-impact "GOAL!" split** that fires 4 mini soccer balls in a fan, each with their own 60-radius explosion. Custom render: spinning pentagon-stitched white-and-black soccer ball with motion-blur trail. 320 dmg + 170 AOE.
+
+**⛏ MICAH MINECRAFTER** (tier 25, free) — minecraft-themed gun. **Big-deal weapon — most complex one in the game.** Each shot:
+1. Fires a creeper-faced TNT block bullet (520 dmg + 220 AOE)
+2. Drops a green acid puddle on impact (uses stageHazards system, 14 dmg/tick for 6s)
+3. Free-summons one bonus mob at the impact point (zombie/wolf/enderman/blaze)
+4. Pops 2-3 entries from a deterministic 20-step **summon queue** that includes mobs, blocks, AND **mob spawners** (iron-cage block that pumps out 5 of one mob over ~10s)
+5. Has a 10% chance per shot to trigger a **rare boss mob** at the front of the queue (~7% Wither, ~3% Ender Dragon)
+
+Mob roster (huge expansion this session):
+- Tier 1: zombie / skeleton / wolf / creeper
+- Tier 2: enderman (teleporting flank, 320 HP) · blaze (hovering fireball thrower, 240 HP) · iron golem (700 HP tank, 60 dmg)
+- Boss tier: **wither** (1800 HP, 3-skull triple-volley AOE skulls) · **ender dragon** (2600 HP, sweeping 8-shot piercing breath beam)
+
+Each mob has its own AI + render branch + HUD-preview icon + lifetime fade ring + HP bar. Dragons render with flapping wings + ember trail. Wither has 3-skull silhouette + glowing red eye sockets + persistent dark aura. Mob spawner is an iron cage with fire backdrop + spinning mini-mob inside + bottom progress gauge.
+
+HUD preview at top-center shows the next 5 queued summons as pixel-art icons with a yellow `NEXT` highlight on slot 0 — kid can plan around what's coming.
+
+Mobs return to player when no enemies are in range (walks back to a follow-trail offset, hops over bumps, warps if 1100+ px away).
+
+**🎵 BAND BLASTER** (tier 26, free, dev-panel only) — 4-instrument music-note rifle. Press **B** to cycle DRUM → SAXOPHONE → CLARINET → FLUTE. Each instrument has TWO levels of ability:
+- **F (regular fire)** = signature pattern per instrument
+- **V (SPECIAL move, 3-sec cooldown)** = full-screen cinematic ability per instrument
+
+Per-instrument:
+| Inst | F (fire) | V (SPECIAL) |
+|---|---|---|
+| 🥁 DRUM | 3-shockwave wave w/ knockback + slow | EARTHQUAKE SOLO — 90f of expanding shockwave rings + ground-crack overlay |
+| 🎷 SAX | 5 piercing homers + heal-on-shot + mob heal | JAZZ FRENZY — 12 spiral homers, +50 max HP, 120f of spiraling triple-notes |
+| 🎼 CLARINET | Hyperspeed pierce-beam + chain-arc to 4 enemies | THUNDER OVERTURE — pre-computes ALL visible enemies, fires chain-lightning beam connecting them all (800 first hit + 320 each chain) with zigzag bolt render |
+| 🎶 FLUTE | 8 bouncing notes (each splits into 3 sparkles on hit) + +30% speed buff | DOVE STORM — 90f invincibility, 30+ homing dove-notes auto-spawn around you, each piercing-explosive |
+
+Music notes render as proper eighth-note silhouettes (filled head + stem + flag curl) with sine wobble + sparkle trail. The gun arm itself **physically transforms** into the instrument silhouette (snare drum + crossed sticks, gold curved sax + bell, black clarinet tube w/ silver keys, silver flute w/ finger holes) — switching is visually obvious without reading the toast.
+
+**⚙ CONVOY ION BLASTER** (tier 27, "Nicholas weapon", free) — Optimus-themed dual-mode weapon:
+- **F** — fires the convoy ion-blaster volley (3 piercing explosive shots, 240 dmg + 90 AOE each)
+- **V** — triggers the **PRIME ULTIMATE**: player TRANSFORMS into Prime form (gold halo, pulsing Matrix-of-Leadership chest glow, +50% max HP, full heal, 60f i-frames, ember trail) AND simultaneously **summons the PRIMUS TITAN ally** (royal-blue/gold 90×160px colossus, 4500 HP, cycles through Chest Cannon → Shoulder Missiles → Ion Beam → Matrix Slam abilities)
+- Both effects share a 30s active window + 30s cooldown
+- Top-center HUD always visible while equipped: ACTIVE (gold drain bar) → RECHARGING (orange fill bar) → READY (callout)
+
+### Other weapons + balance
+
+**🆕 LASER RIFLE** (tier 28, shop, 1700c) — hot-pink piercing beam, 90 dmg, 4-frame fire rate. The "regular" new weapon for non-devs.
+
+**Boss arena rework** (`57be4a8` then revised `117e642`):
+- Originally bumped width 1600/2400 → 3200, but that broke split-floor stages (Sky / Inferno / Void had hardcoded floor positions that didn't extend) and pushed bosses 2950px right of the player → off-screen "missing boss" bug.
+- Final width: **2000px** uniform across stages. Visible boss in mid-arena, split-floor positions still align.
+- All in-flight stage hazards (acid drips, lava globs, lightning, icicles) get **wiped from the arena range** when the fight starts — no more chip damage from background.
+- **Removed Stage 1 facility's two side pillars** and **Stage 7 citadel's two side towers** (user feedback: pillars blocked sightlines).
+
+**Sweeping balance pass** (`2e61c77`):
+- Shop prices up ~50% across the board (heal 15→25, full repair 40→70, max-HP 30→50, damage+5 70→110, sniper 500→760, railgun 720→1100, BFG 800→1250, knife 120→200, scythe 880→1380, etc.)
+- Weapon damage up ~25% (PISTOL 16→22, OMEGA BLASTER 95→130, SNIPER 140→195, BFG 160→220, RAILGUN 130→180)
+- Per-stage enemy HP curve steeper (1.08-1.48 → 1.10-1.60)
+- Base mob HP multiplier 1.7 → 2.2
+- Boss-room HP buff 1.45 → 1.85
+- Enemy speed 1.12 → 1.18
+- Boss base HPs up ~35%: guard 1100→1500, skyhammer 1400→1900, inferno 1700→2300, ravager 2100→2900, cryo 2400→3300, nullifier 2900→4000, omega 3600→4900, titan 4800→6500.
+- Finale boss city form 4000→6500 (already from earlier in session), sky form 12000→18000, UNLEASH trigger HP 2000→3200.
+
+**Reduced "flashbang"** screen tint on player damage:
+- Removed the full-screen red overlay entirely. Only a subtle outer vignette remains, alpha capped at 0.16 (was 0.45 + 0.55).
+- Crit gold-flash alpha capped at 0.10 (was 0.22).
+- Boss rage-phase trigger no longer slams the screen with a full flash — just a soft pulse. Screenshake + hit-stop preserved.
+
+### Permanent name lock + dev gate (`180f851`, then loosened in `117e642`)
+
+**`firstName` localStorage key** records the first name a player ever submits and is **immutable**. On every subsequent load the input is pre-filled and **read-only** — players can no longer change their name on this browser. The submit button reads `▶ CONTINUE`.
+
+Dev access logic (final):
+- If `firstName` is empty (very first load before submit), trust the current name (so friends typing `nicholas` on a fresh browser get instant dev access)
+- If `firstName` IS recorded, both `firstName` and current `playerName` must be in `DEV_NAMES`
+- Friend types `bob` first → permanent normal player on that browser, can't bypass by claiming a dev name later (game still works fully, just no dev tools)
+
+This was reworked twice mid-session — too strict version locked friends out of dev mode even when they typed dev names on their own browsers. Final version is the lenient-but-anti-bypass middle ground.
+
+### Notable code pointers
+
+- `WEAPONS[24..28]` — JAX BLASTER, MICAH MINECRAFTER, BAND BLASTER, CONVOY ION BLASTER, LASER RIFLE
+- `MELEE_WEAPONS` map — knife/katana/saber/daggers/hammer/scythe with lifesteal/shockwave/dual flags
+- `MINECRAFT_MOB_DEFS` — 9 mob kinds (4 tier-1 + 3 tier-2 + 2 boss). Every mob has its own AI branch in `updateMinecraftSummons()` and render branch in `drawMinecraftSummons()` and HUD-icon branch in `drawMinecraftPreview()`
+- `MINECRAFT_BLOCK_DEFS` — dirt/stone/oak. Solid platforms with full collision in `updatePlayer` platform loop.
+- `minecraftQueue[]` + `minecraftQueueCursor` — deterministic 20-step rotation; queue refilled lazily by `ensureMinecraftQueue()`. Cursor is monotonic so refill always advances (had a bug earlier where it always read indices 4-5 once stable)
+- `minecraftSpawners[]` — iron-cage blocks that pump mobs over ~10s. Render with mini spinning mob inside + progress gauge.
+- `BAND_INSTRUMENTS[0..3]` — DRUM/SAX/CLARINET/FLUTE definitions. Switching cycle in `cycleBandInstrument()`. Per-instrument fire patterns in `shootBandWeapon()`. Per-instrument SPECIAL cinematics in `executeBandSpecial()` + `updateBandSpecialFx()` + `drawBandSpecialFx()`.
+- `executePrimusUltimate()` — V key handler for CONVOY ION BLASTER. Sets `player.primeMode = 1800` AND calls `spawnPrimusTitan()`. Cooldown ticked in `updatePlayer` along with the maxHp buff revert.
+- `drawPrimeHud()` — shared HUD timer for the convoy weapon, three states (active/recharging/ready).
+- `primusTitans[]` array + `updatePrimusTitans()` + `drawPrimusTitans()` — ally state machine (idle/cannon/missile/beam/slam) with 60-90f per mode + 30f idle gap. Heavy boss-bias in target selection.
+- Cache-bust: `index.html` line ~395 builds the script tag with `Date.now()` query string at load time.
+
+### Pending work / known gotchas
+
+1. **PROJECT_CONTEXT.md is now ~600 lines longer** (this session block) but earlier session blocks below still reference removed mechanics. Could prune the May 25 v3 era ones since the gameplay has moved past them.
+2. **Cached browser builds** are now solved by the cache-bust commit, but kids still occasionally see stale builds. The README should mention `Cmd+Shift+R` once.
+3. **Stage 2/3/6 boss arenas** had a broken-floor bug at width 3200. Fixed by reverting to 2000. If we ever want bigger arenas again, we'd need to extend the split-floor stage layouts to fill the new width.
+4. **`spawnPrimusTitan` is called once per V press**; if the kid spam-presses, the cooldown-gate prevents stacking but a queued press might fire if cooldown rolls over to 0 mid-press. Edge-trigger guard already in place.
+5. **Itch.io upload still blocked** (account never got verified). GitHub Pages is the live host.
+
+---
+
 ## ⚡ MOST RECENT SESSION (Jun 1, 2026 — kid-led iteration spree, big arsenal expansion)
 
 Long collaborative session with the project owner (a 12-year-old) iterating live on weapon design, shop layout, and player-facing systems. ~30 commits, all pushed to `origin/main` (`github.com/nicholasdada001-cpu/neon-rush`). Game is now also live on **GitHub Pages** at `https://nicholasdada001-cpu.github.io/neon-rush/`.

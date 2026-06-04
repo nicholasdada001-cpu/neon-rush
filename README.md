@@ -70,7 +70,7 @@ The 🛠 DEV button (top-right) opens a panel with full heal, give RC/coins, for
 - **5 vehicle forms** including the Optimus-style hovertank with Matrix Ion Blast
 - **Energon Axe** melee at the CONVOY tier — massive damage with crescent slash AOE finisher
 - **8 playable characters** with unique Q abilities (TIME SLOW, PHASE DASH, SHOCKWAVE, etc.)
-- **24 weapons** (8 boss-themed + 14 shop weapons + 2 dev-only weapons)
+- **24 weapons** (8 boss-themed + 14 shop weapons + 2 dev-only weapons + LASER RIFLE + 4 dev-only Nicholas/Micah/Jax/Band weapons)
 - **6 melee weapons** (KNIFE, KATANA, LIGHT SABER, DUAL DAGGERS, WAR HAMMER, PHANTOM SCYTHE) each with unique swing animation, blade silhouette, and special on-hit effect
 - **15 enemy types** (14 mobs + the WARDEN-K mini-boss)
 - **WARDEN-K mini-boss antechamber** between the level and the boss arena on stages 3-8 — three-claw sentinel that drops spike eruptions and orbital sentry orbs
