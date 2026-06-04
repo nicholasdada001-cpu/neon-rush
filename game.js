@@ -6305,7 +6305,7 @@ function buildStage1() {
         { x: 2750, y: 520, w: 32, h: 30, type: 'turret', hp: 100, maxHp: 100, shootTimer: 50, angle: 0, color: '#ffaa00' },
         { x: 2950, y: 220, w: 30, h: 24, type: 'drone', hp: 70, maxHp: 70, baseY: 220, floatTimer: Math.PI, shootTimer: 50, color: '#66ddff' },
         // BOSS GUARD-1 (a bit beefier now)
-        { x: 3500, y: 380, w: 90, h: 100, type: 'boss', subtype: 'guard', hp: 1500, maxHp: 1500, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3500, baseY: 380, color: '#ff00ff', attackPattern: 0 }
+        { x: 3500, y: 380, w: 90, h: 100, type: 'boss', subtype: 'guard', hp: 750, maxHp: 750, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3500, baseY: 380, color: '#ff00ff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 500, triggered: false, text: '⚠ DANGER: HOSTILE BOT DETECTED ⚠' },
@@ -6388,7 +6388,7 @@ function buildStage2() {
         { x: 2900, y: 200, w: 30, h: 24, type: 'drone', hp: 90, maxHp: 90, baseY: 200, floatTimer: 0, shootTimer: 40, color: '#66ddff' },
         { x: 3100, y: 510, w: 36, h: 40, type: 'patrol', hp: 100, maxHp: 100, vx: 2, dir: 1, shootTimer: 25, patrolStart: 3050, patrolEnd: 3300, color: '#ff5555' },
         // BOSS SKYHAMMER - flies, drops bombs from above
-        { x: 3550, y: 200, w: 100, h: 80, type: 'boss', subtype: 'skyhammer', hp: 1900, maxHp: 1900, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3550, baseY: 200, color: '#0088ff', attackPattern: 0 }
+        { x: 3550, y: 200, w: 100, h: 80, type: 'boss', subtype: 'skyhammer', hp: 950, maxHp: 950, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3550, baseY: 200, color: '#0088ff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ DANGER: SKY DOCKS PATROL ⚠' },
@@ -6470,7 +6470,7 @@ function buildStage3() {
         { x: 2700, y: 520, w: 32, h: 30, type: 'turret', hp: 140, maxHp: 140, shootTimer: 40, angle: 0, color: '#ff5500' },
         { x: 2850, y: 220, w: 30, h: 24, type: 'drone', hp: 110, maxHp: 110, baseY: 220, floatTimer: 0, shootTimer: 38, color: '#ff8866' },
         // BOSS INFERNO-X
-        { x: 3300, y: 350, w: 100, h: 110, type: 'boss', subtype: 'inferno', hp: 2300, maxHp: 2300, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3300, baseY: 350, color: '#ff3300', attackPattern: 0 }
+        { x: 3300, y: 350, w: 100, h: 110, type: 'boss', subtype: 'inferno', hp: 1150, maxHp: 1150, phase: 1, shootTimer: 120, moveTimer: 0, baseX: 3300, baseY: 350, color: '#ff3300', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 350, triggered: false, text: '⚠ DANGER: REACTOR HEAT - HOSTILES ⚠' },
@@ -6556,7 +6556,7 @@ function buildStage4() {
         { x: 3000, y: 504, w: 46, h: 46, type: 'heavy', hp: 250, maxHp: 250, vx: 0.8, dir: 1, shootTimer: 30, patrolStart: 2890, patrolEnd: 3220, color: '#22aa44' },
         { x: 3200, y: 510, w: 38, h: 40, type: 'shielder', hp: 180, maxHp: 180, vx: 1.4, dir: 1, shootTimer: 30, patrolStart: 3150, patrolEnd: 3300, color: '#88ff44', shieldColor: '#88ffff' },
         // BOSS RAVAGER - charges and minigun-spreads (HP reduced for difficulty curve)
-        { x: 3500, y: 350, w: 110, h: 110, type: 'boss', subtype: 'ravager', hp: 2900, maxHp: 2900, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3500, baseY: 350, color: '#22ff44', attackPattern: 0 }
+        { x: 3500, y: 350, w: 110, h: 110, type: 'boss', subtype: 'ravager', hp: 1450, maxHp: 1450, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3500, baseY: 350, color: '#22ff44', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 350, triggered: false, text: '⚠ DANGER: SECURITY BOTS ⚠' },
@@ -6647,7 +6647,7 @@ function buildStage5() {
         { x: 2200, y: 510, w: 38, h: 32, type: 'jumper', hp: 150, maxHp: 150, vx: 0, vy: 0, jumpTimer: 60, color: '#aaccff', onGround: true },
         { x: 2900, y: 504, w: 38, h: 46, type: 'sniper', hp: 220, maxHp: 220, shootTimer: 50, aimTimer: 0, aimAngle: 0, color: '#88ccff' },
         // BOSS CRYO-LORD - frost shots, freezes time briefly via screen shake (HP reduced)
-        { x: 3400, y: 320, w: 100, h: 110, type: 'boss', subtype: 'cryo', hp: 3300, maxHp: 3300, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3400, baseY: 320, color: '#88ccff', attackPattern: 0 }
+        { x: 3400, y: 320, w: 100, h: 110, type: 'boss', subtype: 'cryo', hp: 1650, maxHp: 1650, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3400, baseY: 320, color: '#88ccff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 350, triggered: false, text: '⚠ DANGER: ARCTIC PATROL ⚠' },
@@ -6747,7 +6747,7 @@ function buildStage6() {
         { x: 2950, y: 504, w: 38, h: 46, type: 'sniper', hp: 280, maxHp: 280, shootTimer: 60, aimTimer: 0, aimAngle: 0, color: '#cc66ff' },
         { x: 3300, y: 510, w: 38, h: 32, type: 'jumper', hp: 200, maxHp: 200, vx: 0, vy: 0, jumpTimer: 50, color: '#dd44ff', onGround: true },
         // BOSS NULLIFIER - teleports, dense bullet patterns (HP reduced)
-        { x: 3600, y: 300, w: 110, h: 120, type: 'boss', subtype: 'nullifier', hp: 4000, maxHp: 4000, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3600, baseY: 300, color: '#aa00ff', attackPattern: 0 }
+        { x: 3600, y: 300, w: 110, h: 120, type: 'boss', subtype: 'nullifier', hp: 2000, maxHp: 2000, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3600, baseY: 300, color: '#aa00ff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ DANGER: VOID HOSTILES ⚠' },
@@ -6854,7 +6854,7 @@ function buildStage7() {
         { x: 3000, y: 504, w: 38, h: 46, type: 'sniper', hp: 320, maxHp: 320, shootTimer: 55, aimTimer: 0, aimAngle: 0, color: '#ff44ff' },
         { x: 3300, y: 510, w: 38, h: 40, type: 'shielder', hp: 320, maxHp: 320, vx: 2, dir: 1, shootTimer: 22, patrolStart: 3200, patrolEnd: 3450, color: '#ff44ff', shieldColor: '#ffaaff' },
         // FINAL BOSS OMEGA-PRIME (HP reduced for difficulty curve — still beefy)
-        { x: 3700, y: 300, w: 130, h: 140, type: 'boss', subtype: 'omega', hp: 4900, maxHp: 4900, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3700, baseY: 300, color: '#ffffff', attackPattern: 0 }
+        { x: 3700, y: 300, w: 130, h: 140, type: 'boss', subtype: 'omega', hp: 2450, maxHp: 2450, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3700, baseY: 300, color: '#ffffff', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ DANGER: ELITE CITADEL GUARD ⚠' },
@@ -6915,7 +6915,7 @@ function buildStage8() {
         // Two MECHs guard the throat of the corridor — the visual gauntlet
         { x: 3720, y: 470, w: 80, h: 80, type: 'mech',    hp: 600, maxHp: 600, shootTimer: 60, attackPhase: 0, walkPhase: 0, vx: 0, vy: 0, facing: -1, onGround: false, baseY: 470, color: '#66ffff' },
         // FINAL-FINAL BOSS TITAN-LORD - mech that transforms into a battleship
-        { x: 4700, y: 280, w: 160, h: 170, type: 'boss', subtype: 'titan', hp: 6500, maxHp: 6500, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 4700, baseY: 280, color: '#66ffff', attackPattern: 0, transformTimer: 0, transformed: false }
+        { x: 4700, y: 280, w: 160, h: 170, type: 'boss', subtype: 'titan', hp: 3250, maxHp: 3250, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 4700, baseY: 280, color: '#66ffff', attackPattern: 0, transformTimer: 0, transformed: false }
     ];
     dangerZones = [
         { x: 300, triggered: false, text: '⚠ ORBITAL FORTRESS — ELITE GUARDS ⚠' },
@@ -32969,24 +32969,18 @@ SC.mechs = {
         ninja: {
             name: 'NINJA MECH',
             color: '#aa00ff', accent: '#ff66ff',
-            speedMul: 1.55,         // (was 1.65) very fast but more managable
-            jumpMul: 1.30,          // (was 1.35)
-            gravityMul: 0.62,       // (was 0.55) less floaty so you can land precisely
-            extraJumps: 2,          // quad-jump (3 base + 2 extra)
-            dmgMul: 0.85,           // (was 1.0) less raw damage — you trade for mobility
-            // === Signature: AIRDASH +12 STYLE per perfect-dodge ===
-            // While airborne, dashes do 1.5× the normal travel and
-            // give i-frames. Read in the dash hook (already wired
-            // via SC.bossAdapt.observe('dash')).
+            speedMul: 1.55,
+            jumpMul: 1.30,
+            gravityMul: 0.62,
+            extraJumps: 2,
+            dmgMul: 0.85,
             airDashBoost: 1.5,
-            // === Combat tweak: melee bonus ===
-            // Encourage close-range play to compensate for low dmgMul.
-            meleeBonus: 1.6,        // 60% extra melee damage
-            // === Visuals ===
+            meleeBonus: 1.6,
             afterImageCount: 5,
-            sizeMul: 1.3,
-            // Weakness: low HP scaling when in form
-            hpScaleMul: 0.85,        // -15% effective HP
+            // PACIFIC RIM scale — sprite renders 3.2× the hitbox.
+            // Hitbox stays normal so platforming + collisions still work.
+            spriteScale: 3.2,
+            hpScaleMul: 0.85,
             tagline: '⚡ NINJA — fastest form. Strong melee, fragile body.',
             abilities: [
                 { keys: 'A / D',     what: 'Run +55% speed' },
@@ -32999,36 +32993,27 @@ SC.mechs = {
         titan: {
             name: 'TITAN MECH',
             color: '#ffd744', accent: '#ff8844',
-            speedMul: 0.65,          // (was 0.7) properly slow now
+            speedMul: 0.65,
             jumpMul: 0.80,
             gravityMul: 1.55,
             extraJumps: 0,
-            dmgMul: 1.85,            // (was 2.2) cap shot damage
-            // === Signature: shock stomp on landing ===
-            // Hitting the ground from a jump emits a 200px AOE that
-            // staggers + damages enemies. Implemented in tick() by
-            // detecting onGround edge.
+            dmgMul: 1.85,
             shockStomp: { radius: 200, damage: 80, knockback: 16 },
-            // === Defense ===
-            damageReductionMul: 0.65,    // (was 0.7) 35% less damage taken
-            // === Energy / time limit (was just a 12s timer) ===
-            // Now ENERGY-based: 100 energy at activate, drains 1/frame
-            // (60s base) but +20 energy per kill so heavy combat extends
-            // the form. Maxes at 200 (so spammy kills can keep you
-            // titan ~3 mins, but never permanent without effort).
-            energyMax: 200,
-            energyStart: 100,
-            energyDrainPerFrame: 1.0,
-            energyPerKill: 20,
-            energyOnHit: -3,         // taking a hit also drains
-            sizeMul: 1.55,           // (was 1.6, slightly smaller hitbox)
+            damageReductionMul: 0.65,
+            // Lasts 90 seconds base, tops out at 270s with kills
+            energyMax: 540,
+            energyStart: 270,
+            energyDrainPerFrame: 0.5,        // halved drain
+            energyPerKill: 25,
+            energyOnHit: -3,
+            spriteScale: 4.0,                // biggest mech — Pacific Rim Jaeger feel
             tagline: '🛡 TITAN — slow but mighty. Shock stomps, energy via kills.',
             abilities: [
                 { keys: 'F',     what: 'Shots ×1.85 damage' },
                 { keys: 'JUMP',  what: 'SHOCK STOMP on land (200px AOE)' },
                 { keys: 'ARMOR', what: 'Take 35% less damage' },
-                { keys: 'KILL',  what: '+20 energy per kill (extends form)' },
-                { keys: 'WEAK',  what: 'Slow speed/jump, big hitbox' }
+                { keys: 'KILL',  what: '+25 energy per kill (extends form)' },
+                { keys: 'WEAK',  what: 'Slow speed/jump' }
             ]
         },
         berserker: {
@@ -33039,19 +33024,12 @@ SC.mechs = {
             gravityMul: 1.0,
             extraJumps: 1,
             dmgMul: 0.95,
-            // === Signature: heat = damage, but heat = damage taken ===
-            // At max heat: +70% outgoing dmg AND +25% incoming dmg.
-            // (was +80% / +30% — slightly tamer.) Heat decays slow when
-            // you stop firing, fast when you take a hit (penalty for
-            // panic-firing into a boss).
             heatPowered: true,
-            heatDmgScaleMax: 0.70,   // 0..70% bonus
+            heatDmgScaleMax: 0.70,
             heatTakenPenaltyMax: 0.25,
-            heatDecayOnHit: 30,      // taking a hit dumps 30 heat
-            // === Combat tweak ===
-            // Melee at high heat: built-in burn-on-hit
+            heatDecayOnHit: 30,
             heatBurnThreshold: 60,
-            sizeMul: 1.3,
+            spriteScale: 3.5,
             tagline: '🔥 BERSERKER — heat = power AND vulnerability.',
             abilities: [
                 { keys: 'F / V',  what: 'Build heat (more = more dmg)' },
@@ -33066,18 +33044,13 @@ SC.mechs = {
             color: '#88ff88', accent: '#44dd44',
             speedMul: 1.0,
             jumpMul: 1.10,
-            gravityMul: 0.55,        // (was 0.4) still floaty but landable
-            extraJumps: 2,           // (was 3) triple jump
+            gravityMul: 0.55,
+            extraJumps: 2,
             dmgMul: 0.95,
             wallStick: true,
-            // === Signature: web shot on melee ===
-            // Every melee hit slows the target by 60% for 90f.
             webMelee: { slowFactor: 0.4, slowDur: 90 },
-            // === Multi-target: bouncing minor projectile after each shot ===
-            // Every primary shot also fires 1 small "spiderling" homer
-            // for 25% damage. Encourages crowd-control playstyle.
             spiderling: true,
-            sizeMul: 1.3,
+            spriteScale: 3.6,
             tagline: '🕷 SPIDER — wall-climber, web-melee, swarms enemies.',
             abilities: [
                 { keys: 'SPACE × 3', what: 'Triple jump' },
@@ -33094,25 +33067,17 @@ SC.mechs = {
             jumpMul: 1.10,
             gravityMul: 0.85,
             extraJumps: 1,
-            dmgMul: 1.65,            // (was 1.5) backstab fantasy
-            // === Signature: cloak with ENERGY drain ===
-            // Cloak is no longer permanent invincibility. Instead:
-            //   • You take 65% less damage (not 100%)
-            //   • Enemies prefer to ignore you while cloaked (target
-            //     allies / stand still)
-            //   • Cloak drains energy each frame
-            //   • Breaking cloak (dealing damage) costs 25 energy
-            // When energy hits 0 form ends. Reward: massive crit
-            // bonus on the FIRST shot after activation (×3 dmg).
+            dmgMul: 1.65,
             cloak: true,
             cloakDamageReduction: 0.65,
             firstShotMul: 3.0,
-            energyMax: 100,
-            energyStart: 100,
-            energyDrainPerFrame: 0.55,    // ~3s @60fps if untouched
-            energyOnAttack: -25,           // attacking burns 25 energy
-            energyOnDodge: 8,              // perfect-dodging refills
-            sizeMul: 1.25,
+            // 30 seconds base, much longer than the original 8s
+            energyMax: 200,
+            energyStart: 200,
+            energyDrainPerFrame: 0.33,        // ~10s untouched, much longer
+            energyOnAttack: -15,               // attacks burn less
+            energyOnDodge: 12,
+            spriteScale: 3.3,
             tagline: '🌑 STEALTH — backstab fantasy. First shot ×3.',
             abilities: [
                 { keys: 'F',      what: 'First shot deals ×3 damage' },
@@ -33158,37 +33123,18 @@ SC.mechs = {
             player.maxHp = Math.max(50, Math.round(s.maxHp * def.hpScaleMul));
             if (player.hp > player.maxHp) player.hp = player.maxHp;
         }
-        // === Resize + snap-to-ground ===
-        // Scale the hitbox up. Keep the BOTTOM of the player anchored
-        // to the same y-coordinate (so a bigger sprite grows upward
-        // from where the feet are, not downward into the floor).
-        // Then nudge slightly above the platform so the next physics
-        // tick doesn't think the player is intersecting the platform
-        // surface from inside.
-        if (def.sizeMul) {
-            const oldH = player.h;
-            const oldW = player.w;
-            const oldBottom = player.y + oldH;
-            const newH = Math.round(s.h * def.sizeMul);
-            const newW = Math.round(s.w * def.sizeMul);
-            player.w = newW;
-            player.h = newH;
-            // Anchor the new bottom to the SAME y as the old bottom,
-            // then lift by 1px to clear platform tops.
-            player.y = oldBottom - newH - 1;
-            // Center horizontally on the same midpoint
-            player.x = player.x + (oldW - newW) / 2;
-            // If the lift put us through a ceiling, push back down to
-            // the nearest platform top BELOW the player's middle.
-            this._snapToGround();
-        }
+        // === PACIFIC RIM-style sprite scaling ===
+        // The HITBOX stays normal-size — collisions, platforming, doorways
+        // all keep working. Only the SPRITE renders huge (3-4× draw size,
+        // see SC.mechs.renderSprite which now uses def.spriteScale to
+        // multiply width/height of every drawn rectangle). Feet of the
+        // sprite anchor to the bottom of the hitbox so the mech stands
+        // ON the ground instead of hovering or sinking.
+        // No more player.w/y mutation — fixes "stuck in ground" forever.
         player.transformed = false;
         player.transformAnim = 0;
         this.activeForm = formId;
         this.formTimer = def.tempFormDuration || (def.cloak ? def.cloakDuration : 0);
-        // === Energy system ===
-        // Either a number from def.energyMax/Start or null (form has
-        // no energy gating, just stat overrides).
         if (def.energyMax) {
             this.energy = def.energyStart || def.energyMax;
             this.energyMax = def.energyMax;
@@ -33196,31 +33142,33 @@ SC.mechs = {
             this.energy = null;
             this.energyMax = null;
         }
-        // === Per-form per-instance state ===
-        this.firstShotPending = !!def.firstShotMul;     // stealth
+        this.firstShotPending = !!def.firstShotMul;
         this.afterImages = [];
         this.heat = 0;
-        // === Activation cinematic — bigger flash + ring ===
-        spawnParticles(player.x + player.w/2, player.y + player.h/2, def.color, 30, 8);
+        // === Activation cinematic — bigger, more screen juice ===
+        const cx = player.x + player.w/2;
+        const cy = player.y + player.h/2;
+        spawnParticles(cx, cy, def.color, 40, 10);
+        spawnParticles(cx, cy, '#ffffff', 18, 14);
         if (typeof spawnShockwave === 'function') {
-            spawnShockwave(player.x + player.w/2, player.y + player.h/2, 140, def.color);
-            spawnShockwave(player.x + player.w/2, player.y + player.h/2, 60, '#ffffff');
+            spawnShockwave(cx, cy, 240, def.color);
+            spawnShockwave(cx, cy, 140, '#ffffff');
+            spawnShockwave(cx, cy, 80, def.accent || def.color);
         }
-        // Brief screen shake + crit flash for the transformation feel
-        if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 12);
-        if (typeof critFlash !== 'undefined') critFlash = Math.min(1, critFlash + 0.25);
-        // Brief hit-stop so the activation feels weighty
-        if (typeof applyHitStop === 'function') applyHitStop(4);
-        if (typeof audio !== 'undefined' && audio.play) audio.play('transform');
+        if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 22);
+        if (typeof critFlash !== 'undefined') critFlash = Math.min(1, critFlash + 0.45);
+        if (typeof applyHitStop === 'function') applyHitStop(8);
+        if (typeof audio !== 'undefined' && audio.play) {
+            audio.play('transform');
+            audio.play('explosion', { throttle: 100 });
+        }
         if (typeof shopMessage !== 'undefined') {
-            shopMessage = { text: def.tagline, timer: 200, color: def.color };
+            shopMessage = { text: def.tagline, timer: 240, color: def.color };
         }
     },
 
-    // === Snap to ground ===
-    // Find the nearest platform top within 200px below the player and
-    // place the player's bottom on it. Used after resizing to prevent
-    // "stuck in ground" bugs.
+    // === Snap to ground (kept for safety; unused now that we don't
+    // resize the hitbox, but useful if a future change reintroduces it).
     _snapToGround() {
         if (typeof platforms === 'undefined') return;
         const cx = player.x + player.w / 2;
@@ -33228,22 +33176,16 @@ SC.mechs = {
         let bestTop = null;
         let bestDist = 200;
         for (const p of platforms) {
-            // Skip non-solid platform types
             if (p.type === 'spike' || p.type === 'laser' || p.type === 'recovery') continue;
-            // Player horizontally over this platform?
             if (cx < p.x || cx > p.x + p.w) continue;
             const top = p.y;
-            // Platform must be below the player's CURRENT bottom or
-            // very close above it (within 30px overlap)
             const dy = top - py;
-            // Allow up to 60px UP (player was overlapping) and 200px down
             if (dy > -60 && dy < bestDist) {
                 bestDist = dy;
                 bestTop = top;
             }
         }
         if (bestTop !== null) {
-            // Place the bottom of the player exactly on the platform top
             player.y = bestTop - player.h;
             player.vy = 0;
             player.onGround = true;
@@ -33261,13 +33203,8 @@ SC.mechs = {
             player.dmgMul = s.dmgMul;
             player.maxHp = s.maxHp;
             if (player.hp > player.maxHp) player.hp = player.maxHp;
-            // Restore size + ground-snap to prevent falling through
-            const oldBottom = player.y + player.h;
-            player.w = s.w;
-            player.h = s.h;
-            player.y = oldBottom - player.h;
-            player.x = player.x + (player.w * 0); // x already centered
-            this._snapToGround();
+            // No hitbox mutation to undo — sprite was the only thing
+            // that scaled. Just reset state.
         }
         player.transformed = false;
         player.transformAnim = 0;
@@ -33528,12 +33465,20 @@ SC.mechs.renderSprite = function() {
     if (!this.activeForm) return;
     const def = this.defs[this.activeForm];
     if (!def) return;
-    const px = player.x - camera.x;
-    const py = player.y;
-    const cx = px + player.w / 2;
-    const cy = py + player.h / 2;
-    const w = player.w;
-    const h = player.h;
+    // === Pacific Rim sprite scaling ===
+    // The hitbox is the small standard player size. The sprite is
+    // drawn at spriteScale× that size, centered horizontally on the
+    // hitbox, with the bottom of the sprite anchored to the bottom
+    // of the hitbox (so the mech's feet land where the player feet
+    // would land). Result: sprite looks like a giant Jaeger but the
+    // player still fits through the same doorways.
+    const scale = def.spriteScale || 1.3;
+    const w = player.w * scale;
+    const h = player.h * scale;
+    const px = (player.x + player.w / 2) - (w / 2) - camera.x;
+    const py = (player.y + player.h) - h;
+    const cx = px + w / 2;
+    const cy = py + h / 2;
     const facing = player.facing || 1;
 
     ctx.save();
@@ -34308,33 +34253,39 @@ drawPlayer = function() {
     }
     // The mech sprite IS the character now
     SC.mechs.renderSprite();
+    // === Pacific Rim — bars anchor to the SPRITE top ===
+    // Sprite is drawn at def.spriteScale × hitbox size with feet at the
+    // hitbox bottom. The HUD bars (timer, energy) need to sit ABOVE
+    // the visible mech, not above the small invisible hitbox. So we
+    // compute the sprite top each frame.
+    const _spriteScale = def.spriteScale || 1.3;
+    const _spriteW = player.w * _spriteScale;
+    const _spriteX = (player.x + player.w / 2) - (_spriteW / 2) - camera.x;
+    const _spriteTopY = (player.y + player.h) - (player.h * _spriteScale);
     // Time bar above mech (if time-limited)
     if (def.tempFormDuration || (def.cloak && def.cloakDuration)) {
         const total = def.tempFormDuration || def.cloakDuration;
         const frac = SC.mechs.formTimer / total;
-        const px = player.x - camera.x;
         ctx.save();
         ctx.fillStyle = 'rgba(8, 8, 16, 0.6)';
-        ctx.fillRect(px - 2, player.y - 22, player.w + 4, 6);
+        ctx.fillRect(_spriteX - 2, _spriteTopY - 22, _spriteW + 4, 6);
         ctx.fillStyle = def.color;
         ctx.shadowColor = def.color;
         ctx.shadowBlur = 5;
-        ctx.fillRect(px - 2, player.y - 22, (player.w + 4) * frac, 6);
+        ctx.fillRect(_spriteX - 2, _spriteTopY - 22, (_spriteW + 4) * frac, 6);
         ctx.restore();
     }
     // Energy bar (titan / stealth — shows live energy)
     if (SC.mechs.energy !== null && SC.mechs.energyMax) {
         const frac = SC.mechs.energy / SC.mechs.energyMax;
-        const px = player.x - camera.x;
         ctx.save();
         ctx.fillStyle = 'rgba(8, 8, 16, 0.7)';
-        ctx.fillRect(px - 2, player.y - 22, player.w + 4, 6);
-        // Color shifts to red as energy drops
+        ctx.fillRect(_spriteX - 2, _spriteTopY - 22, _spriteW + 4, 6);
         const energyCol = frac > 0.5 ? def.color : (frac > 0.25 ? '#ffaa44' : '#ff4422');
         ctx.fillStyle = energyCol;
         ctx.shadowColor = energyCol;
         ctx.shadowBlur = 5;
-        ctx.fillRect(px - 2, player.y - 22, (player.w + 4) * frac, 6);
+        ctx.fillRect(_spriteX - 2, _spriteTopY - 22, (_spriteW + 4) * frac, 6);
         ctx.restore();
     }
     // Berserker heat aura
