@@ -1354,7 +1354,37 @@ const player = {
 // Shop items - upgrades plus mid-tier shop-bought weapons
 // Prices bumped across the board (user feedback: game was too easy because
 // upgrades were too cheap). Heals + stats up ~50%, weapons up ~40-60%.
+// Map shop hotkey characters that aren't a single A-Z or 0-9 to their
+// KeyboardEvent.code. Used by updateShop to dispatch buy actions for
+// items with punctuation hotkeys (the alphabetic shop keys are full).
+const SPECIAL_SHOP_KEYS = {
+    ';': 'Semicolon',
+    "'": 'Quote',
+    ',': 'Comma',
+    '.': 'Period',
+    '/': 'Slash',
+    '[': 'BracketLeft',
+    ']': 'BracketRight',
+    '\\': 'Backslash',
+    '`': 'Backquote',
+    '-': 'Minus',
+    '=': 'Equal'
+};
+
 const SHOP_ITEMS = [
+    // ===== Expanded arsenal — uses non-letter shop keys to avoid
+    // clashing with existing weapon hotkeys. The shop input handler
+    // (updateShop) maps non-alphanumeric item.key values via a small
+    // SPECIAL_KEY_CODES table further down. =====
+    // ENERGY KATANA reflects bullets while swinging. Hotkey: ; (semicolon)
+    { key: ';', name: 'Buy: ENERGY KATANA',  cost: 1500, action: p => { p.meleeWeaponsUnlocked.energy_katana = true; p.activeMelee = 'energy_katana'; },
+      melee: 'energy_katana', meleeName: 'ENERGY KATANA', meleeColor: '#00ffff' },
+    // LASER WHIP chains 3 enemies on every swing. Hotkey: ' (quote)
+    { key: "'", name: 'Buy: LASER WHIP',     cost: 1650, action: p => { p.meleeWeaponsUnlocked.laser_whip = true; p.activeMelee = 'laser_whip'; },
+      melee: 'laser_whip', meleeName: 'LASER WHIP', meleeColor: '#ff44dd' },
+    // BLACK HOLE GUN drops a 10-second singularity that sucks enemies
+    // in. Best crowd-control weapon. Hotkey: , (comma)
+    { key: ',', name: 'Buy: BLACK HOLE GUN', cost: 1800, action: p => { p.weaponsUnlocked[30] = true; p.weaponTier = 30; }, weapon: 30 },
     { key: '1', name: 'Heal +60 HP',         cost: 25, action: p => { p.hp = Math.min(p.maxHp, p.hp + 60); }, repeatable: true },
     { key: '2', name: 'Full Repair',         cost: 70, action: p => { p.hp = p.maxHp; }, repeatable: true },
     { key: '3', name: 'Max HP +25',          cost: 50, action: p => { p.maxHp += 25; p.hp += 25; }, repeatable: true },
@@ -1391,18 +1421,8 @@ const SHOP_ITEMS = [
       melee: 'hammer', meleeName: 'WAR HAMMER',  meleeColor: '#ff6600' },
     { key: 'K', name: 'Buy: PHANTOM SCYTHE', cost: 1380, action: p => { p.meleeWeaponsUnlocked.scythe = true; p.activeMelee = 'scythe'; },
       melee: 'scythe', meleeName: 'PHANTOM SCYTHE', meleeColor: '#aa00ff' },
-    // Expanded arsenal — ENERGY KATANA reflects bullets while swinging,
-    // LASER WHIP chains 3 enemies on every swing. Both are MELEE weapons
-    // (G to swing once equipped). Higher cost than other blades because
-    // their on-hit effects are stronger.
-    { key: 'U', name: 'Buy: ENERGY KATANA',  cost: 1500, action: p => { p.meleeWeaponsUnlocked.energy_katana = true; p.activeMelee = 'energy_katana'; },
-      melee: 'energy_katana', meleeName: 'ENERGY KATANA', meleeColor: '#00ffff' },
-    { key: 'Y', name: 'Buy: LASER WHIP',     cost: 1650, action: p => { p.meleeWeaponsUnlocked.laser_whip = true; p.activeMelee = 'laser_whip'; },
-      melee: 'laser_whip', meleeName: 'LASER WHIP', meleeColor: '#ff44dd' },
-    // BLACK HOLE GUN (tier 30) — short-range singularity launcher.
-    // Each shot drops a 10-second black hole with crushing pull. Best
-    // crowd-control weapon in the game, balanced by a slow fire rate.
-    { key: 'B', name: 'Buy: BLACK HOLE GUN', cost: 1800, action: p => { p.weaponsUnlocked[30] = true; p.weaponTier = 30; }, weapon: 30 },
+    // (Energy Katana / Laser Whip / Black Hole Gun moved to top of
+    // SHOP_ITEMS so their hotkey dispatch wins.)
     { key: 'N', name: 'Buy: BFG-9000',       cost: 1250, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
     // Dev-only weapons — hidden from non-developers (gated by window.isDeveloper())
     // Free for devs (cost 0) so the kid + friends can grab them anytime.
@@ -7232,6 +7252,7 @@ function updateShop() {
             let code;
             if (item.key === '0') code = 'Digit0';
             else if (/^[0-9]$/.test(item.key)) code = 'Digit' + item.key;
+            else if (SPECIAL_SHOP_KEYS[item.key]) code = SPECIAL_SHOP_KEYS[item.key];
             else code = 'Key' + item.key;
             if (keys[code] && !player.shopBuyHeld) {
                 // Determine which currency the item costs (defaults to coins)
@@ -7289,6 +7310,7 @@ function updateShop() {
             let code;
             if (item.key === '0') code = 'Digit0';
             else if (/^[0-9]$/.test(item.key)) code = 'Digit' + item.key;
+            else if (SPECIAL_SHOP_KEYS[item.key]) code = SPECIAL_SHOP_KEYS[item.key];
             else code = 'Key' + item.key;
             if (keys[code]) anyBuy = true;
         }
@@ -20575,7 +20597,10 @@ function drawEvoUnlockPopup() {
 
 function drawShopUI() {
     if (!shopOpen) return;
-    const w = 760, h = 580;
+    // Bigger shop panel so newer items (energy katana, laser whip,
+    // black hole gun) all fit. Tighter row spacing too — was 22px,
+    // now 20px so we can fit more weapons per column.
+    const w = 820, h = 660;
     const x = canvas.width / 2 - w / 2;
     const y = canvas.height / 2 - h / 2;
 
@@ -20742,7 +20767,7 @@ function drawShopUI() {
         ctx.textAlign = 'right';
         ctx.fillText(costLabel, colX + colW - 6, ly);
         ctx.textAlign = 'left';
-        if (isRight) lyR += 22; else lyL += 22;
+        if (isRight) lyR += 20; else lyL += 20;
         }   // end inner for
     }       // end pass loop
     // Hint
