@@ -1399,6 +1399,10 @@ const SHOP_ITEMS = [
       melee: 'energy_katana', meleeName: 'ENERGY KATANA', meleeColor: '#00ffff' },
     { key: 'Y', name: 'Buy: LASER WHIP',     cost: 1650, action: p => { p.meleeWeaponsUnlocked.laser_whip = true; p.activeMelee = 'laser_whip'; },
       melee: 'laser_whip', meleeName: 'LASER WHIP', meleeColor: '#ff44dd' },
+    // BLACK HOLE GUN (tier 30) — short-range singularity launcher.
+    // Each shot drops a 10-second black hole with crushing pull. Best
+    // crowd-control weapon in the game, balanced by a slow fire rate.
+    { key: 'B', name: 'Buy: BLACK HOLE GUN', cost: 1800, action: p => { p.weaponsUnlocked[30] = true; p.weaponTier = 30; }, weapon: 30 },
     { key: 'N', name: 'Buy: BFG-9000',       cost: 1250, action: p => { p.weaponsUnlocked[13] = true; p.weaponTier = 13; }, weapon: 13 },
     // Dev-only weapons — hidden from non-developers (gated by window.isDeveloper())
     // Free for devs (cost 0) so the kid + friends can grab them anytime.
@@ -9395,7 +9399,7 @@ function handleEnemyKilled(e, j) {
     comboTimer = 180;
     const comboMul = 1 + Math.min(2, comboCount * 0.05);
     // Drop coins - much more generous now
-    const baseCoinCount = e.type === 'boss' ? 200 : (e.type === 'turret' ? 36 : 24);
+    const baseCoinCount = e.type === 'boss' ? 400 : (e.type === 'turret' ? 60 : 40);
     const coinCount = Math.round(baseCoinCount * comboMul);
     for (let c = 0; c < coinCount; c++) {
         const ang = Math.random() * Math.PI * 2;
@@ -9410,16 +9414,17 @@ function handleEnemyKilled(e, j) {
     }
     // Drop ROBOT COINS from elite enemies (mech/heavy/sniper/shielder/boss)
     let rcDrop = 0;
-    if (e.type === 'boss') rcDrop = 18;       // big bump from 6 -> 18
-    else if (e.type === 'miniboss') rcDrop = 10;
-    else if (e.type === 'hydraWalker') rcDrop = 5;
-    else if (e.type === 'scorpion') rcDrop = 4;
-    else if (e.type === 'mech') rcDrop = 4;
-    else if (e.type === 'heavy' || e.type === 'sniper') rcDrop = 3;
-    else if (e.type === 'shielder' || e.type === 'jumper') rcDrop = 2;
-    else if (e.type === 'sentinel') rcDrop = 3;
-    else if (e.type === 'screamer') rcDrop = 2;
-    else if (e.type === 'bomber' || e.type === 'sprinter' || e.type === 'turret') rcDrop = 1;
+    if (e.type === 'boss') rcDrop = 36;       // doubled from 18
+    else if (e.type === 'miniboss') rcDrop = 20;
+    else if (e.type === 'hydraWalker') rcDrop = 10;
+    else if (e.type === 'scorpion') rcDrop = 8;
+    else if (e.type === 'mech') rcDrop = 8;
+    else if (e.type === 'heavy' || e.type === 'sniper') rcDrop = 6;
+    else if (e.type === 'shielder' || e.type === 'jumper') rcDrop = 4;
+    else if (e.type === 'sentinel') rcDrop = 6;
+    else if (e.type === 'screamer') rcDrop = 4;
+    else if (e.type === 'bomber' || e.type === 'sprinter' || e.type === 'turret') rcDrop = 2;
+    else rcDrop = 1;     // every other enemy still drops at least 1 RC
     for (let c = 0; c < rcDrop; c++) {
         const ang = Math.random() * Math.PI * 2;
         const spd = 2 + Math.random() * 4;
@@ -9436,16 +9441,16 @@ function handleEnemyKilled(e, j) {
     // bigger enemies are worth farming. Bosses dump a small pile to fund
     // post-fight crafting.
     let scrapDrop = 0;
-    if (e.type === 'boss') scrapDrop = 40 + currentStage * 4;
-    else if (e.type === 'miniboss') scrapDrop = 22;
-    else if (e.type === 'hydraWalker' || e.type === 'scorpion' || e.type === 'mech') scrapDrop = 10 + Math.floor(currentStage * 1.5);
-    else if (e.type === 'heavy' || e.type === 'sniper') scrapDrop = 6;
-    else if (e.type === 'sentinel') scrapDrop = 7;
-    else if (e.type === 'screamer') scrapDrop = 5;
-    else if (e.type === 'shielder' || e.type === 'jumper') scrapDrop = 4;
-    else if (e.type === 'bomber' || e.type === 'sprinter' || e.type === 'turret' || e.type === 'ricochet') scrapDrop = 3;
-    else if (e.type === 'patrol' || e.type === 'drone' || e.type === 'swarm') scrapDrop = 2;
-    else scrapDrop = 1;
+    if (e.type === 'boss') scrapDrop = 80 + currentStage * 8;
+    else if (e.type === 'miniboss') scrapDrop = 44;
+    else if (e.type === 'hydraWalker' || e.type === 'scorpion' || e.type === 'mech') scrapDrop = 20 + Math.floor(currentStage * 3);
+    else if (e.type === 'heavy' || e.type === 'sniper') scrapDrop = 12;
+    else if (e.type === 'sentinel') scrapDrop = 14;
+    else if (e.type === 'screamer') scrapDrop = 10;
+    else if (e.type === 'shielder' || e.type === 'jumper') scrapDrop = 8;
+    else if (e.type === 'bomber' || e.type === 'sprinter' || e.type === 'turret' || e.type === 'ricochet') scrapDrop = 6;
+    else if (e.type === 'patrol' || e.type === 'drone' || e.type === 'swarm') scrapDrop = 4;
+    else scrapDrop = 2;
     for (let c = 0; c < scrapDrop; c++) {
         const ang = Math.random() * Math.PI * 2;
         const spd = 1.5 + Math.random() * 3.5;
@@ -31532,15 +31537,24 @@ const SC = {
         momentum:        true,    // step 2  — speed buff + near-miss
         reactiveUI:      true,    // step 4  — canvas border color shift
         speedLines:      true,    // step 4  — S+ rank screen-edge lines
-        transformChain:  false,   // step 5  — X mid-combo bonus window
-        synergy:         false,   // step 7  — companion pair bonuses
-        bossAdapt:       false,   // step 8  — boss biases attacks
-        bounty:          false,   // step 9  — ★ marked elite kills
-        armor:           false,   // step 10 — armor-break bar
-        corrupted:       false,   // step 11 — risk/reward upgrades
-        overclock:       false,   // step 12 — Y-key berserk mode
-        escape:          false,   // step 14 — post-boss collapsing escape
-        adaptiveMusic:   false    // step 6  — pitch-shift at S+ rank
+        // === Steps 5-14 — now ON by default ===
+        // Earlier these defaulted to false to keep the rollout staged;
+        // the project owner asked to flip everything on, so the master
+        // dev-panel button isn't needed anymore (still works as a
+        // safety net to reactivate them after a reset).
+        transformChain:  true,    // step 5  — X mid-combo bonus window
+        synergy:         true,    // step 7  — companion pair bonuses
+        bossAdapt:       true,    // step 8  — boss biases attacks
+        bounty:          true,    // step 9  — ★ marked elite kills
+        armor:           true,    // step 10 — armor-break bar
+        corrupted:       true,    // step 11 — risk/reward upgrades
+        overclock:       true,    // step 12 — Y-key berserk mode
+        escape:          true,    // step 14 — post-boss collapsing escape
+        adaptiveMusic:   true,    // step 6  — pitch-shift at S+ rank
+        // Step 13 (cinematic boss transformation hooks) is opportunistic
+        // and piggybacks on the existing rage-phase trigger. No flag
+        // needed — happens automatically when a boss enters phase 2.
+        expandedArsenal: true     // expanded arsenal weapons + heat
     },
 
     // === input edge-detect storage ===
