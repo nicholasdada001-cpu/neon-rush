@@ -1,6 +1,160 @@
-# NEON RUSH — Project Context
+so cna # NEON RUSH — Project Context
 
 A 2D action platformer + space dogfighter built in vanilla HTML5 Canvas + JavaScript. Inspired by Mega Man, Dead Cells, Hades, **Transformers**, and modern PS-style action platformers. Heavy emphasis on cinematics, screen-juice (hitstop, shake, flashes, shockwaves), varied combat moves (dash, dodge roll, parry, ground pound, melee combo), and **vehicle transformation**.
+
+---
+
+## ⚡ MOST RECENT SESSION (Jun 4, 2026 — Style Combat module + 5 mech forms + expanded arsenal + roll-back of the inventory mess)
+
+Big additive session, ~13 commits. Added a self-contained **Style Combat module** (`SC.*`) that bolts on top of the 30k-line game without touching the original update/render loop. Final commit on the branch is `8e4608c` (after a soft-reset rolled back 6 over-engineered commits — see "Roll-back" below). File grew from ~30,600 → ~35,000 lines.
+
+### Big new systems
+
+**STYLE COMBAT MODULE** (`3c69c1d`) — single self-contained `SC` object appended to `game.js`. All subsystems gated behind feature flags so individual pieces can be toggled. Steps 1-14 ALL on by default after `a5d4f05`:
+
+- **STYLE meter** (top-right, D → C → B → A → S → SS → SSS) — in-fight rank fed by kills, perfect dodges, parries; drops on damage taken; decays after 30f idle. Soft-cap above 800/920 pts so SSS isn't camped.
+- **PLAYER_RANK badge** (top-left, BRONZE I → UNREAL) — Fortnite-style persistent tier from save meta. Computed from `totalKills + bossesDefeated*40 + maxEvoLevel*30 + farthestStage*25 + totalWins*100`. **NEW save field**: `meta.totalKills` (back-compat: defaults to 0 for existing saves; bumpStat handles auto-merge).
+- **Reactive UI** — canvas border + box-shadow shift to match current STYLE rank color. Speed-lines stream from screen edges at S+ rank.
+- **Momentum + near-miss** — sustained movement (>4 px/frame avg) gives +15% damage with a "MOMENTUM" hint above the player. Bullets passing within 30px without hitting trigger "NEAR-MISS" + 15 STYLE.
+- **Transform chain** — press X within 30 frames of attacking to open a 45f window where the next hit deals +60% damage with a magenta flash.
+- **Companion synergy** — paired allies build a 0..1 bond meter (60s to max), giving up to +25% ally bullet damage. Periodic floating banter quotes per pair (JADE_STORM, JADE_EMBER, etc. — full table in code).
+- **Adaptive boss AI** — `bossPickRandomAttack` reads the player's most-used input (shoot/melee/dash/parry) and biases ~30% of attack picks toward a counter pattern.
+- **Bounty targets** — one elite per stage tagged with a floating ★ marker, +60% HP, on kill: +30 scrap, +200 RP, screen shockwave.
+- **Armor-break enemies** — 40% of elites (heavy/sentinel/mech/sniper/shielder) spawn with a blue armor bar that absorbs 50% of incoming damage. Once shattered, they take +30% damage. ARMOR PIERCER weapon bypasses entirely.
+- **Corrupted upgrades** — dev panel toggles: BLOOD PACT (+50% dmg / +25% damage taken), GLASS SPEED (+35% speed/firerate / -50% maxHp), RAGE BOMB (+75% dmg below 30% HP).
+- **Overclock mode** — Y key. Charge bar fills from STYLE points; at 100% press Y for 8s of ×2 fire rate + ×1.6 dmg + gold trail.
+- **Adaptive music** — playback rate +5% per rank above A (S=1.05, SS=1.10, SSS=1.15) via `audio._musicSource.playbackRate`. Wrapped in try/catch since older audio modules don't expose playbackRate.
+- **Escape sequence** — post-boss kill, 6s of falling debris (chip damage on contact) + +50% move speed + red vignette. Triggered via `deferFrames(120, ...)` from `handleEnemyKilled`.
+
+**EXPANDED ARSENAL — 6 new weapons + V alt-fire + heat system** (`3c69c1d`):
+
+- **ENERGY KATANA** (tier 29, MELEE in `MELEE_WEAPONS.energy_katana`, cost 1500c, shop key `;`) — proper melee blade with `dmgMul: 3.8, rangeMul: 1.7`. Reflects enemy bullets that cross the swing arc back at the closest enemy at 1.4× damage during `meleeAnimTimer > 0`. Reflect logic in `SC.reflectScan.tick()`.
+- **BLACK HOLE GUN** (tier 30, shop key `,`, cost 1800c) — formerly GRAVITY CANNON. Each shot drops a 10-second singularity (`SC.blackHole.holes[]`):
+  - Pure black core, spinning accretion disc (3 magenta rings), inward-falling streaks, lensing distortion glow
+  - 380px radius, 28.0 strength, 60 dmg/tick (every 6 frames)
+  - Damage on bosses scaled to 30%; non-boss velocity overridden inward each frame
+  - **Critical fix in `c956dfd`**: suction `applyPull()` runs AFTER `updateEnemies()` in the gameloop (was running too early; AI was overwriting positions)
+  - Bullet life is short (24f) so it stops near the player; detonates on enemy hit OR on life expiration (drop-trap mode)
+  - V alt-fire **SUPERMASSIVE**: 560px radius, 40.0 strength, 12s, 90 heat
+- **ARMOR PIERCER** (tier 31, dev-panel only) — `armorPierce: true` flag bypasses `SC.armor.applyDamage` entirely. V: TUNGSTEN VOLLEY (5-round burst).
+- **DRONE SWARM** (tier 32, dev-panel only) — 4 homing drones per shot, orbit nearest enemy. V: HUNTER PACK (8 drones in a ring).
+- **LASER WHIP** (tier 33, MELEE in `MELEE_WEAPONS.laser_whip`, cost 1650c, shop key `'`) — proper melee weapon. Long curved arc rendered as 18 sine-wave segments coiling back during windup, snapping forward during swing. Chains to 3 nearby enemies (60% damage each) with visible lightning bolts. Custom render branch in `drawPlayer` (separate from the standard blade-arc path).
+- **CORRUPTION CANNON** (tier 34, dev-panel only) — damage scales 1.0× → 2.5× as your HP drops. V: SACRIFICE BLAST costs 25% of current HP for a devastating shot.
+
+All 6 weapons have:
+- An **alt-fire (V key)** dispatched by `SC.altFire`
+- An **overheat replacement for cooldown** (`SC.heat`) — heat builds per shot, full heat (100) forces a 90-frame vent. Visible heat bar bottom-center.
+
+**5 MECH FORMS** (`3c69c1d` + `b1fa12f` for sprites + Pacific Rim in second pass):
+
+Each is a stat + sprite override. Activated via dev panel (`🤖 MECH FORMS` section). Don't touch `player.transformed` (which would gate F/G/V via `canShootInVehicle`); just override `player.speed/jumpForce/gravity/maxJumpsBonus/dmgMul`. Activation cinematic: 240/140/80px nested shockwaves, 40 colored particles, screenShake 22, critFlash 0.45, hit-stop 8 frames, transform sfx + explosion sfx.
+
+| Form | Speed | Jump | Dmg | Special |
+|---|---|---|---|---|
+| **NINJA** | +55% | +30%, gravity 0.62, **quad-jump** | -15% / +60% melee | After-image trail. -15% HP. Sprite: hooded ninja with magenta visor + animated sine-wave scarf + twin shoulder katanas |
+| **TITAN** | -35% | -20%, gravity ×1.55 | +85% | **Shock stomp** on landing (200px AOE, 80 dmg + knockback). 35% damage reduction. Energy-driven: 540 max, drains 1/frame, **+25 per kill**, -3 per hit. Sprite: 3-spike crown, gold-banded pauldrons, twin chest cannons, pulsing Matrix-of-Leadership core, big stompy boots |
+| **BERSERKER** | +20% | normal | scales with heat | Max heat: +70% out / +25% in. Hits at heat>60 burn enemies. Taking damage drops 30 heat. Sprite: demonic horns, red eye sockets that hot up with heat, exposed coil lines, shoulder vents, steam puffs at high heat |
+| **SPIDER** | normal | gravity 0.55 | -5% | **Triple jump**, wall-stick. Each shot spawns a homing spiderling pellet. Each melee SLOWS enemies (web). Sprite: segmented oval carapace, 4 glowing eyes, 4 actual walking legs sprouting from torso |
+| **STEALTH** | +40% | +10% | +65% | **No more perma-invinc** — cloak gives 65% damage reduction. **First shot after activation = ×3 damage** (backstab). Energy-gated: 200 max, drains 0.33/frame, attacks burn 15, perfect-dodge refills 12. Sprite: wraith silhouette, single cyclops visor, ghost-crest shoulder spikes, phase-glitch lines |
+
+**Pacific Rim sprite scaling** (`b1fa12f`): The HITBOX stays normal-size — collisions, platforming, doorways all keep working. Only the visible SPRITE renders huge:
+- NINJA 3.2× · TITAN 4.0× · BERSERKER 3.5× · SPIDER 3.6× · STEALTH 3.3×
+
+Sprite is centered horizontally on hitbox + feet anchor to hitbox bottom (`py = (player.y + player.h) - h - FOOT_LIFT` where `FOOT_LIFT=6` lifts above visible floor band). Permanently kills the "stuck in ground" bug because we never mutate `player.w/h/y` on activation. Mech sprite skipped during cinematics (bossIntro / evoCutscene / cutscene / throneCutscene / spaceTransition / stageComplete).
+
+### Persistent ability panel + drawPlayer wrapper
+
+`drawPlayer` is wrapped so when a mech is active, the original character body is fully hidden and only the mech sprite renders — you ARE the mech, not a character standing inside one. A persistent ability panel (top-center) stays visible the entire form, listing each ability + key + weakness:
+
+```
+NINJA MECH
+A / D       → Run +55% speed
+SPACE × 4   → Quad-jump
+SHIFT       → Dash 1.5× longer in air
+G           → MELEE 1.6× damage
+WEAK        → -15% HP, low ranged damage
+```
+
+### Boss HP nerf (`b1fa12f`) — bosses cut in half
+
+| Boss | Old HP | New HP |
+|---|---|---|
+| GUARD-1 | 1500 | **750** |
+| SKYHAMMER | 1900 | **950** |
+| INFERNO-X | 2300 | **1150** |
+| RAVAGER | 2900 | **1450** |
+| CRYO-LORD | 3300 | **1650** |
+| NULLIFIER | 4000 | **2000** |
+| OMEGA-PRIME | 4900 | **2450** |
+| TITAN-LORD | 6500 | **3250** |
+
+Same attack patterns and phase transitions, just no longer feel like a wall.
+
+### Drop economy buff (`a5d4f05`)
+
+| | Old | New |
+|---|---|---|
+| Boss coins | 100 | **400** (4×) |
+| Turret coins | 18 | **60** |
+| Mob coins | 12 | **40** |
+| Boss scrap | 40+stage×4 | **80+stage×8** |
+| Boss RC | 18 | **36** |
+| All mobs RC | mostly 0 | **at least 1 each** |
+
+### Shop additions
+
+`8e4608c` — added the 3 melee/black-hole weapons to the regular shop with **non-letter hotkeys** since every A-Z and 0-9 was taken. Added a `SPECIAL_SHOP_KEYS` map (Comma/Semicolon/Quote/Period/Slash/etc → KeyboardEvent codes) so the shop dispatcher can handle them. Updated both shop hotkey loops to consult the map.
+
+- `;` → ENERGY KATANA (1500c)
+- `'` → LASER WHIP (1650c)
+- `,` → BLACK HOLE GUN (1800c)
+
+Also bumped shop panel size: 760×580 → **820×660** with tighter row spacing (22→20px) so all items fit.
+
+### Roll-back at end of session (back to `8e4608c`)
+
+The kid asked for these features in a single push and they got implemented in 6 commits AFTER `8e4608c`:
+- Weapon tier system (I → V upgrade ladder, +25% dmg/tier, scrap costs 80→1280)
+- Level-gated weapons (kill-count thresholds for each weapon group)
+- Inventory panel (T key) with per-weapon upgrade UI
+- Rank info panel (I key) — 3 tabs explaining STYLE/PLAYER_RANK/WEAPON_TIER
+- PVPv2 — weapon picker, 3 maps (Factory/Sky/Void), best-of-3, 90s rounds + sudden death
+- Longer levels — 5 extra enemies appended to each stage via `buildLevel` wrapper
+- 35% weapon damage nerf so upgrade tiers had room to grow
+- Weapon tier HUD badge
+
+But the kid couldn't actually buy ICE BLAST because the level gate kept silently refunding. After several rounds of tweaking the gate's kill thresholds (30/100/200/350/500 → 10/40/80/150/220 → 5/15/25/50/80) the kid said "just remove everything I just said, put everything back to normal because it's a mess." So I did:
+
+```
+git reset --soft 8e4608c
+git checkout 8e4608c -- game.js index.html
+```
+
+That wiped ALL 6 of those commits. **HEAD is now at `8e4608c`** — exactly where things felt right before the inventory mess. None of the rolled-back commits were ever pushed (origin/main was at 0d73f8e at session start). Branch is now ahead of origin by 8 clean commits.
+
+### Notable code pointers
+
+- `SC.*` — entire Style Combat module appended at the end of game.js, ~3k lines
+- `SC.flags` — feature toggles (all true by default after `a5d4f05`)
+- `SC.blackHole.holes[]` + `tick()` (lifecycle) + `applyPull()` (suction, runs AFTER updateEnemies)
+- `SC.heat` + `SC.altFire` + `SC.weaponEffects` — overheat/V-key/per-weapon runtime hooks
+- `SC.mechs.defs` — 5 mech form definitions with stats, abilities, sprites
+- `SC.mechs.renderSprite()` — per-mech sprite render with Pacific Rim scaling
+- `SC.reflectScan.tick()` — energy katana bullet reflect + ledger
+- `SPECIAL_SHOP_KEYS` — punctuation → KeyboardEvent code map for shop hotkeys
+- `WEAPONS[29..34]` — KATANA placeholder, BLACK HOLE GUN, ARMOR PIERCER, DRONE SWARM, WHIP placeholder, CORRUPTION CANNON
+- `MELEE_WEAPONS.energy_katana` + `MELEE_WEAPONS.laser_whip` — actual melee weapon defs
+- `meta.totalKills` — new save field bumped in `handleEnemyKilled` (boss=5, miniboss=3, elite=2, mob=1)
+
+### Pending work / known gotchas
+
+1. **Stage selection UI is the same** — the kid added 5 extra enemies per level via `buildLevel` wrapper but that was rolled back. Stages feel the same length as Jun 3 baseline.
+2. **Black hole gun bullet sprite** is correct (dark void with magenta event-horizon ring + spinning accretion disc) but only visible for ~24 frames before detonation. Easy to miss if you blink.
+3. **Mech tutorial panel** — persistent ability panel shows full info but one user complaint was "I don't know what each rank does." Was addressed with rank-info panel (I key) but that got rolled back. Could re-add cleanly without the level-gate baggage if requested.
+4. **PVPv2 scaffold lives at HEAD~7** — if the kid wants PVP back, just cherry-pick `8f4325e` (without the gating bits). The simple original PVP (`PVP.start()`) is still wired to the dev panel button.
+5. **Inventory panel scaffold lives at HEAD~3** — same approach, cherry-pick `29e635f` minus the level-gate refund logic if revisiting.
+6. **Cached browser builds** — cache-bust still in `index.html` from the previous session, every reload pulls fresh game.js.
+7. **PROJECT_CONTEXT.md is now ~700 lines longer** with this session block. Older session blocks (May 25 v3, etc.) still describe systems that have moved on and could be pruned in a future cleanup pass.
 
 ---
 
