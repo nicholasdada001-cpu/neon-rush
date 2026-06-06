@@ -5136,6 +5136,7 @@ function buildLevel() {
     coinPickups = [];
     healthDrops = [];
     crates = [];
+    crateCutscene = null;
     bullets = [];
     enemyBullets = [];
     activeWarning = null;
@@ -7343,11 +7344,25 @@ const CRATE_ORDER = ['common', 'rare', 'epic', 'legendary', 'mythic'];
 
 // Pick a crate rarity, biased by stage progression and an optional luck bonus
 // (boss kills get +luck so they feel rewarding).
-function rollCrateRarity(luckBonus) {
+//   bossDrop: when true, the roll is BIASED HEAVILY toward epic/leg/mythic
+//             so dropping a boss never feels like a fizzle.
+function rollCrateRarity(luckBonus, bossDrop) {
     luckBonus = luckBonus || 0;
     // Late-game stages get a flat boost to higher rarities.
     const stageBoost = currentStage * 0.10;
     const totalLuck = luckBonus + stageBoost;
+    if (bossDrop) {
+        // Boss-drop table — guaranteed at least EPIC. Mythic chance climbs
+        // with luck/stage. Roll uniform random, then map to thresholds.
+        // Base table: legendary 35%, mythic 18%, epic 47%.
+        // Luck shifts mythic up by up to +25% and legendary up by +15%.
+        const myth = Math.min(0.65, 0.18 + totalLuck * 0.30);
+        const leg  = Math.min(0.55, 0.35 + totalLuck * 0.20);
+        const r = Math.random();
+        if (r < myth) return 'mythic';
+        if (r < myth + leg) return 'legendary';
+        return 'epic';
+    }
     // Build cumulative weights, biased by luck (mythic/legendary get boosted).
     const weights = {
         common:    Math.max(8, CRATE_DEFS.common.weight    * (1 - totalLuck * 0.5)),
@@ -7366,7 +7381,8 @@ function rollCrateRarity(luckBonus) {
 }
 
 // Pop a crate into the world. spawnX/Y is where the enemy died.
-function dropCrate(spawnX, spawnY, rarity) {
+// opts: { bossDrop: bool } — boss drops trigger a cinematic on legendary/mythic
+function dropCrate(spawnX, spawnY, rarity, opts) {
     if (!rarity) rarity = rollCrateRarity(0);
     const def = CRATE_DEFS[rarity];
     crates.push({
@@ -7378,7 +7394,8 @@ function dropCrate(spawnX, spawnY, rarity) {
         bobPhase: Math.random() * Math.PI * 2,
         landed: false,
         opening: false,
-        openTimer: 0
+        openTimer: 0,
+        bossDrop: !!(opts && opts.bossDrop)
     });
 }
 
@@ -7394,26 +7411,37 @@ function openCrate(c) {
     else if (r === 'epic')      { coins = 500 + Math.floor(Math.random() * 200); scrap = 38; rc = 6; healAmt = 60; }
     else if (r === 'legendary') { coins = 1200 + Math.floor(Math.random() * 400); scrap = 80; rc = 14; hpBoost = 25; freeUpgrade = true; }
     else if (r === 'mythic')    { coins = 3000 + Math.floor(Math.random() * 800); scrap = 160; rc = 32; hpBoost = 75; freeUpgrade = true; healAmt = player.maxHp; }
-    // Try to unlock a still-locked SHOP weapon for rare+
+    // Try to unlock a still-locked weapon for rare+. Legendary and mythic
+    // strongly prefer CRATES-ONLY mythic weapons (PHOENIX, STORMCALLER, etc.)
+    // — these are weapons the kid will never see in the shop.
     if (r === 'rare' || r === 'epic' || r === 'legendary' || r === 'mythic') {
-        // Pick a random NON-dev weapon you don't have yet (rare/epic = chance, legendary/mythic = guaranteed)
-        const candidates = [];
+        // Bucket A: shop weapons not yet owned (rare/epic mostly draw from here)
+        const shopCandidates = [];
+        // Bucket B: crates-only mythic weapons not yet owned (legendary/mythic prefer)
+        const cratesOnlyCandidates = [];
         for (let i = 0; i < WEAPONS.length; i++) {
             const w = WEAPONS[i];
             if (!w || w.dev) continue;
             if (player.weaponsUnlocked[i]) continue;
-            // skip placeholders
             if (w.name && w.name.includes('placeholder')) continue;
-            candidates.push(i);
+            if (w.cratesOnly) cratesOnlyCandidates.push(i);
+            else shopCandidates.push(i);
         }
-        if (candidates.length > 0) {
-            let unlockChance = 0;
-            if (r === 'rare') unlockChance = 0.20;
-            else if (r === 'epic') unlockChance = 0.45;
-            else if (r === 'legendary') unlockChance = 1.0;
-            else if (r === 'mythic') unlockChance = 1.0;
-            if (Math.random() < unlockChance) {
-                unlockWeapon = candidates[Math.floor(Math.random() * candidates.length)];
+        let unlockChance = 0;
+        if (r === 'rare') unlockChance = 0.20;
+        else if (r === 'epic') unlockChance = 0.45;
+        else if (r === 'legendary') unlockChance = 1.0;
+        else if (r === 'mythic') unlockChance = 1.0;
+        if (Math.random() < unlockChance) {
+            // For mythic, ALWAYS try to give a crates-only mythic weapon first.
+            // For legendary, prefer mythic weapons but fall back to shop.
+            // For epic/rare, draw from shop pool.
+            let pool = shopCandidates;
+            if (r === 'mythic' && cratesOnlyCandidates.length > 0) pool = cratesOnlyCandidates;
+            else if (r === 'legendary' && cratesOnlyCandidates.length > 0 && Math.random() < 0.7) pool = cratesOnlyCandidates;
+            if (pool.length === 0) pool = shopCandidates;
+            if (pool.length > 0) {
+                unlockWeapon = pool[Math.floor(Math.random() * pool.length)];
             }
         }
     }
@@ -7425,6 +7453,10 @@ function openCrate(c) {
     if (hpBoost > 0){ player.maxHp += hpBoost; player.hp += hpBoost; rewards.push(`+${hpBoost} MAX HP`); }
     if (unlockWeapon >= 0) {
         player.weaponsUnlocked[unlockWeapon] = true;
+        // Auto-equip new mythic weapon for the cinematic feel
+        if (WEAPONS[unlockWeapon] && WEAPONS[unlockWeapon].cratesOnly) {
+            player.weaponTier = unlockWeapon;
+        }
         rewards.push(`UNLOCKED: ${WEAPONS[unlockWeapon].name}`);
     }
     if (freeUpgrade) {
@@ -7443,6 +7475,19 @@ function openCrate(c) {
         spawnShockwave(c.x, c.y, 220, def.color);
         screenShake = Math.max(screenShake, r === 'mythic' ? 26 : 16);
     }
+
+    // ===== BOSS-DROP CUTSCENE FOR LEGENDARY / MYTHIC =====
+    // For boss drops at legendary or mythic rarity, trigger a full-screen
+    // reveal cinematic so the kid feels the drop. Common/rare/epic remain
+    // instant pickup with floating-text feedback.
+    if (c.bossDrop && (r === 'legendary' || r === 'mythic')) {
+        startCrateCutscene(c, r, def, {
+            coins, scrap, rc, hpBoost, healAmt,
+            unlockWeapon, freeUpgrade
+        });
+        return;   // skip floating text — cutscene handles all UI
+    }
+
     // Floating rewards (stacked vertically)
     for (let i = 0; i < rewards.length; i++) {
         floatTexts.push({
@@ -7463,6 +7508,234 @@ function openCrate(c) {
     if (typeof audio !== 'undefined') {
         try { audio.play(r === 'mythic' || r === 'legendary' ? 'bossKill' : 'keyPickup'); } catch (e) {}
     }
+}
+
+// ============================================================================
+// CRATE OPENING CUTSCENE (legendary / mythic boss drops)
+// ============================================================================
+// Full-screen cinematic that pauses normal gameplay updates and reveals the
+// new weapon + reward payout in stages:
+//   Act 0 (0..50)    crate hovers center, glows + spins
+//   Act 1 (50..120)  crate explodes open, particle burst
+//   Act 2 (120..260) weapon name + flavor flies in
+//   Act 3 (260..420) coin/scrap/RC/HP rewards stack on
+//   Act 4 (420..480) "TAP ANY KEY TO CONTINUE" — wait
+let crateCutscene = null;
+
+function startCrateCutscene(c, rarity, def, payload) {
+    crateCutscene = {
+        rarity, def,
+        timer: 0,
+        weaponIdx: payload.unlockWeapon,
+        coins: payload.coins,
+        scrap: payload.scrap,
+        rc: payload.rc,
+        hpBoost: payload.hpBoost,
+        healAmt: payload.healAmt,
+        freeUpgrade: payload.freeUpgrade,
+        // Random sparkle anchors so the burst doesn't look identical each time
+        sparkles: Array.from({ length: 60 }, () => ({
+            ang: Math.random() * Math.PI * 2,
+            spd: 2 + Math.random() * 6,
+            life: 90 + Math.random() * 120
+        }))
+    };
+    // Pause-in sound
+    if (typeof audio !== 'undefined') {
+        try { audio.play('bossKill'); } catch (e) {}
+    }
+    screenShake = Math.max(screenShake, 18);
+}
+
+function updateCrateCutscene() {
+    if (!crateCutscene) return false;
+    crateCutscene.timer++;
+    // Allow skip after Act 2 reveal completes (~t >= 240)
+    if (crateCutscene.timer > 240) {
+        const skipKey = (typeof keys !== 'undefined') &&
+            (keys['Enter'] || keys['Space'] || keys['KeyE'] || keys['NumpadEnter']);
+        if (skipKey) crateCutscene.timer = 999;
+    }
+    if (crateCutscene.timer > 480) {
+        crateCutscene = null;
+    }
+    return true;
+}
+
+function drawCrateCutscene() {
+    if (!crateCutscene) return;
+    const cc = crateCutscene;
+    const t = cc.timer;
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const def = cc.def;
+    // Backdrop dim
+    ctx.save();
+    const dimAlpha = Math.min(0.85, t / 30);
+    ctx.fillStyle = `rgba(0, 0, 10, ${dimAlpha})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Concentric rarity rings
+    for (let r = 0; r < 4; r++) {
+        const baseR = 80 + r * 80 + Math.sin((t + r * 8) * 0.06) * 18;
+        ctx.strokeStyle = def.glow;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 22;
+        ctx.lineWidth = 2 - r * 0.3;
+        ctx.globalAlpha = (cc.rarity === 'mythic' ? 0.7 : 0.45) * (1 - r * 0.18);
+        ctx.beginPath();
+        ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // ACT 0: crate appears, spins
+    if (t < 60) {
+        const k = t / 60;
+        const scale = 1 + k * 1.8;
+        const rot = t * 0.12;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(rot);
+        ctx.scale(scale, scale);
+        ctx.fillStyle = def.color;
+        ctx.shadowColor = def.glow;
+        ctx.shadowBlur = 24;
+        ctx.fillRect(-30, -30, 60, 60);
+        ctx.fillStyle = def.glow;
+        ctx.fillRect(-26, -26, 52, 6);
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(-30, -2, 60, 4);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 36px Courier New';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        if (cc.rarity === 'mythic') ctx.fillText('★', 0, 1);
+        else ctx.fillText('◆', 0, 1);
+        ctx.restore();
+    }
+    // ACT 1: explode open
+    else if (t < 120) {
+        const k = (t - 60) / 60;
+        ctx.save();
+        ctx.translate(cx, cy);
+        // Burst rays
+        ctx.strokeStyle = def.glow;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 30;
+        ctx.lineWidth = 4 * (1 - k);
+        for (let s = 0; s < 12; s++) {
+            const ang = (s / 12) * Math.PI * 2;
+            const r1 = 60 + k * 80;
+            const r2 = 200 + k * 220;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(ang) * r1, Math.sin(ang) * r1);
+            ctx.lineTo(Math.cos(ang) * r2, Math.sin(ang) * r2);
+            ctx.stroke();
+        }
+        // Sparkle particles
+        for (const s of cc.sparkles) {
+            const px = Math.cos(s.ang) * s.spd * (k * 60);
+            const py = Math.sin(s.ang) * s.spd * (k * 60);
+            ctx.fillStyle = def.glow;
+            ctx.shadowColor = def.color;
+            ctx.shadowBlur = 12;
+            ctx.beginPath();
+            ctx.arc(px, py, 2 + Math.random() * 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+    // ACT 2+: text reveals
+    if (t >= 100) {
+        const k = Math.min(1, (t - 100) / 50);
+        ctx.save();
+        ctx.globalAlpha = k;
+        ctx.textAlign = 'center';
+        // Rarity label top
+        ctx.fillStyle = def.glow;
+        ctx.shadowColor = def.color;
+        ctx.shadowBlur = 18;
+        ctx.font = 'bold 36px Courier New';
+        ctx.fillText(cc.rarity.toUpperCase() + ' DROP', cx, cy - 220);
+        ctx.font = 'bold 14px Courier New';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('★ BOSS LOOT ★', cx, cy - 196);
+        ctx.shadowBlur = 0;
+
+        // Weapon reveal
+        if (cc.weaponIdx >= 0) {
+            const w = WEAPONS[cc.weaponIdx];
+            const k2 = Math.min(1, Math.max(0, (t - 140) / 60));
+            ctx.globalAlpha = k2;
+            ctx.fillStyle = w.glow || def.glow;
+            ctx.shadowColor = w.color || def.color;
+            ctx.shadowBlur = 22;
+            ctx.font = 'bold 44px Courier New';
+            ctx.fillText('NEW WEAPON', cx, cy - 80);
+            ctx.font = 'bold 60px Courier New';
+            ctx.fillText(w.name, cx, cy - 20);
+            ctx.shadowBlur = 14;
+            ctx.font = 'italic 18px Courier New';
+            ctx.fillStyle = '#ffeeaa';
+            // Word-wrap flavor across the width
+            const flavor = w.flavor || '';
+            const maxChars = 60;
+            let line = '';
+            const words = flavor.split(' ');
+            const lines = [];
+            for (const word of words) {
+                if (line.length + word.length + 1 > maxChars) { lines.push(line); line = word; }
+                else line = line ? line + ' ' + word : word;
+            }
+            if (line) lines.push(line);
+            for (let i = 0; i < lines.length; i++) {
+                ctx.fillText(lines[i], cx, cy + 24 + i * 22);
+            }
+            ctx.shadowBlur = 0;
+        }
+
+        // Reward stack (coins/scrap/RC/HP)
+        if (t > 240) {
+            const k3 = Math.min(1, (t - 240) / 80);
+            ctx.globalAlpha = k3;
+            ctx.fillStyle = '#ffdd44';
+            ctx.shadowColor = '#ffaa00';
+            ctx.shadowBlur = 12;
+            ctx.font = 'bold 22px Courier New';
+            const lines = [];
+            if (cc.coins) lines.push(`+ ${cc.coins} ¢ COINS`);
+            if (cc.scrap) lines.push(`+ ${cc.scrap} 🔩 SCRAP`);
+            if (cc.rc)    lines.push(`+ ${cc.rc} RC`);
+            if (cc.healAmt) lines.push(`+ ${cc.healAmt} HP HEAL`);
+            if (cc.hpBoost) lines.push(`+ ${cc.hpBoost} MAX HP`);
+            if (cc.freeUpgrade) lines.push('★ FREE WEAPON UPGRADE ★');
+            const baseY = cc.weaponIdx >= 0 ? cy + 110 : cy + 20;
+            for (let i = 0; i < lines.length; i++) {
+                ctx.fillText(lines[i], cx, baseY + i * 30);
+            }
+            ctx.shadowBlur = 0;
+        }
+        ctx.globalAlpha = 1;
+        ctx.restore();
+    }
+    // ACT 4: "Press to continue"
+    if (t > 360) {
+        ctx.save();
+        const blink = Math.sin(t * 0.15) * 0.3 + 0.7;
+        ctx.globalAlpha = blink;
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = def.glow;
+        ctx.shadowBlur = 8;
+        ctx.font = 'bold 16px Courier New';
+        ctx.textAlign = 'center';
+        ctx.fillText('PRESS ENTER / SPACE / E TO CONTINUE', cx, canvas.height - 50);
+        ctx.shadowBlur = 0;
+        ctx.restore();
+    }
+    ctx.restore();
 }
 
 function updateCrates() {
@@ -9902,11 +10175,12 @@ function handleEnemyKilled(e, j) {
         const cy = e.y + e.h / 2;
         if (e.type === 'boss') {
             // Boss: guaranteed crate, with bonus luck. Late-game bosses get
-            // a SECOND crate so the loot rush feels real.
+            // a SECOND crate so the loot rush feels real. Boss drops use
+            // the bossDrop=true table → guaranteed epic/legendary/mythic.
             const luck = 0.7 + Math.min(0.6, currentStage * 0.08);
-            dropCrate(cx, cy, rollCrateRarity(luck));
+            dropCrate(cx, cy, rollCrateRarity(luck, true), { bossDrop: true });
             if (currentStage >= 4) {
-                dropCrate(cx + 30, cy - 10, rollCrateRarity(luck * 0.6));
+                dropCrate(cx + 30, cy - 10, rollCrateRarity(luck * 0.6, true), { bossDrop: true });
             }
         } else if (e.type === 'miniboss') {
             dropCrate(cx, cy, rollCrateRarity(0.45));
@@ -30033,7 +30307,13 @@ function gameLoop(timestamp) {
         updateParticles();
         updateCamera();
     } else if (gameState === 'playing') {
-        if (!shopOpen) {
+        // Crate-opening cinematic for boss-drop legendary/mythic. Pauses
+        // most gameplay updates so the reveal feels cinematic.
+        if (crateCutscene) {
+            updateCrateCutscene();
+            updateParticles();
+            updateCamera();
+        } else if (!shopOpen) {
             updatePlayer();
             updateBullets();
             updateEnemies();
@@ -30170,6 +30450,8 @@ function gameLoop(timestamp) {
     drawComboBanner();
     drawWarning();
     drawShopUI();
+    // Crate cinematic — drawn ABOVE the standard HUD so it covers the screen
+    if (crateCutscene) drawCrateCutscene();
     // Don't draw the upgrade-list popup during the transformation cinematic;
     // it would compete for the screen. It pops up right after the cutscene.
     if (gameState !== 'evoCutscene') drawEvoUnlockPopup();
@@ -33651,6 +33933,73 @@ console.log('[SC] Style Combat module loaded. Press Y at full charge for OVERCLO
         overheat: { perShot: 22, decay: 1.2 },
         flavor: '☠ Damage scales as your HP drops. V: SACRIFICE BLAST.'
     });
+
+    // ===== MYTHIC-ONLY CRATE WEAPONS =====
+    // Tiers 35..39. Hidden from the shop (cratesOnly: true). Granted only
+    // by legendary/mythic crates so the kid actually gets surprised loot.
+    // Each one is uniquely flagged for special rendering / behavior.
+
+    // PHOENIX CANNON (tier 35) — 5 fiery homing phoenix shots that pierce
+    // and leave burn trails. Long cooldown but devastating.
+    WEAPONS.push({
+        name: 'PHOENIX CANNON', tier: 35, cratesOnly: true, cost: 0,
+        damage: 220, speed: 16, cooldown: 26, bullets: 5, spread: 0.4,
+        color: '#ff8800', glow: '#ffaa44', size: 10, life: 200,
+        pierce: true, homing: true,
+        burn: true, burnDmg: 14, burnDur: 90,
+        explosive: true, aoeRadius: 110,
+        flavor: '🔥 Five phoenix homers. Pierce + burn + AOE. Mythic-tier.'
+    });
+
+    // STORMCALLER (tier 36) — every shot pulls down a sky lightning strike
+    // on impact, plus chain-lightning to nearest enemies. Beam-style.
+    WEAPONS.push({
+        name: 'STORMCALLER', tier: 36, cratesOnly: true, cost: 0,
+        damage: 140, speed: 32, cooldown: 8, bullets: 1, spread: 0.02,
+        color: '#aaeeff', glow: '#ffff44', size: 8, life: 140,
+        pierce: true, beam: true,
+        lightningStrike: true, strikeDmg: 280, strikeRadius: 160,
+        flavor: '⚡ Pure energy beam + sky strike on every hit. Mythic.'
+    });
+
+    // VOID SHARD (tier 37) — slow but ENORMOUS purple slug that splits
+    // into 6 homing voidlings on impact. Each voidling explodes.
+    WEAPONS.push({
+        name: 'VOID SHARD', tier: 37, cratesOnly: true, cost: 0,
+        damage: 380, speed: 14, cooldown: 38, bullets: 1, spread: 0,
+        color: '#aa00ff', glow: '#ff44ee', size: 18, life: 220,
+        big: true, pierce: true,
+        explosive: true, aoeRadius: 180,
+        voidShard: true,            // splits into voidlings on hit (handled in updateBullets)
+        flavor: '◆ Massive void slug. Splits into 6 homing voidlings on impact.'
+    });
+
+    // GALAXY GLAIVE (tier 38) — beam shotgun. 9 piercing rays, each pierces
+    // up to 5 enemies. No reload, just rapid spam.
+    WEAPONS.push({
+        name: 'GALAXY GLAIVE', tier: 38, cratesOnly: true, cost: 0,
+        damage: 100, speed: 28, cooldown: 14, bullets: 9, spread: 0.35,
+        color: '#ffffff', glow: '#88aaff', size: 6, life: 160,
+        pierce: true, beam: true,
+        flavor: '✦ 9-ray cosmic shotgun. Pure beam. Pierces everything. Mythic.'
+    });
+
+    // DRAGON'S BREATH (tier 39) — flame stream w/ massive burn + ricochet.
+    // Each bullet bounces 3 times and lights everything on fire.
+    WEAPONS.push({
+        name: "DRAGON'S BREATH", tier: 39, cratesOnly: true, cost: 0,
+        damage: 60, speed: 14, cooldown: 3, bullets: 1, spread: 0.12,
+        color: '#ff4400', glow: '#ffaa00', size: 9, life: 60,
+        burn: true, burnDmg: 22, burnDur: 130, flame: true,
+        bounce: 3, bouncesLeft: 3,
+        flavor: '🐉 Endless dragon-flame. Bounces 3×, burns hard. Mythic.'
+    });
+
+    // The crate system needs to know how many tiers exist. Pad
+    // weaponsUnlocked to the new length so reading WEAPONS[i] is safe.
+    if (Array.isArray(player.weaponsUnlocked)) {
+        while (player.weaponsUnlocked.length < WEAPONS.length) player.weaponsUnlocked.push(false);
+    }
 })();
 
 // =====================================================================
