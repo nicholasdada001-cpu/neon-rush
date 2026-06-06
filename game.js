@@ -1291,6 +1291,11 @@ const player = {
     bulletDamage: 0,         // additive damage bonus (from "Damage +5" upgrade)
     weaponTier: 0,            // index into WEAPONS (currently equipped)
     weaponsUnlocked: [true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false],  // pistol unlocked at start; tiers 8+ are shop weapons; 29-34 expanded arsenal
+    // Per-weapon UPGRADE level (0 = base, 1..5 = upgraded). Each level adds
+    // +25% damage and -5% cooldown (faster fire rate) to that specific weapon.
+    // Persisted with the same scope as weaponsUnlocked. Indexed by tier.
+    // Stored as a sparse object so we don't need to reset every save load.
+    weaponLevels: {},
     meleeWeaponsUnlocked: {},  // { knife:true, katana:true, ... } — bought from shop
     activeMelee: null,         // 'knife' | 'katana' | 'saber' | null = bare-fist
     // BAND BLASTER instrument state — cycles via B key while equipped.
@@ -1376,6 +1381,10 @@ const SHOP_ITEMS = [
     // clashing with existing weapon hotkeys. The shop input handler
     // (updateShop) maps non-alphanumeric item.key values via a small
     // SPECIAL_KEY_CODES table further down. =====
+    // Upgrade ACTIVE weapon — costs scale per level (200/450/950/2000/4200).
+    // Each level adds +25% damage and -5% cooldown to the equipped weapon.
+    // Hotkey: [ (left bracket)
+    { key: '[', name: 'UPGRADE WEAPON ▲', cost: 0, action: p => { upgradeActiveWeapon(p); }, repeatable: true, weaponUpgrade: true },
     // ENERGY KATANA reflects bullets while swinging. Hotkey: ; (semicolon)
     { key: ';', name: 'Buy: ENERGY KATANA',  cost: 1500, action: p => { p.meleeWeaponsUnlocked.energy_katana = true; p.activeMelee = 'energy_katana'; },
       melee: 'energy_katana', meleeName: 'ENERGY KATANA', meleeColor: '#00ffff' },
@@ -1601,6 +1610,47 @@ function triggerEvoAbility(name) {
             shopMessage = { text: '★ TILL ALL ARE ONE ★', timer: 180, color: '#ffd744' };
         }
     }
+}
+
+// ===== WEAPON UPGRADE SYSTEM =====
+// Each weapon levels up to 5 times. Each level gives +25% damage and -5%
+// cooldown to that specific weapon. Costs grow steeply so it's a long-term
+// gold-sink rather than a quick power spike.
+const WEAPON_UPGRADE_COSTS = [200, 450, 950, 2000, 4200];
+const WEAPON_UPGRADE_MAX = 5;
+
+function getWeaponUpgradeCost(level) {
+    if (level >= WEAPON_UPGRADE_MAX) return Infinity;
+    return WEAPON_UPGRADE_COSTS[level];
+}
+
+function upgradeActiveWeapon(p) {
+    if (!p.weaponLevels) p.weaponLevels = {};
+    const tier = p.weaponTier;
+    const w = WEAPONS[tier];
+    if (!w) {
+        shopMessage = { text: 'No weapon equipped', timer: 60, color: '#ff3333' };
+        return;
+    }
+    const cur = p.weaponLevels[tier] || 0;
+    if (cur >= WEAPON_UPGRADE_MAX) {
+        shopMessage = { text: `${w.name} MAXED (LV ${WEAPON_UPGRADE_MAX})`, timer: 90, color: '#ffaa00' };
+        return;
+    }
+    const cost = getWeaponUpgradeCost(cur);
+    if (p.coins < cost) {
+        shopMessage = { text: `Need ${cost}¢ (have ${p.coins})`, timer: 90, color: '#ff3333' };
+        return;
+    }
+    p.coins -= cost;
+    p.weaponLevels[tier] = cur + 1;
+    const newLvl = cur + 1;
+    shopMessage = {
+        text: `★ ${w.name} → LV ${newLvl} (+${newLvl * 25}% DMG)`,
+        timer: 150, color: w.glow || '#ffff44'
+    };
+    spawnParticles(p.x + p.w / 2, p.y + p.h / 2, w.glow || '#ffff44', 30, 6);
+    spawnShockwave(p.x + p.w / 2, p.y + p.h / 2, 100, w.color || '#ffffff');
 }
 
 function evolvePlayer(p) {
@@ -4717,6 +4767,10 @@ let shopOpen = false;         // is the shop UI open
 let shopMessage = null;       // { text, timer }
 let coinPickups = [];         // floating coins to collect
 let healthDrops = [];         // floating HP pickups
+// CRATES — randomly drop from elite enemies + bosses. 5 rarities with
+// scaling rewards. Each crate is a physical pickup that flies out, lands,
+// then auto-collects on touch with a floating reward popup.
+let crates = [];
 let comboCount = 0;           // kill combo counter
 let comboTimer = 0;           // combo decay
 let timeSlowFactor = 1;       // global enemy speed multiplier (for STRIKER ability)
@@ -5081,6 +5135,7 @@ function buildLevel() {
 
     coinPickups = [];
     healthDrops = [];
+    crates = [];
     bullets = [];
     enemyBullets = [];
     activeWarning = null;
@@ -5519,10 +5574,21 @@ function extendStage() {
     const boss = enemies.find(e => e.type === 'boss');
     if (!boss) return;
 
-    // Shift boss further out
-    const offset = 700;
+    // Shift boss further out — bigger offset (was 700) to make stages longer
+    const offset = 1500;
     boss.baseX += offset;
     boss.x += offset;
+    // Also push the boss-trigger so the cutscene/arena spawn at the right place.
+    // Stash the original on first run so we can restore on replay/buildLevel re-entry.
+    const stage = STAGES[currentStage];
+    if (stage && stage.bossTriggerX) {
+        if (typeof stage._origBossTriggerX !== 'number') {
+            stage._origBossTriggerX = stage.bossTriggerX;
+        } else {
+            stage.bossTriggerX = stage._origBossTriggerX;
+        }
+        stage.bossTriggerX += offset;
+    }
 
     // Add extension ground
     platforms.push({ x: maxX, y: groundY, w: 280, h: 50, type: 'ground' });
@@ -5532,13 +5598,9 @@ function extendStage() {
     platforms.push({ x: maxX + 280, y: 595, w: 50, h: 8, type: 'recovery' });
     platforms.push({ x: maxX + 600, y: 595, w: 50, h: 8, type: 'recovery' });
 
-    // Some platforms / walls
-    platforms.push({ x: maxX + 100, y: 350, w: 100, h: 18, type: 'platform' });
-    platforms.push({ x: maxX + 280, y: 250, w: 100, h: 18, type: 'platform' });
-    platforms.push({ x: maxX + 460, y: 350, w: 100, h: 18, type: 'platform' });
-    platforms.push({ x: maxX + 640, y: 230, w: 100, h: 18, type: 'platform' });
-    platforms.push({ x: maxX + 220, y: 220, w: 20, h: 320, type: 'wall' });
-    platforms.push({ x: maxX + 540, y: 200, w: 20, h: 350, type: 'wall' });
+    // Some platforms / walls (sparse — kept simple so traversal isn't cluttered)
+    platforms.push({ x: maxX + 280, y: 300, w: 100, h: 18, type: 'platform' });
+    platforms.push({ x: maxX + 560, y: 320, w: 100, h: 18, type: 'platform' });
 
     // Add stage-appropriate enemies
     const baseHp = 60 + currentStage * 30;
@@ -5593,6 +5655,60 @@ function extendStage() {
 
     // Add a shop
     shops.push({ x: maxX + 280, y: groundY - 40, w: 50, h: 40 });
+
+    // ===== SECOND EXTENSION CHUNK (LONG LEVELS UPGRADE) =====
+    // After the first 920px-wide extension, append another full chunk so
+    // the path to the boss is meaningfully longer. Total extra ground
+    // ~1600px before the boss arena gate.
+    const ext2X = maxX + 920;
+    platforms.push({ x: ext2X,        y: groundY, w: 280, h: 50, type: 'ground' });
+    platforms.push({ x: ext2X + 320,  y: groundY, w: 280, h: 50, type: 'ground' });
+    platforms.push({ x: ext2X + 640,  y: groundY, w: 280, h: 50, type: 'ground' });
+    platforms.push({ x: ext2X + 960,  y: groundY, w: 280, h: 50, type: 'ground' });
+    platforms.push({ x: ext2X + 280,  y: 595, w: 50, h: 8, type: 'recovery' });
+    platforms.push({ x: ext2X + 920,  y: 595, w: 50, h: 8, type: 'recovery' });
+    // A few sparse mid-air platforms — deliberately less crowded than the
+    // first extension so navigation stays clean. Just 3 jump-pads.
+    platforms.push({ x: ext2X + 250,  y: 320, w: 130, h: 18, type: 'platform' });
+    platforms.push({ x: ext2X + 600,  y: 280, w: 130, h: 18, type: 'platform' });
+    platforms.push({ x: ext2X + 940,  y: 320, w: 130, h: 18, type: 'platform' });
+    // Cache crate
+    platforms.push({ x: ext2X + 380, y: 100, w: 50, h: 50, type: 'breakable', hp: 80 + currentStage * 10, cache: true, cacheCoins: 60 + currentStage * 10 });
+
+    // Enemy gauntlet for the second extension. More enemies + more
+    // late-stage variants. Slightly buffed from the first extension's pool
+    // since the player has had time to power up.
+    const baseHp2 = baseHp + 20;
+    enemies.unshift(
+        { x: ext2X + 80,   y: groundY - 40, w: 36, h: 40, type: 'patrol', hp: baseHp2,      maxHp: baseHp2,      vx: 1.8, dir: 1, shootTimer: 24, patrolStart: ext2X + 50,  patrolEnd: ext2X + 320, color: col },
+        { x: ext2X + 320,  y: 220,          w: 30, h: 24, type: 'drone',  hp: baseHp2 - 20, maxHp: baseHp2 - 20, baseY: 220, floatTimer: 0,         shootTimer: 32, color: col },
+        { x: ext2X + 540,  y: groundY - 30, w: 32, h: 30, type: 'turret', hp: baseHp2 + 30, maxHp: baseHp2 + 30, shootTimer: 32, angle: 0, color: col },
+        { x: ext2X + 720,  y: 200,          w: 30, h: 24, type: 'drone',  hp: baseHp2 - 10, maxHp: baseHp2 - 10, baseY: 200, floatTimer: Math.PI,   shootTimer: 30, color: col },
+        { x: ext2X + 880,  y: groundY - 40, w: 36, h: 40, type: 'patrol', hp: baseHp2 + 10, maxHp: baseHp2 + 10, vx: 2.0, dir: 1, shootTimer: 22, patrolStart: ext2X + 820, patrolEnd: ext2X + 1080, color: col },
+        { x: ext2X + 1100, y: groundY - 30, w: 32, h: 30, type: 'turret', hp: baseHp2 + 50, maxHp: baseHp2 + 50, shootTimer: 28, angle: 0, color: col },
+        { x: ext2X + 1180, y: groundY - 40, w: 36, h: 40, type: 'patrol', hp: baseHp2 + 20, maxHp: baseHp2 + 20, vx: 2.2, dir: 1, shootTimer: 22, patrolStart: ext2X + 1100, patrolEnd: ext2X + 1240, color: col }
+    );
+    if (currentStage >= 2) {
+        enemies.unshift({ x: ext2X + 600, y: 250, w: 30, h: 30, type: 'bomber', hp: baseHp2 - 20, maxHp: baseHp2 - 20, floatTimer: 0, color: '#ff4400' });
+    }
+    if (currentStage >= 3) {
+        enemies.unshift({ x: ext2X + 480, y: groundY - 36, w: 28, h: 36, type: 'sprinter', hp: baseHp2,      maxHp: baseHp2,      vx: 0, vy: 0, color: '#aa00ff', onGround: true });
+        enemies.unshift({ x: ext2X + 950, y: groundY - 100, w: 70, h: 100, type: 'mech', hp: baseHp2 + 280, maxHp: baseHp2 + 280, vx: 0, vy: 0, facing: -1, shootTimer: 100, attackPhase: 0, walkPhase: 0, onGround: true, color: '#ff4444' });
+    }
+    if (currentStage >= 5) {
+        enemies.unshift({ x: ext2X + 200, y: 280, w: 30, h: 30, type: 'bomber', hp: baseHp2 - 10, maxHp: baseHp2 - 10, floatTimer: Math.PI / 2, color: '#ff4400' });
+        enemies.unshift({ x: ext2X + 1180, y: groundY - 100, w: 70, h: 100, type: 'mech', hp: baseHp2 + 380, maxHp: baseHp2 + 380, vx: 0, vy: 0, facing: -1, shootTimer: 100, attackPhase: 0, walkPhase: 0, onGround: true, color: '#aa00ff' });
+    }
+
+    // Extra healing station + shop at the END of the second extension so
+    // players can stock up immediately before the boss gate.
+    spawnHealingStation(ext2X + 1100, groundY);
+    shops.push({ x: ext2X + 1100, y: groundY - 40, w: 50, h: 40 });
+    dangerZones.push({ x: ext2X + 50,  triggered: false, text: '⚠ DANGER: GAUNTLET ⚠' });
+    dangerZones.push({ x: ext2X + 600, triggered: false, text: '⚠ DANGER: HEAVY PATROL ⚠' });
+
+    // (Original first-extension shop/healing stations and danger zones below
+    // remain in place — this block just ADDS to them, doesn't replace.)
 
     // Add 2 healing stations at strategic spots:
     //   - one mid-stage (~30% through the playable run, near the first elite cluster)
@@ -6588,7 +6704,7 @@ function buildStage4() {
         { x: 3000, y: 504, w: 46, h: 46, type: 'heavy', hp: 250, maxHp: 250, vx: 0.8, dir: 1, shootTimer: 30, patrolStart: 2890, patrolEnd: 3220, color: '#22aa44' },
         { x: 3200, y: 510, w: 38, h: 40, type: 'shielder', hp: 180, maxHp: 180, vx: 1.4, dir: 1, shootTimer: 30, patrolStart: 3150, patrolEnd: 3300, color: '#88ff44', shieldColor: '#88ffff' },
         // BOSS RAVAGER - charges and minigun-spreads (HP reduced for difficulty curve)
-        { x: 3500, y: 350, w: 110, h: 110, type: 'boss', subtype: 'ravager', hp: 1450, maxHp: 1450, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3500, baseY: 350, color: '#22ff44', attackPattern: 0 }
+        { x: 3500, y: 350, w: 110, h: 110, type: 'boss', subtype: 'ravager', hp: 2200, maxHp: 2200, phase: 1, shootTimer: 110, moveTimer: 0, baseX: 3500, baseY: 350, color: '#22ff44', attackPattern: 0 }
     ];
     dangerZones = [
         { x: 350, triggered: false, text: '⚠ DANGER: SECURITY BOTS ⚠' },
@@ -7198,6 +7314,278 @@ function updateHealthDrops() {
             healthDrops.splice(i, 1);
             spawnParticles(h.x, h.y, '#ff66aa', 8, 3);
             audio.play('heal');
+        }
+    }
+}
+
+// ============================================================================
+// CRATE SYSTEM (rarity-based loot drops)
+// ============================================================================
+// 5 tiers. Each crate stores its rarity + pre-rolled reward so opening is
+// instant and feedback-rich. Bosses ALWAYS drop a crate (rarity scales with
+// stage). Mini-bosses + mech/heavy enemies have a chance based on stage.
+//
+// Rarities:
+//   common    — small coin/scrap bonus
+//   rare      — bigger coin payout + chance of a weapon unlock
+//   epic      — big coin haul + small RC + sometimes a free upgrade level
+//   legendary — huge payout + RC + +1 free weapon upgrade level
+//   mythic    — jackpot: full heal, max-HP boost, big RC, +1 weapon upgrade,
+//               and a guaranteed weapon unlock if any are still locked
+const CRATE_DEFS = {
+    common:    { name: 'COMMON CRATE',    color: '#bbbbbb', glow: '#ffffff', size: 18, weight: 100 },
+    rare:      { name: 'RARE CRATE',      color: '#44aaff', glow: '#88ddff', size: 20, weight: 50 },
+    epic:      { name: 'EPIC CRATE',      color: '#aa44ff', glow: '#dd88ff', size: 22, weight: 22 },
+    legendary: { name: 'LEGENDARY CRATE', color: '#ffaa00', glow: '#ffdd44', size: 26, weight: 9 },
+    mythic:    { name: 'MYTHIC CRATE',    color: '#ff44ee', glow: '#ff88ff', size: 30, weight: 2 }
+};
+const CRATE_ORDER = ['common', 'rare', 'epic', 'legendary', 'mythic'];
+
+// Pick a crate rarity, biased by stage progression and an optional luck bonus
+// (boss kills get +luck so they feel rewarding).
+function rollCrateRarity(luckBonus) {
+    luckBonus = luckBonus || 0;
+    // Late-game stages get a flat boost to higher rarities.
+    const stageBoost = currentStage * 0.10;
+    const totalLuck = luckBonus + stageBoost;
+    // Build cumulative weights, biased by luck (mythic/legendary get boosted).
+    const weights = {
+        common:    Math.max(8, CRATE_DEFS.common.weight    * (1 - totalLuck * 0.5)),
+        rare:      CRATE_DEFS.rare.weight                  * (1 + totalLuck * 0.2),
+        epic:      CRATE_DEFS.epic.weight                  * (1 + totalLuck * 0.6),
+        legendary: CRATE_DEFS.legendary.weight             * (1 + totalLuck * 1.4),
+        mythic:    CRATE_DEFS.mythic.weight                * (1 + totalLuck * 2.5)
+    };
+    const total = weights.common + weights.rare + weights.epic + weights.legendary + weights.mythic;
+    let r = Math.random() * total;
+    for (const k of CRATE_ORDER) {
+        if (r < weights[k]) return k;
+        r -= weights[k];
+    }
+    return 'common';
+}
+
+// Pop a crate into the world. spawnX/Y is where the enemy died.
+function dropCrate(spawnX, spawnY, rarity) {
+    if (!rarity) rarity = rollCrateRarity(0);
+    const def = CRATE_DEFS[rarity];
+    crates.push({
+        x: spawnX, y: spawnY,
+        vx: (Math.random() - 0.5) * 4,
+        vy: -6 - Math.random() * 3,
+        rarity, def,
+        life: 1500,           // 25 seconds before despawn
+        bobPhase: Math.random() * Math.PI * 2,
+        landed: false,
+        opening: false,
+        openTimer: 0
+    });
+}
+
+function openCrate(c) {
+    const r = c.rarity;
+    const def = c.def;
+    const rewards = [];
+    // Coin payout — scales with rarity
+    let coins = 0, scrap = 0, rc = 0, hpBoost = 0, healAmt = 0;
+    let unlockWeapon = -1, freeUpgrade = false;
+    if (r === 'common')         { coins = 50 + Math.floor(Math.random() * 30);  scrap = 8; }
+    else if (r === 'rare')      { coins = 180 + Math.floor(Math.random() * 70); scrap = 18; rc = 2; }
+    else if (r === 'epic')      { coins = 500 + Math.floor(Math.random() * 200); scrap = 38; rc = 6; healAmt = 60; }
+    else if (r === 'legendary') { coins = 1200 + Math.floor(Math.random() * 400); scrap = 80; rc = 14; hpBoost = 25; freeUpgrade = true; }
+    else if (r === 'mythic')    { coins = 3000 + Math.floor(Math.random() * 800); scrap = 160; rc = 32; hpBoost = 75; freeUpgrade = true; healAmt = player.maxHp; }
+    // Try to unlock a still-locked SHOP weapon for rare+
+    if (r === 'rare' || r === 'epic' || r === 'legendary' || r === 'mythic') {
+        // Pick a random NON-dev weapon you don't have yet (rare/epic = chance, legendary/mythic = guaranteed)
+        const candidates = [];
+        for (let i = 0; i < WEAPONS.length; i++) {
+            const w = WEAPONS[i];
+            if (!w || w.dev) continue;
+            if (player.weaponsUnlocked[i]) continue;
+            // skip placeholders
+            if (w.name && w.name.includes('placeholder')) continue;
+            candidates.push(i);
+        }
+        if (candidates.length > 0) {
+            let unlockChance = 0;
+            if (r === 'rare') unlockChance = 0.20;
+            else if (r === 'epic') unlockChance = 0.45;
+            else if (r === 'legendary') unlockChance = 1.0;
+            else if (r === 'mythic') unlockChance = 1.0;
+            if (Math.random() < unlockChance) {
+                unlockWeapon = candidates[Math.floor(Math.random() * candidates.length)];
+            }
+        }
+    }
+    // Apply rewards
+    if (coins > 0)  { player.coins += coins; rewards.push(`+${coins}¢`); }
+    if (scrap > 0)  { player.scrap += scrap; rewards.push(`+${scrap}🔩`); }
+    if (rc > 0)     { player.robotCoins += rc; rewards.push(`+${rc}RC`); }
+    if (healAmt > 0){ player.hp = Math.min(player.maxHp, player.hp + healAmt); rewards.push(`+${healAmt}HP`); }
+    if (hpBoost > 0){ player.maxHp += hpBoost; player.hp += hpBoost; rewards.push(`+${hpBoost} MAX HP`); }
+    if (unlockWeapon >= 0) {
+        player.weaponsUnlocked[unlockWeapon] = true;
+        rewards.push(`UNLOCKED: ${WEAPONS[unlockWeapon].name}`);
+    }
+    if (freeUpgrade) {
+        if (!player.weaponLevels) player.weaponLevels = {};
+        const t = player.weaponTier;
+        const cur = player.weaponLevels[t] || 0;
+        if (cur < WEAPON_UPGRADE_MAX) {
+            player.weaponLevels[t] = cur + 1;
+            rewards.push(`★ ${WEAPONS[t].name} → LV${cur + 1}`);
+        }
+    }
+    // Big screen feedback
+    spawnParticles(c.x, c.y, def.glow, 40, 12);
+    spawnShockwave(c.x, c.y, 80, def.glow);
+    if (r === 'legendary' || r === 'mythic') {
+        spawnShockwave(c.x, c.y, 220, def.color);
+        screenShake = Math.max(screenShake, r === 'mythic' ? 26 : 16);
+    }
+    // Floating rewards (stacked vertically)
+    for (let i = 0; i < rewards.length; i++) {
+        floatTexts.push({
+            text: rewards[i],
+            x: c.x, y: c.y - 30 - i * 22,
+            life: 100 + i * 10,
+            color: def.glow
+        });
+    }
+    // Banner message
+    if (typeof shopMessage !== 'undefined') {
+        shopMessage = {
+            text: `★ ${def.name} OPENED ★`,
+            timer: r === 'mythic' ? 220 : 140,
+            color: def.glow
+        };
+    }
+    if (typeof audio !== 'undefined') {
+        try { audio.play(r === 'mythic' || r === 'legendary' ? 'bossKill' : 'keyPickup'); } catch (e) {}
+    }
+}
+
+function updateCrates() {
+    for (let i = crates.length - 1; i >= 0; i--) {
+        const c = crates[i];
+        c.life--;
+        c.bobPhase += 0.08;
+        if (c.opening) {
+            c.openTimer++;
+            if (c.openTimer >= 24) {
+                openCrate(c);
+                crates.splice(i, 1);
+            }
+            continue;
+        }
+        if (c.life <= 0) { crates.splice(i, 1); continue; }
+        // Physics
+        if (!c.landed) {
+            c.vy += 0.4;
+            c.vx *= 0.97;
+            c.x += c.vx;
+            c.y += c.vy;
+            // Land on platforms
+            for (const plat of platforms) {
+                if (plat.type === 'recovery' || plat.type === 'spike' || plat.type === 'laser' || plat.type === 'lava') continue;
+                if (c.x > plat.x && c.x < plat.x + plat.w && c.y > plat.y && c.y < plat.y + 14 && c.vy > 0) {
+                    c.y = plat.y - 2;
+                    c.vy = 0;
+                    c.vx = 0;
+                    c.landed = true;
+                    break;
+                }
+            }
+            // Floor catch
+            if (c.y > 600) { c.y = 600; c.vy = 0; c.vx = 0; c.landed = true; }
+        }
+        // Pickup on touch with player
+        const px = player.x + player.w / 2;
+        const py = player.y + player.h / 2;
+        const dx = px - c.x;
+        const dy = py - c.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const grabRange = 24 + (c.def ? c.def.size * 0.5 : 8);
+        if (dist < grabRange && !c.opening) {
+            c.opening = true;
+            c.openTimer = 0;
+        }
+    }
+}
+
+function drawCrates() {
+    for (const c of crates) {
+        const cx = c.x - camera.x;
+        const cy = c.y - camera.y;
+        const def = c.def;
+        const size = def.size;
+        const t = c.bobPhase;
+        const bob = c.landed ? Math.sin(t) * 2 : 0;
+        ctx.save();
+        ctx.translate(cx, cy + bob);
+        // Open animation: scale up + flash
+        if (c.opening) {
+            const k = c.openTimer / 24;
+            const scale = 1 + k * 1.4;
+            const flash = 1 - k;
+            ctx.scale(scale, scale);
+            ctx.globalAlpha = flash;
+            // Lid burst lines
+            for (let r = 0; r < 8; r++) {
+                const ang = (r / 8) * Math.PI * 2;
+                ctx.strokeStyle = def.glow;
+                ctx.lineWidth = 3 * (1 - k);
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(Math.cos(ang) * size * (1 + k * 1.5), Math.sin(ang) * size * (1 + k * 1.5));
+                ctx.stroke();
+            }
+        }
+        // Outer glow ring (rarity color)
+        ctx.shadowColor = def.glow;
+        ctx.shadowBlur = c.opening ? 30 : 18;
+        // Body — beveled box
+        const half = size / 2;
+        ctx.fillStyle = def.color;
+        ctx.fillRect(-half, -half, size, size);
+        // Darker rim
+        ctx.fillStyle = '#000000';
+        ctx.globalAlpha = 0.35 * (ctx.globalAlpha || 1);
+        ctx.fillRect(-half, half - 3, size, 3);
+        ctx.fillRect(-half, -half, 3, size);
+        ctx.globalAlpha = 1;
+        // Highlight strip (top)
+        ctx.fillStyle = def.glow;
+        ctx.fillRect(-half + 2, -half + 2, size - 4, 3);
+        // Lid divider
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(-half, -2, size, 2);
+        // Lock badge / rarity star
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `bold ${Math.round(size * 0.55)}px Courier New`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        if (c.rarity === 'mythic') ctx.fillText('★', 0, 1);
+        else if (c.rarity === 'legendary') ctx.fillText('◆', 0, 1);
+        else if (c.rarity === 'epic') ctx.fillText('●', 0, 1);
+        else if (c.rarity === 'rare') ctx.fillText('▲', 0, 1);
+        else ctx.fillText('■', 0, 1);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.restore();
+        // Floating rarity label above the crate (when landed)
+        if (c.landed && !c.opening) {
+            ctx.save();
+            ctx.font = 'bold 11px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = def.glow;
+            ctx.shadowColor = def.color;
+            ctx.shadowBlur = 6;
+            const labelAlpha = c.life < 180 ? (c.life / 180) : 1;   // fade out near despawn
+            ctx.globalAlpha = labelAlpha;
+            ctx.fillText(c.rarity.toUpperCase(), cx, cy + bob - size - 4);
+            ctx.restore();
         }
     }
 }
@@ -8416,6 +8804,10 @@ function updatePlayer() {
             }
         }
         let cd = w.cooldown * player.fireRateMul;
+        // Each weapon-upgrade level reduces this weapon's cooldown by 5%.
+        // Capped at level 5 → 25% faster than base.
+        const _wLvl = (player.weaponLevels && player.weaponLevels[player.weaponTier]) || 0;
+        cd *= (1 - _wLvl * 0.05);
         // Bullet storm ability halves cooldown
         if (player.abilityActive && player.abilityType === 'bulletstorm') cd *= 0.4;
         // Vehicle-specific cooldown overrides — each vehicle has its own rhythm
@@ -8532,6 +8924,12 @@ function shootBullet() {
         // intentional fall-through — F just shoots, V triggers ultimate
     }
 
+    // ===== WEAPON UPGRADE LEVELS =====
+    // Each level (1..5) adds +25% damage to the active weapon. Stored on
+    // player.weaponLevels[tier] so each gun upgrades independently.
+    const wpnLvl = (player.weaponLevels && player.weaponLevels[player.weaponTier]) || 0;
+    const lvlDmgMul = 1 + wpnLvl * 0.25;
+
     // Fire one or more bullets
     for (let i = 0; i < w.bullets; i++) {
         let angle = baseAngle;
@@ -8549,7 +8947,7 @@ function shootBullet() {
             vx: dx * w.speed,
             vy: dy * w.speed,
             life: w.life,
-            damage: Math.round((w.damage + player.bulletDamage) * (player.dmgMul || 1)),
+            damage: Math.round((w.damage + player.bulletDamage) * (player.dmgMul || 1) * lvlDmgMul),
             color: w.color, glow: w.glow, size: w.size,
             pierce: !!w.pierce, hitEnemies: new Set(),
             explosive: !!w.explosive,
@@ -9496,6 +9894,33 @@ function handleEnemyKilled(e, j) {
             life: 700
         });
     }
+    // ===== CRATE DROP =====
+    // Bosses ALWAYS drop a crate (rarity boosted by stage). Other elites
+    // have a chance based on type. Mythic only realistic from boss luck.
+    {
+        const cx = e.x + e.w / 2;
+        const cy = e.y + e.h / 2;
+        if (e.type === 'boss') {
+            // Boss: guaranteed crate, with bonus luck. Late-game bosses get
+            // a SECOND crate so the loot rush feels real.
+            const luck = 0.7 + Math.min(0.6, currentStage * 0.08);
+            dropCrate(cx, cy, rollCrateRarity(luck));
+            if (currentStage >= 4) {
+                dropCrate(cx + 30, cy - 10, rollCrateRarity(luck * 0.6));
+            }
+        } else if (e.type === 'miniboss') {
+            dropCrate(cx, cy, rollCrateRarity(0.45));
+        } else if (e.type === 'mech' || e.type === 'hydraWalker' || e.type === 'scorpion') {
+            if (Math.random() < 0.7) dropCrate(cx, cy, rollCrateRarity(0.25));
+        } else if (e.type === 'heavy' || e.type === 'sniper' || e.type === 'sentinel') {
+            if (Math.random() < 0.40) dropCrate(cx, cy, rollCrateRarity(0.10));
+        } else if (e.type === 'shielder' || e.type === 'jumper' || e.type === 'screamer') {
+            if (Math.random() < 0.20) dropCrate(cx, cy);
+        } else {
+            // Common mobs: small chance
+            if (Math.random() < 0.06) dropCrate(cx, cy);
+        }
+    }
     enemies.splice(j, 1);
     if (e.type === 'boss') {
         // Unlock the weapon reward and equip it!
@@ -9645,6 +10070,177 @@ function bossSignatureCue(e, name, color) {
     }
     spawnShockwave(e.x + e.w / 2, e.y + e.h / 2, 100, color || '#ffff44');
     screenShake = Math.max(screenShake, 8);
+}
+
+// ====================================================================
+// BOSS SUMMON ABILITIES
+// Each main boss (other than guard/nullifier/omega) gets a minion- or
+// hazard-spawning attack that runs every few seconds independent of
+// regular fire patterns. Adds a "second front" to each boss fight.
+//   skyhammer  → fighter ships (drones styled as jet ships)
+//   inferno    → fire monsters (lava sprinters spawn from lava globs)
+//   ravager    → ACID RAIN (sky-falling acid drops across the arena)
+//   cryo       → ice golems (heavy mechs reskinned with frost armor)
+//   omega      → demon imps (homing sprinters)
+//   titan      → ROBOTS + SHIPS (mech walkers and flying drone-ships)
+// ====================================================================
+function bossSummonAbility(e) {
+    if (!e || e.type !== 'boss') return;
+    const cx = e.x + e.w / 2;
+    const cy = e.y + e.h / 2;
+    const subtype = e.subtype;
+
+    // Find a safe ground Y near the player (most spawns land on ground)
+    const groundSpawnY = (typeof player !== 'undefined') ? Math.max(player.y + player.h, 500) : 500;
+    // Use player.x as the spawn anchor so summons appear near the fight
+    const px = (typeof player !== 'undefined') ? player.x : cx;
+
+    if (subtype === 'skyhammer') {
+        // SUMMON BATTLESHIPS — 3 hulking warships drift in from the side
+        // of the arena. Themed as cyan-armored cruisers with twin turrets.
+        bossSignatureCue(e, 'BATTLESHIP DEPLOY', '#88ddff');
+        for (let i = 0; i < 3; i++) {
+            const sx = px + (i - 1) * 240;
+            const sy = 90 + i * 30;
+            enemies.push({
+                x: sx, y: sy, w: 110, h: 50,
+                type: 'drone',                       // reuses drone AI
+                hp: 520 + currentStage * 60, maxHp: 520 + currentStage * 60,
+                baseY: sy, floatTimer: i * 1.2, shootTimer: 26 + i * 6,
+                color: '#88ddff',
+                summoned: true, ship: true, battleship: true   // custom render
+            });
+            spawnParticles(sx + 55, sy + 25, '#88ddff', 18, 6);
+        }
+        spawnShockwave(cx, cy - 30, 200, '#88ddff');
+        screenShake = Math.max(screenShake, 14);
+    }
+    else if (subtype === 'inferno') {
+        // LAVA SPAWNS FIRE MONSTERS — ground erupts in 4 spots, each
+        // birthing a flame-skinned sprinter that charges the player.
+        bossSignatureCue(e, 'LAVA-BORN MONSTERS', '#ff4400');
+        for (let i = 0; i < 4; i++) {
+            const sx = px + (i - 1.5) * 140;
+            const sy = groundSpawnY - 36;
+            // Eruption FX
+            spawnParticles(sx, sy + 30, '#ff4400', 20, 8);
+            spawnShockwave(sx, sy + 30, 80, '#ff8800');
+            enemies.push({
+                x: sx, y: sy, w: 32, h: 36,
+                type: 'sprinter',
+                hp: 220 + currentStage * 25, maxHp: 220 + currentStage * 25,
+                vx: 0, vy: 0, color: '#ff4400',
+                onGround: true,
+                summoned: true, fireMonster: true,
+                burnAura: true   // contact deals burn
+            });
+        }
+        // Tiny ground-shake feedback
+        screenShake = Math.max(screenShake, 12);
+    }
+    else if (subtype === 'ravager') {
+        // ACID RAIN — sky-wide rain of acid drops across the arena. Doesn't
+        // summon enemies; uses the existing enemyBullets pool with acid flag.
+        bossSignatureCue(e, 'ACID RAIN', '#88ff44');
+        const rainCount = 18 + currentStage * 2;
+        const rainSpan = 1200;
+        for (let i = 0; i < rainCount; i++) {
+            const rx = px - rainSpan / 2 + Math.random() * rainSpan;
+            const ry = (typeof camera !== 'undefined' ? camera.y : 0) - 40 + Math.random() * 60;
+            enemyBullets.push({
+                x: rx, y: ry,
+                vx: (Math.random() - 0.5) * 0.6,
+                vy: 5 + Math.random() * 2,
+                life: 220, damage: 9,
+                color: '#88ff44', glow: '#44ff00',
+                size: 5, big: true,
+                burn: true, burnDmg: 7, burnDur: 60,
+                acid: true,
+                gravity: 0.04
+            });
+        }
+        // Telegraph particles up high so player can see what's coming
+        for (let i = -3; i <= 3; i++) {
+            spawnParticles(px + i * 120, (typeof camera !== 'undefined' ? camera.y : 0) + 20, '#88ff44', 6, 5);
+        }
+    }
+    else if (subtype === 'cryo') {
+        // SUMMON ICE GOLEMS — 2 hulking mech-class minions reskinned in
+        // frost armor. They walk slowly toward the player.
+        bossSignatureCue(e, 'ICE GOLEM SUMMON', '#aaeeff');
+        for (let i = 0; i < 2; i++) {
+            const sx = px + (i === 0 ? -240 : 240);
+            const sy = groundSpawnY - 100;
+            enemies.push({
+                x: sx, y: sy, w: 70, h: 100,
+                type: 'mech',
+                hp: 700 + currentStage * 60, maxHp: 700 + currentStage * 60,
+                vx: 0, vy: 0, facing: i === 0 ? 1 : -1,
+                shootTimer: 100, attackPhase: 0, walkPhase: 0,
+                onGround: true, color: '#aaeeff',
+                summoned: true, iceGolem: true, frozenEnemy: true
+            });
+            // Spawn FX
+            for (let p = 0; p < 22; p++) {
+                spawnParticles(sx + 35, sy + 50, '#aaeeff', 1, 5);
+            }
+            spawnShockwave(sx + 35, sy + 50, 120, '#aaeeff');
+        }
+    }
+    else if (subtype === 'titan') {
+        // SUMMON ROBOTS + SHIPS — final boss spawns a wave of mechs AND
+        // ship-drones simultaneously. Big screen feedback.
+        bossSignatureCue(e, 'TITAN ARMY DEPLOYED', '#66ffff');
+        // 2 ground robots
+        for (let i = 0; i < 2; i++) {
+            const sx = px + (i === 0 ? -260 : 260);
+            const sy = groundSpawnY - 100;
+            enemies.push({
+                x: sx, y: sy, w: 70, h: 100,
+                type: 'mech',
+                hp: 800 + currentStage * 80, maxHp: 800 + currentStage * 80,
+                vx: 0, vy: 0, facing: i === 0 ? 1 : -1,
+                shootTimer: 100, attackPhase: 0, walkPhase: 0,
+                onGround: true, color: '#66ffff',
+                summoned: true, titanRobot: true
+            });
+            spawnParticles(sx + 35, sy + 50, '#66ffff', 18, 6);
+            spawnShockwave(sx + 35, sy + 50, 100, '#66ffff');
+        }
+        // 3 flying ships
+        for (let i = 0; i < 3; i++) {
+            const sx = px + (i - 1) * 200;
+            const sy = 120 + i * 25;
+            enemies.push({
+                x: sx, y: sy, w: 50, h: 30,
+                type: 'drone',
+                hp: 240 + currentStage * 20, maxHp: 240 + currentStage * 20,
+                baseY: sy, floatTimer: i * 1.4, shootTimer: 24 + i * 6,
+                color: '#aaffff',
+                summoned: true, ship: true, titanShip: true
+            });
+            spawnParticles(sx, sy, '#aaffff', 14, 5);
+        }
+        screenShake = Math.max(screenShake, 18);
+    }
+    else if (subtype === 'omega') {
+        // SUMMON IMPS — 3 dark sprinters home toward player.
+        bossSignatureCue(e, 'DEMONIC SUMMON', '#ff44ff');
+        for (let i = 0; i < 3; i++) {
+            const sx = px + (i - 1) * 180;
+            const sy = groundSpawnY - 36;
+            enemies.push({
+                x: sx, y: sy, w: 28, h: 36,
+                type: 'sprinter',
+                hp: 200 + currentStage * 25, maxHp: 200 + currentStage * 25,
+                vx: 0, vy: 0, color: '#ff44ff', onGround: true,
+                summoned: true
+            });
+            spawnParticles(sx, sy, '#ff44ff', 16, 6);
+        }
+    }
+    // (guard / nullifier intentionally left out — they have signature
+    // teleport/transform mechanics already.)
 }
 
 // Per-boss attack origin helper. Returns world-space {x,y} for a named slot
@@ -9897,7 +10493,57 @@ function updateEnemies() {
             if (e.shootTimer <= 0 && distToPlayer < 600) {
                 e.attackPhase = (e.attackPhase || 0) + 1;
                 const ang = Math.atan2(player.y - e.y, player.x - e.x);
-                if (e.attackPhase % 3 === 0) {
+
+                // ===== ICE GOLEM ATTACK SUITE =====
+                // Replaces the standard mech bullets with frost-themed
+                // attacks so summoned golems behave like ice creatures
+                // instead of robots.
+                if (e.iceGolem) {
+                    const cycle = e.attackPhase % 3;
+                    if (cycle === 0) {
+                        // FROST SHARD VOLLEY — 5 piercing icicles in a fan
+                        for (let m = -2; m <= 2; m++) {
+                            const a = ang + m * 0.10;
+                            enemyBullets.push({
+                                x: e.x + e.w / 2, y: e.y + e.h * 0.45,
+                                vx: Math.cos(a) * 8, vy: Math.sin(a) * 8,
+                                life: 110, damage: 13,
+                                color: '#aaeeff', glow: '#88ddff',
+                                size: 7, big: true, ice: true,
+                                slow: true, slowFactor: 0.45, slowDur: 80
+                            });
+                        }
+                        e.shootTimer = 80;
+                    } else if (cycle === 1) {
+                        // GROUND POUND — radial frost wave from the golem
+                        spawnShockwave(e.x + e.w / 2, e.y + e.h, 160, '#aaeeff');
+                        spawnShockwave(e.x + e.w / 2, e.y + e.h, 240, '#88ddff');
+                        for (let a = 0; a < 12; a++) {
+                            const aa = (a / 12) * Math.PI * 2;
+                            enemyBullets.push({
+                                x: e.x + e.w / 2, y: e.y + e.h - 8,
+                                vx: Math.cos(aa) * 5, vy: Math.sin(aa) * 5,
+                                life: 90, damage: 11,
+                                color: '#aaeeff', glow: '#ffffff',
+                                size: 6, big: true, ice: true
+                            });
+                        }
+                        screenShake = Math.max(screenShake, 10);
+                        e.shootTimer = 110;
+                    } else {
+                        // SLOW LOBBED ICE BOULDER — heavy single shot
+                        enemyBullets.push({
+                            x: e.x + e.w / 2, y: e.y + e.h * 0.3,
+                            vx: Math.cos(ang) * 5, vy: Math.sin(ang) * 5 - 3,
+                            life: 150, damage: 24,
+                            color: '#88ccff', glow: '#aaeeff',
+                            size: 12, big: true, ice: true,
+                            slow: true, slowFactor: 0.3, slowDur: 100,
+                            gravity: 0.18
+                        });
+                        e.shootTimer = 100;
+                    }
+                } else if (e.attackPhase % 3 === 0) {
                     // Missile barrage from shoulders
                     for (let m = -1.5; m <= 1.5; m += 1) {
                         enemyBullets.push({
@@ -11126,27 +11772,42 @@ function updateEnemies() {
                 e.shootTimer -= slowMul;
                 if (e.shootTimer <= 0) {
                     if (e.phase === 1) {
-                        // Spray with random spread
-                        for (let i = 0; i < 4; i++) {
+                        // Spray with random spread — buffed: more bullets, more dmg
+                        for (let i = 0; i < 6; i++) {
                             const angle = playerAngle + (Math.random() - 0.5) * 0.6;
-                            enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(angle) * 5, vy: Math.sin(angle) * 5, life: 90 });
+                            enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(angle) * 6, vy: Math.sin(angle) * 6, life: 90, damage: 14 });
                         }
-                        e.shootTimer = 18;
+                        e.shootTimer = 14;
                     } else {
-                        // Phase 2: faster spray + occasional spread shot
+                        // Phase 2: faster spray + occasional spread shot — buffed
                         e.attackPattern = bossPickRandomAttack(e, 5);
-                        if (e.attackPattern < 4) {
-                            for (let i = 0; i < 3; i++) {
+                        if (e.attackPattern < 3) {
+                            for (let i = 0; i < 5; i++) {
                                 const angle = playerAngle + (Math.random() - 0.5) * 0.5;
-                                enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(angle) * 6, vy: Math.sin(angle) * 6, life: 90 });
+                                enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(angle) * 7, vy: Math.sin(angle) * 7, life: 90, damage: 16 });
                             }
-                            e.shootTimer = 12;
+                            e.shootTimer = 9;
+                        } else if (e.attackPattern === 3) {
+                            // 9-bullet wide cone
+                            for (let a = -4; a <= 4; a++) {
+                                const angle = playerAngle + a * 0.15;
+                                enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(angle) * 6, vy: Math.sin(angle) * 6, life: 100, damage: 14 });
+                            }
+                            e.shootTimer = 35;
                         } else {
-                            for (let a = -3; a <= 3; a++) {
-                                const angle = playerAngle + a * 0.18;
-                                enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: Math.cos(angle) * 5, vy: Math.sin(angle) * 5, life: 100 });
+                            // CHARGED MORTAR — 3 explosive shots arcing at player
+                            for (let m = -1; m <= 1; m++) {
+                                enemyBullets.push({
+                                    x: e.x + e.w / 2, y: e.y + e.h / 2,
+                                    vx: Math.cos(playerAngle) * 5 + m * 1.5,
+                                    vy: Math.sin(playerAngle) * 4 - 4,
+                                    life: 130, damage: 22,
+                                    color: '#22ff44', glow: '#88ff44',
+                                    big: true, gravity: 0.18,
+                                    explosive: true, aoeRadius: 80
+                                });
                             }
-                            e.shootTimer = 40;
+                            e.shootTimer = 45;
                         }
                     }
                 }
@@ -11857,6 +12518,21 @@ function updateEnemies() {
                     }
                     screenShake = Math.max(screenShake, 10);
                     e.rageBurstTimer = 180;   // 3 seconds
+                }
+            }
+
+            // ===== BOSS SUMMON ABILITIES =====
+            // Per-boss minion-spawning attacks. Runs across all phases on
+            // its own cooldown (independent of rage signature moves above)
+            // so the kid sees enemies/hazards spawn well before phase 3.
+            // Skips during transformation pause and hydra (which has its
+            // own head system).
+            if (e.subtype !== 'hydra' && (!e.transformTimer || e.transformTimer === 0 || e.transformTimer >= 90)) {
+                e.summonTimer = (e.summonTimer || 600) - slowMul;
+                if (e.summonTimer <= 0) {
+                    bossSummonAbility(e);
+                    // Phase 3 spawns much faster
+                    e.summonTimer = e.phase === 3 ? 360 : (e.phase === 2 ? 540 : 720);
                 }
             }
         }
@@ -17682,6 +18358,224 @@ function drawEnemies() {
         ctx.shadowColor = e.color;
         ctx.shadowBlur = 8;
 
+        // ===== ICE GOLEM (boss-summoned) =====
+        // Crystal humanoid carved from ice — NOT a robot. Big chunky body
+        // with frost spikes, glowing cyan core, and a primitive face.
+        if (e.iceGolem) {
+            const w = e.w, h = e.h;
+            const baseB = '#88ccff';
+            const ice = '#aaeeff';
+            const deep = '#5588aa';
+            // Drop shadow
+            ctx.fillStyle = 'rgba(40,80,110,0.55)';
+            ctx.beginPath();
+            ctx.ellipse(ex + w/2, ey + h + 4, w/2 + 4, 7, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Walk swing
+            const walk = Math.sin((e.walkPhase || 0)) * 5;
+            // Legs — chunky frozen pillars
+            ctx.fillStyle = deep;
+            ctx.fillRect(ex + 10, ey + h - 32 + walk, 16, 32 - walk);
+            ctx.fillRect(ex + w - 26, ey + h - 32 - walk, 16, 32 + walk);
+            // Knee crystals
+            ctx.fillStyle = ice;
+            ctx.shadowColor = ice;
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.moveTo(ex + 18, ey + h - 22 + walk); ctx.lineTo(ex + 14, ey + h - 16 + walk); ctx.lineTo(ex + 22, ey + h - 16 + walk);
+            ctx.closePath(); ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(ex + w - 18, ey + h - 22 - walk); ctx.lineTo(ex + w - 22, ey + h - 16 - walk); ctx.lineTo(ex + w - 14, ey + h - 16 - walk);
+            ctx.closePath(); ctx.fill();
+            ctx.shadowBlur = 0;
+            // Body — cracked ice block with bevels
+            ctx.fillStyle = baseB;
+            ctx.fillRect(ex + 6, ey + 24, w - 12, h - 56);
+            // Lighter highlight strip on top half
+            ctx.fillStyle = ice;
+            ctx.fillRect(ex + 8, ey + 24, w - 16, 14);
+            // Dark crack lines
+            ctx.strokeStyle = 'rgba(20,40,60,0.7)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(ex + w/2, ey + 24); ctx.lineTo(ex + w/2 - 4, ey + h - 36);
+            ctx.moveTo(ex + 16, ey + 32); ctx.lineTo(ex + 24, ey + 50);
+            ctx.moveTo(ex + w - 16, ey + 36); ctx.lineTo(ex + w - 24, ey + 56);
+            ctx.stroke();
+            // Glowing chest core (frost heart)
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = '#88ddff';
+            ctx.shadowBlur = 18;
+            ctx.beginPath();
+            ctx.arc(ex + w/2, ey + h/2 - 4, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#aaeeff';
+            ctx.beginPath();
+            ctx.arc(ex + w/2, ey + h/2 - 4, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // Shoulder ice spikes (3 per side)
+            ctx.fillStyle = ice;
+            ctx.shadowColor = '#ffffff';
+            ctx.shadowBlur = 10;
+            for (let s = 0; s < 3; s++) {
+                const sx = ex + 4 + s * 6;
+                ctx.beginPath();
+                ctx.moveTo(sx, ey + 26);
+                ctx.lineTo(sx + 2, ey + 14 - s * 2);
+                ctx.lineTo(sx + 4, ey + 26);
+                ctx.closePath(); ctx.fill();
+                const sx2 = ex + w - 16 + s * 6;
+                ctx.beginPath();
+                ctx.moveTo(sx2, ey + 26);
+                ctx.lineTo(sx2 + 2, ey + 14 - s * 2);
+                ctx.lineTo(sx2 + 4, ey + 26);
+                ctx.closePath(); ctx.fill();
+            }
+            ctx.shadowBlur = 0;
+            // Arms — fat blocky ice arms (golem-style)
+            ctx.fillStyle = baseB;
+            ctx.fillRect(ex - 4, ey + 32, 16, 38);
+            ctx.fillRect(ex + w - 12, ey + 32, 16, 38);
+            // Fist crystals
+            ctx.fillStyle = ice;
+            ctx.fillRect(ex - 6, ey + 64, 18, 12);
+            ctx.fillRect(ex + w - 12, ey + 64, 18, 12);
+            // Head — ice chunk with two glowing eyes
+            ctx.fillStyle = baseB;
+            ctx.fillRect(ex + w/2 - 14, ey + 2, 28, 22);
+            ctx.fillStyle = ice;
+            ctx.fillRect(ex + w/2 - 14, ey + 2, 28, 5);
+            // Eyes
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = '#88ddff';
+            ctx.shadowBlur = 12;
+            ctx.fillRect(ex + w/2 - 9, ey + 11, 5, 4);
+            ctx.fillRect(ex + w/2 + 4, ey + 11, 5, 4);
+            ctx.shadowBlur = 0;
+            // Mouth crack (jagged dark line)
+            ctx.strokeStyle = '#1a3344';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(ex + w/2 - 8, ey + 19);
+            ctx.lineTo(ex + w/2 - 4, ey + 21);
+            ctx.lineTo(ex + w/2, ey + 19);
+            ctx.lineTo(ex + w/2 + 4, ey + 21);
+            ctx.lineTo(ex + w/2 + 8, ey + 19);
+            ctx.stroke();
+            // Crown of icicles on the head
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = '#88ddff';
+            ctx.shadowBlur = 8;
+            for (let s = 0; s < 5; s++) {
+                const sx = ex + w/2 - 12 + s * 6;
+                ctx.beginPath();
+                ctx.moveTo(sx, ey + 2);
+                ctx.lineTo(sx + 2, ey - 6 - (s % 2) * 3);
+                ctx.lineTo(sx + 4, ey + 2);
+                ctx.closePath(); ctx.fill();
+            }
+            ctx.shadowBlur = 0;
+            // HP bar
+            const hpf = e.hp / e.maxHp;
+            ctx.fillStyle = '#400'; ctx.fillRect(ex, ey - 12, e.w, 4);
+            ctx.fillStyle = '#88ddff'; ctx.fillRect(ex, ey - 12, e.w * hpf, 4);
+            ctx.restore();
+            continue;
+        }
+
+        // ===== BATTLESHIP (boss-summoned) =====
+        // Long horizontal warship silhouette — way bigger and meaner than
+        // a drone. Hull, deck, twin turrets, command bridge, and engine
+        // exhaust trail.
+        if (e.battleship || (e.ship && e.titanShip)) {
+            const w = e.w, h = e.h;
+            const cx = ex + w / 2;
+            const cy = ey + h / 2;
+            const main = e.color || '#88ccff';
+            const dark = '#1a2030';
+            const accent = e.titanShip ? '#aaffff' : '#88ddff';
+            // Engine exhaust trail
+            const trailLen = 28;
+            const trailGrad = ctx.createLinearGradient(ex - trailLen, cy, ex, cy);
+            trailGrad.addColorStop(0, 'rgba(170,255,255,0)');
+            trailGrad.addColorStop(1, 'rgba(170,255,255,0.85)');
+            ctx.fillStyle = trailGrad;
+            ctx.fillRect(ex - trailLen, cy - 4, trailLen, 8);
+            // Lower hull (dark, angled bottom)
+            ctx.fillStyle = dark;
+            ctx.beginPath();
+            ctx.moveTo(ex, cy - 4);
+            ctx.lineTo(ex + w, cy - 4);
+            ctx.lineTo(ex + w - 8, ey + h);
+            ctx.lineTo(ex + 8, ey + h);
+            ctx.closePath(); ctx.fill();
+            // Hull body (gradient main color)
+            const hullG = ctx.createLinearGradient(0, cy - h * 0.4, 0, cy);
+            hullG.addColorStop(0, main);
+            hullG.addColorStop(1, dark);
+            ctx.fillStyle = hullG;
+            ctx.beginPath();
+            ctx.moveTo(ex, cy);
+            ctx.lineTo(ex + w * 0.08, cy - h * 0.45);
+            ctx.lineTo(ex + w * 0.92, cy - h * 0.45);
+            ctx.lineTo(ex + w, cy);
+            ctx.closePath(); ctx.fill();
+            // Deck panel highlights
+            ctx.fillStyle = accent;
+            ctx.shadowColor = accent;
+            ctx.shadowBlur = 8;
+            ctx.fillRect(ex + w * 0.18, cy - h * 0.3, w * 0.64, 2);
+            ctx.shadowBlur = 0;
+            // Forward bow spike
+            ctx.fillStyle = main;
+            ctx.beginPath();
+            ctx.moveTo(ex + w, cy - 2);
+            ctx.lineTo(ex + w + 12, cy);
+            ctx.lineTo(ex + w, cy + 2);
+            ctx.closePath(); ctx.fill();
+            // Twin turrets on deck
+            ctx.fillStyle = dark;
+            ctx.fillRect(ex + w * 0.22, cy - h * 0.45 - 6, 12, 8);
+            ctx.fillRect(ex + w * 0.62, cy - h * 0.45 - 6, 12, 8);
+            // Turret barrels (point forward)
+            ctx.fillStyle = '#666';
+            ctx.fillRect(ex + w * 0.22 + 8, cy - h * 0.45 - 4, 10, 3);
+            ctx.fillRect(ex + w * 0.62 + 8, cy - h * 0.45 - 4, 10, 3);
+            // Command bridge (towering above middle)
+            ctx.fillStyle = main;
+            ctx.fillRect(ex + w * 0.42, cy - h * 0.45 - 14, w * 0.16, 14);
+            // Bridge windows
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = accent;
+            ctx.shadowBlur = 10;
+            for (let i = 0; i < 3; i++) {
+                ctx.fillRect(ex + w * 0.44 + i * 5, cy - h * 0.45 - 9, 3, 3);
+            }
+            ctx.shadowBlur = 0;
+            // Bridge antenna
+            ctx.fillStyle = '#888';
+            ctx.fillRect(ex + w * 0.50, cy - h * 0.45 - 22, 2, 8);
+            ctx.fillStyle = '#ff4444';
+            ctx.shadowColor = '#ff0000';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(ex + w * 0.51, cy - h * 0.45 - 22, 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // Side cannon ports (hull windows)
+            ctx.fillStyle = '#222';
+            for (let i = 0; i < 4; i++) {
+                ctx.fillRect(ex + w * 0.18 + i * (w * 0.18), cy - 2, 5, 4);
+            }
+            // HP bar
+            const hpf = e.hp / e.maxHp;
+            ctx.fillStyle = '#400'; ctx.fillRect(ex, ey - 10, e.w, 4);
+            ctx.fillStyle = main; ctx.fillRect(ex, ey - 10, e.w * hpf, 4);
+            ctx.restore();
+            continue;
+        }
+
         if (e.type === 'ricochet') {
             // RICOCHET - patrol with prism-shaped weapon
             ctx.fillStyle = e.color || '#ff8844';
@@ -20632,7 +21526,9 @@ function drawShopUI() {
     ctx.shadowColor = cur.glow;
     ctx.shadowBlur = 6;
     ctx.font = 'bold 13px Courier New';
-    ctx.fillText(`Equipped: ${cur.name}  /  Unlocked: ${player.weaponsUnlocked.filter(Boolean).length}/${WEAPONS.length}`, x + w / 2, y + 80);
+    const _curLvl = (player.weaponLevels && player.weaponLevels[player.weaponTier]) || 0;
+    const _lvlTag = _curLvl > 0 ? `  ★ LV${_curLvl}` : '';
+    ctx.fillText(`Equipped: ${cur.name}${_lvlTag}  /  Unlocked: ${player.weaponsUnlocked.filter(Boolean).length}/${WEAPONS.length}`, x + w / 2, y + 80);
     ctx.shadowBlur = 0;
 
     // Items — single combined list, split into 2 columns by index so we
@@ -20702,6 +21598,24 @@ function drawShopUI() {
             }
             label = `Switch Weapon  →  ${next}`;
             color2 = '#ff88ff';
+        } else if (item.weaponUpgrade) {
+            // Show current weapon, level, and next upgrade cost
+            const lvl = (player.weaponLevels && player.weaponLevels[player.weaponTier]) || 0;
+            const wpnNm = cur.name;
+            if (lvl >= WEAPON_UPGRADE_MAX) {
+                label = `${wpnNm} ★ LV ${WEAPON_UPGRADE_MAX} (MAX)`;
+                costLabel = '—';
+                color2 = '#ffaa00';
+                color3 = '#666';
+                canAfford = false;
+            } else {
+                const upCost = getWeaponUpgradeCost(lvl);
+                label = `UPGRADE ${wpnNm}  LV ${lvl} → ${lvl + 1}`;
+                costLabel = `${upCost} ¢`;
+                canAfford = player.coins >= upCost;
+                color2 = canAfford ? '#ffff66' : '#aa8844';
+                color3 = canAfford ? '#ffaa00' : '#664';
+            }
         } else if (item.evolution) {
             // Show next evolution tier name + RC cost
             const nextIdx = player.evoLevel + 1;
@@ -22050,6 +22964,7 @@ function startSpaceTransition() {
     enemyBullets = [];
     coinPickups = [];
     healthDrops = [];
+    crates = [];
     enemies = [];
     cages = [];
     healingStations = [];
@@ -28997,6 +29912,7 @@ function gameLoop(timestamp) {
         enemyBullets = [];
         coinPickups = [];
         healthDrops = [];
+        crates = [];
         camera.x = 0; camera.y = 0;
         gameState = 'midCharSelect';
         // Restore the persistent stuff after we re-apply character
@@ -29068,7 +29984,7 @@ function gameLoop(timestamp) {
     if ((gameState === 'dead' || gameState === 'won') && keys['KeyR']) {
         currentStage = 0;
         bullets = []; enemyBullets = []; particles = []; dashTrails = [];
-        coinPickups = []; healthDrops = []; activeWarning = null;
+        coinPickups = []; healthDrops = []; crates = []; activeWarning = null;
         cutscene = null;
         switches = []; doors = []; arenaGates = []; bossGates = []; exitPortals = []; floatTexts = [];
         cages = []; allies = [];
@@ -29126,6 +30042,7 @@ function gameLoop(timestamp) {
             if (typeof updatePrimusTitans === 'function') updatePrimusTitans();
             updateCoins();
             updateHealthDrops();
+            updateCrates();
             updateStageHazards();
             // Style Combat: pull-pass for active black holes runs AFTER
             // updateEnemies so its position deltas don't get overwritten
@@ -29219,6 +30136,7 @@ function gameLoop(timestamp) {
     drawHealingStations();
     drawCoins();
     drawHealthDrops();
+    drawCrates();
     drawDashTrails();
     drawEnemies();
     drawAllies();
