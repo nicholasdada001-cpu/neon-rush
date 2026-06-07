@@ -324,7 +324,8 @@
         <div class="row"><button class="stage-btn" data-boss="5">▶ STAGE 6 — NULLIFIER</button></div>
         <div class="row"><button class="stage-btn" data-boss="6">▶ STAGE 7 — OMEGA-PRIME</button></div>
         <div class="row"><button class="stage-btn" data-boss="7">▶ STAGE 8 — TITAN-LORD</button></div>
-        <div class="row"><button id="dev-finale-btn" style="background:#5a1010;border-color:#ff4422;color:#ffaa44;font-weight:bold">⚡ FINALE — EARTHBREAKER</button></div>
+        <div class="row"><button id="dev-finale-btn" style="background:#5a1010;border-color:#ff4422;color:#ffaa44;font-weight:bold">⚡ FINALE — MECH KING</button></div>
+        <div class="row"><button id="dev-bossrush-btn" style="background:#3a1a5a;border-color:#aa44ff;color:#ddaaff;font-weight:bold">⚔ BOSS RUSH — 8 + KING</button></div>
         <div class="row"><button id="dev-training-btn" style="background:#103a5a;border-color:#4488ff;color:#88ddff;font-weight:bold">🎯 TRAINING MODE</button></div>
         <div class="row" style="margin-top:8px">
             <button class="util-btn" data-util="space">SPACE BATTLE</button>
@@ -385,6 +386,23 @@
         <div class="row">
             <button class="util-btn" data-util="giveWhip" style="font-size:9px;border-color:#ff44dd;color:#ff88ee">⚡ LASER WHIP</button>
             <button class="util-btn" data-util="giveCorrupt" style="font-size:9px;border-color:#aa00ff;color:#ff44dd">☠ CORRUPTION</button>
+        </div>
+        <!-- ===== MYTHIC ARSENAL — crate-only weapons (tiers 35-39) =====
+             These weapons NEVER appear in the shop. They only drop from
+             legendary/mythic crates. Dev buttons unlock + equip them so
+             we can test without grinding crate-drop RNG. -->
+        <div style="font-size:10px; color:#ffd744; letter-spacing:1px; margin:6px 0 4px 0; padding-top:4px; border-top:1px dashed #553a22;">✨ MYTHIC ARSENAL — CRATE-ONLY</div>
+        <div class="row">
+            <button class="util-btn" data-util="givePhoenix" style="font-size:9px;border-color:#ff8800;color:#ffaa44">🔥 PHOENIX CANNON</button>
+            <button class="util-btn" data-util="giveStormcaller" style="font-size:9px;border-color:#aaeeff;color:#ffff44">⚡ STORMCALLER</button>
+        </div>
+        <div class="row">
+            <button class="util-btn" data-util="giveVoidShard" style="font-size:9px;border-color:#aa00ff;color:#ff44ee">🌑 VOID SHARD</button>
+            <button class="util-btn" data-util="giveGlaive" style="font-size:9px;border-color:#ffffff;color:#88aaff">🌌 GALAXY GLAIVE</button>
+        </div>
+        <div class="row">
+            <button class="util-btn" data-util="giveDragon" style="font-size:9px;border-color:#ff4400;color:#ffaa00">🐉 DRAGON'S BREATH</button>
+            <button class="util-btn" data-util="giveDragonDancer" style="font-size:9px;border-color:#ff2244;color:#ffd744">🧧 DRAGON DANCER</button>
         </div>
         <!-- ===== NEW MECH FORMS ===== -->
         <div style="font-size:10px; color:#44ddff; letter-spacing:1px; margin:6px 0 4px 0; padding-top:4px; border-top:1px dashed #553a22;">🤖 MECH FORMS</div>
@@ -450,7 +468,7 @@
         let firstName  = localStorage.getItem(FIRST_NAME_KEY) || '';
         // Names that unlock developer mode (case-insensitive). Add/remove
         // here to control who gets the dev panel + hotkeys.
-        const DEV_NAMES = ['nicholas', 'micah', 'jax'];
+        const DEV_NAMES = ['nicholas', 'micah', 'jax', 'cayleb'];
         // True when current playerName matches a dev name.
         // The firstName gate is a SECOND safeguard: if your firstName was
         // a non-dev name (you proved you're a normal player first), trying
@@ -824,6 +842,29 @@
             }
         }
 
+        // Bind BOSS RUSH button — chains 8 prior bosses + MECH KING in
+        // regular-stage style (normal scale, normal controls).
+        {
+            const rushBtn = document.getElementById('dev-bossrush-btn');
+            if (rushBtn) {
+                rushBtn.addEventListener('click', () => {
+                    if (typeof gameState !== 'undefined' &&
+                        (gameState === 'intro' || gameState === 'charSelect' || gameState === 'midCharSelect')) {
+                        gameState = 'playing';
+                    }
+                    if (typeof applyCharacter === 'function' && typeof charSelectIndex !== 'undefined') {
+                        applyCharacter(charSelectIndex || 0);
+                    }
+                    if (typeof currentStage !== 'undefined') currentStage = 0;
+                    if (typeof buildLevel === 'function') buildLevel();
+                    if (typeof startBossRush === 'function') startBossRush();
+                    // Close the dev panel so the kid can play immediately
+                    if (devPanel) devPanel.classList.add('hidden');
+                    if (devToggle) devToggle.textContent = '🛠 DEV';
+                });
+            }
+        }
+
         // Bind TRAINING MODE button — practice arena with a dummy boss
         {
             const trainingBtn = document.getElementById('dev-training-btn');
@@ -1046,6 +1087,67 @@
                         player.weaponTier = 34;
                         if (typeof shopMessage !== 'undefined') {
                             shopMessage = { text: '☠ CORRUPTION CANNON — F: scales with low HP · V: SACRIFICE BLAST', timer: 280, color: '#ff44dd' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    // ===== Mythic crate-only weapons (tiers 35-39) =====
+                    // These never appear in the shop — only drop from
+                    // legendary/mythic crates. Dev buttons unlock + equip
+                    // them directly so we can test without grinding RNG.
+                    case 'givePhoenix':
+                        player.weaponsUnlocked[35] = true;
+                        player.weaponTier = 35;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '🔥 PHOENIX CANNON — 5 homing phoenix shots · pierce + burn + AOE', timer: 280, color: '#ffaa44' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'giveStormcaller':
+                        player.weaponsUnlocked[36] = true;
+                        player.weaponTier = 36;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '⚡ STORMCALLER — beam + sky-strike on every hit', timer: 280, color: '#aaeeff' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'giveVoidShard':
+                        player.weaponsUnlocked[37] = true;
+                        player.weaponTier = 37;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '🌑 VOID SHARD — purple slug splits into 6 voidlings on impact', timer: 280, color: '#ff44ee' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'giveGlaive':
+                        player.weaponsUnlocked[38] = true;
+                        player.weaponTier = 38;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '🌌 GALAXY GLAIVE — 9-ray cosmic shotgun · all piercing', timer: 280, color: '#88aaff' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'giveDragon':
+                        player.weaponsUnlocked[39] = true;
+                        player.weaponTier = 39;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: "🐉 DRAGON'S BREATH — endless flame stream · burn + 3-bounce", timer: 280, color: '#ffaa00' };
+                        }
+                        devPanel.classList.add('hidden');
+                        devToggle.textContent = '🛠 DEV';
+                        break;
+                    case 'giveDragonDancer':
+                        // Tier 40 — summons a Chinese New Year dragon on
+                        // each shot. Dragon flows through enemies dealing
+                        // damage, then bursts into fireworks. F to summon.
+                        player.weaponsUnlocked[40] = true;
+                        player.weaponTier = 40;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '🧧 DRAGON DANCER — F summons a flowing dragon · fireworks finale', timer: 280, color: '#ffd744' };
                         }
                         devPanel.classList.add('hidden');
                         devToggle.textContent = '🛠 DEV';

@@ -2253,6 +2253,13 @@ let minecraftSpawners = [];
 //   x/y, vx/vy, hp/maxHp, life, attackTimer, beamTimer, slamTimer,
 //   facing, animPhase, transformPhase, mode (idle/cannon/missile/beam/slam)
 let primusTitans = [];
+
+// DANCING DRAGON — Chinese New Year style sinuous serpent summoned
+// by the CAYLEB DRAGON GUN. Long red+gold segmented body with a horned
+// head, golden whiskers, and a flowing mane. Damages enemies it passes
+// through, then bursts into fireworks on expiration. Each entry:
+//   headX/Y, vx/vy, target, life, damage, segments[], sineT, hitCooldown {}
+let dancingDragons = [];
 // Monotonic counter — increments every time we push to the queue. Drives
 // the rotation pattern. Stored separately from minecraftQueue.length so
 // it doesn't reset when items are shifted off the front. (Earlier bug:
@@ -4293,6 +4300,632 @@ function drawPrimusTitans() {
         ctx.fillText(`PRIMUS — ${secs}s — ${t.mode.toUpperCase()}`, tx + t.w/2, ty - 22);
         ctx.shadowBlur = 0;
         ctx.textAlign = 'left';
+        ctx.restore();
+    }
+}
+
+// =====================================================================
+// === DANCING DRAGON — Chinese New Year style summon ==================
+// =====================================================================
+// Summoned by the DRAGON DANCER mythic weapon (tier 40). A long sinuous
+// red+gold serpent with a horned head and twin whiskers. Body is a
+// segment chain that follows the head's history (classic snake-trail
+// pattern). The dragon homes loosely toward the nearest enemy with a
+// big sine wave overlay for that flowing dance-dragon feel. Damages
+// any enemy any segment touches (per-enemy hit cooldown so it doesn't
+// chunk a single mob 60 times/sec). On expiration: firework burst.
+
+const DRAGON_SEGMENTS = 16;     // body segments behind the head
+const DRAGON_SPACING = 4;       // history frames between segments
+const DRAGON_LIFE = 720;        // ~12s @ 60fps — long sweeping presence
+const DRAGON_SPEED = 5.4;       // px/frame
+const DRAGON_HIT_DMG = 70;      // per damage tick
+const DRAGON_HIT_CD = 28;       // per-enemy cooldown frames
+
+function spawnDancingDragon(originX, originY, dirX) {
+    const dx = dirX || 1;
+    dancingDragons.push({
+        headX: originX,
+        headY: originY,
+        // Initial heading — slightly upward for visual flair
+        angle: dx > 0 ? -0.15 : Math.PI + 0.15,
+        speed: DRAGON_SPEED,
+        life: DRAGON_LIFE,
+        sineT: Math.random() * Math.PI * 2,  // random sine phase per dragon
+        // History buffer — front of array is newest. Each segment reads
+        // a fixed offset back. Enough length for full chain + buffer.
+        history: [{ x: originX, y: originY }],
+        hitCooldown: new Map(),  // enemy ref -> frames remaining
+        damage: DRAGON_HIT_DMG,
+        // Theme colors — Chinese New Year red + gold
+        bodyA: '#ff2244',
+        bodyB: '#ffd744',
+        accent: '#ffaa00',
+        eye: '#ffee44',
+        spawnFlash: 14            // brief muzzle glow on spawn
+    });
+    // Spawn flash + sound
+    if (typeof spawnParticles === 'function') {
+        spawnParticles(originX, originY, '#ffd744', 14, 6);
+        spawnParticles(originX, originY, '#ff2244', 10, 5);
+    }
+    if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 4);
+    if (typeof audio !== 'undefined' && audio.playBoss) {
+        try { audio.playBoss(); } catch (e) {}
+    }
+}
+
+function updateDancingDragons() {
+    if (!Array.isArray(dancingDragons) || dancingDragons.length === 0) return;
+    if (gameState !== 'playing' && gameState !== 'spaceBattle') return;
+    for (let di = dancingDragons.length - 1; di >= 0; di--) {
+        const d = dancingDragons[di];
+        d.life--;
+        d.sineT += 0.16;
+        if (d.spawnFlash > 0) d.spawnFlash--;
+
+        // ===== Steering — find nearest enemy and turn toward it =====
+        let target = null;
+        let bestDist = 700 * 700;
+        if (Array.isArray(enemies)) {
+            for (const e of enemies) {
+                if (!e || e.dying) continue;
+                const ex = e.x + (e.w || 0) / 2;
+                const ey = e.y + (e.h || 0) / 2;
+                const ddx = ex - d.headX;
+                const ddy = ey - d.headY;
+                const dd = ddx * ddx + ddy * ddy;
+                if (dd < bestDist) { bestDist = dd; target = e; }
+            }
+        }
+        if (target) {
+            const tx = target.x + (target.w || 0) / 2;
+            const ty = target.y + (target.h || 0) / 2;
+            const goalAngle = Math.atan2(ty - d.headY, tx - d.headX);
+            // Lerp angle toward goal — slow turn rate keeps motion flowy
+            let diff = goalAngle - d.angle;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            d.angle += diff * 0.06;
+        }
+        // Sine-wave wobble overlay — the "dance"
+        const wobble = Math.sin(d.sineT) * 0.45;
+        const moveAngle = d.angle + wobble;
+        d.headX += Math.cos(moveAngle) * d.speed;
+        d.headY += Math.sin(moveAngle) * d.speed;
+
+        // Push current head pos to history; trim to needed length
+        d.history.unshift({ x: d.headX, y: d.headY });
+        const maxHistory = DRAGON_SEGMENTS * DRAGON_SPACING + 6;
+        if (d.history.length > maxHistory) d.history.length = maxHistory;
+
+        // Sparkle trail — emit a small gold flake behind the body every
+        // few frames so the dragon leaves a glittering wake. Cheap.
+        if (typeof spawnParticles === 'function' && (d.life % 4) === 0) {
+            const tailIdx = Math.min(d.history.length - 1, (DRAGON_SEGMENTS - 1) * DRAGON_SPACING);
+            const tailPos = d.history[tailIdx];
+            if (tailPos) {
+                const sparkColor = Math.random() < 0.5 ? '#ffd744' : '#ff8844';
+                spawnParticles(tailPos.x + (Math.random() - 0.5) * 18,
+                               tailPos.y + (Math.random() - 0.5) * 18,
+                               sparkColor, 1, 3);
+            }
+        }
+
+        // ===== Damage check — every segment is a hit-volume =====
+        // Tick down all per-enemy cooldowns
+        for (const [k, v] of d.hitCooldown) {
+            if (v <= 1) d.hitCooldown.delete(k);
+            else d.hitCooldown.set(k, v - 1);
+        }
+        if (Array.isArray(enemies)) {
+            // Build segment positions once per frame
+            const segPositions = [];
+            for (let s = 0; s < DRAGON_SEGMENTS; s++) {
+                const idx = Math.min(d.history.length - 1, s * DRAGON_SPACING);
+                segPositions.push(d.history[idx]);
+            }
+            for (let ei = enemies.length - 1; ei >= 0; ei--) {
+                const e = enemies[ei];
+                if (!e || e.dying) continue;
+                if (d.hitCooldown.has(e)) continue;
+                const ex = e.x + (e.w || 0) / 2;
+                const ey = e.y + (e.h || 0) / 2;
+                const er = Math.max(20, ((e.w || 30) + (e.h || 30)) * 0.35);
+                let hit = false;
+                for (let s = 0; s < segPositions.length; s++) {
+                    const sp = segPositions[s];
+                    if (!sp) continue;
+                    const ddx = sp.x - ex;
+                    const ddy = sp.y - ey;
+                    // Segment radius shrinks toward the tail
+                    const sr = 26 - s * 0.7;
+                    const reach = er + sr;
+                    if (ddx * ddx + ddy * ddy < reach * reach) { hit = true; break; }
+                }
+                if (hit) {
+                    const dmg = Math.round(d.damage * (player.dmgMul || 1));
+                    e.hp -= dmg;
+                    if (typeof spawnDamageNumber === 'function') {
+                        spawnDamageNumber(ex, e.y, dmg, 'aoe');
+                    }
+                    if (typeof spawnParticles === 'function') {
+                        spawnParticles(ex, ey, '#ffd744', 6, 4);
+                        spawnParticles(ex, ey, '#ff2244', 4, 4);
+                    }
+                    d.hitCooldown.set(e, DRAGON_HIT_CD);
+                    if (e.hp <= 0 && typeof handleEnemyKilled === 'function') {
+                        handleEnemyKilled(e, ei);
+                    }
+                }
+            }
+        }
+
+        // ===== Death — fireworks burst =====
+        if (d.life <= 0) {
+            // Big celebratory firework: red, gold, yellow + a couple of
+            // shockwave-style ring pops. Themed Chinese New Year palette.
+            if (typeof spawnParticles === 'function') {
+                for (let k = 0; k < 5; k++) {
+                    const ox = d.headX + (Math.random() - 0.5) * 80;
+                    const oy = d.headY + (Math.random() - 0.5) * 80;
+                    spawnParticles(ox, oy, '#ff2244', 18, 7);
+                    spawnParticles(ox, oy, '#ffd744', 22, 8);
+                    spawnParticles(ox, oy, '#ffaa00', 14, 6);
+                    spawnParticles(ox, oy, '#ffffff', 8, 5);
+                }
+            }
+            if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 10);
+            if (typeof audio !== 'undefined' && audio.playExplosion) {
+                try { audio.playExplosion(); } catch (e) {}
+            }
+            dancingDragons.splice(di, 1);
+        }
+    }
+}
+
+function drawDancingDragons() {
+    if (!Array.isArray(dancingDragons) || dancingDragons.length === 0) return;
+    if (typeof ctx === 'undefined' || !ctx) return;
+    for (const d of dancingDragons) {
+        // Build segment positions (tail-first so head renders on top).
+        // Each segment also gets the position of the segment AHEAD of it
+        // so we can compute a per-segment facing angle for scales/spikes.
+        const segs = [];
+        for (let s = DRAGON_SEGMENTS - 1; s >= 0; s--) {
+            const idx = Math.min(d.history.length - 1, s * DRAGON_SPACING);
+            const aheadIdx = Math.min(d.history.length - 1, Math.max(0, (s - 1)) * DRAGON_SPACING);
+            segs.push({ pos: d.history[idx], ahead: d.history[aheadIdx], i: s });
+        }
+        ctx.save();
+        // ===== Tail tassel — fan of gold spikes at the very end =====
+        const tailSeg = segs[0];  // s = SEGMENTS-1
+        if (tailSeg && tailSeg.pos && tailSeg.ahead) {
+            const tx = Math.round(tailSeg.pos.x - camera.x);
+            const ty = Math.round(tailSeg.pos.y - camera.y);
+            const ang = Math.atan2(tailSeg.pos.y - tailSeg.ahead.y,
+                                   tailSeg.pos.x - tailSeg.ahead.x);
+            ctx.shadowColor = '#ffd744';
+            ctx.shadowBlur = 12;
+            // 5 fan spikes radiating backward
+            for (let f = -2; f <= 2; f++) {
+                const fa = ang + f * 0.32;
+                const len = 26 - Math.abs(f) * 4;
+                const ex = tx + Math.cos(fa) * len;
+                const ey = ty + Math.sin(fa) * len;
+                ctx.fillStyle = (f === 0) ? '#ffd744' : '#ff8844';
+                ctx.beginPath();
+                ctx.moveTo(tx, ty);
+                ctx.lineTo(tx + Math.cos(fa + 0.18) * (len * 0.5),
+                           ty + Math.sin(fa + 0.18) * (len * 0.5));
+                ctx.lineTo(ex, ey);
+                ctx.lineTo(tx + Math.cos(fa - 0.18) * (len * 0.5),
+                           ty + Math.sin(fa - 0.18) * (len * 0.5));
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.shadowBlur = 0;
+        }
+
+        // ===== Body chain — segments tail to head =====
+        ctx.shadowColor = '#ff8844';
+        ctx.shadowBlur = 18;
+        for (const s of segs) {
+            const p = s.pos;
+            if (!p) continue;
+            const sx = Math.round(p.x - camera.x);
+            const sy = Math.round(p.y - camera.y);
+            // Body radius tapers from head (28) to tail (12)
+            const r = 28 - s.i * 1.0;
+            // Per-segment facing angle (toward the segment ahead) so
+            // scale arcs + dorsal spikes orient correctly along the body.
+            const ahead = s.ahead || p;
+            const segAng = Math.atan2(p.y - ahead.y, p.x - ahead.x);
+
+            // === Outer dark rim ===
+            ctx.fillStyle = '#770822';
+            ctx.beginPath();
+            ctx.arc(sx, sy, r + 3, 0, Math.PI * 2);
+            ctx.fill();
+            // === Main red body ===
+            ctx.fillStyle = '#ff2244';
+            ctx.beginPath();
+            ctx.arc(sx, sy, r, 0, Math.PI * 2);
+            ctx.fill();
+            // === Gold belly stripe — runs continuously along the underside.
+            // Drawn as a smaller offset gold disc placed on the bottom
+            // (perpendicular to the segment direction). ===
+            const bellyAng = segAng + Math.PI / 2;
+            const bx = sx + Math.cos(bellyAng) * r * 0.45;
+            const by = sy + Math.sin(bellyAng) * r * 0.45;
+            ctx.fillStyle = '#ffd744';
+            ctx.beginPath();
+            ctx.arc(bx, by, r * 0.55, 0, Math.PI * 2);
+            ctx.fill();
+            // Inner highlight on the gold for depth
+            ctx.fillStyle = '#ffffaa';
+            ctx.beginPath();
+            ctx.arc(bx - r * 0.15, by - r * 0.15, r * 0.25, 0, Math.PI * 2);
+            ctx.fill();
+            // === Scale arcs — three overlapping crescents on the back
+            // suggesting layered scales. Drawn opposite the belly. ===
+            const backAng = segAng - Math.PI / 2;
+            ctx.strokeStyle = '#aa1133';
+            ctx.lineWidth = 1.5;
+            for (let sc = -1; sc <= 1; sc++) {
+                const off = sc * r * 0.35;
+                const cx2 = sx + Math.cos(segAng) * off + Math.cos(backAng) * r * 0.15;
+                const cy2 = sy + Math.sin(segAng) * off + Math.sin(backAng) * r * 0.15;
+                ctx.beginPath();
+                ctx.arc(cx2, cy2, r * 0.45, backAng - 0.7, backAng + 0.7);
+                ctx.stroke();
+            }
+            // === Dorsal mane spike — flame-shaped spike out the top,
+            // alternating size for that flowing crest look. Skip the
+            // very last few segments so the tail tassel has its own space. ===
+            if (s.i < DRAGON_SEGMENTS - 2) {
+                const spikeBig = (s.i % 2) === 0;
+                const spikeLen = spikeBig ? 16 : 11;
+                const spikeBaseW = spikeBig ? 6 : 5;
+                const tipX = sx + Math.cos(backAng) * (r + spikeLen);
+                const tipY = sy + Math.sin(backAng) * (r + spikeLen);
+                const baseLAng = segAng - 0.25;
+                const baseRAng = segAng + 0.25;
+                const blx = sx + Math.cos(baseLAng) * (r * 0.85)
+                              + Math.cos(backAng) * (r * 0.2);
+                const bly = sy + Math.sin(baseLAng) * (r * 0.85)
+                              + Math.sin(backAng) * (r * 0.2);
+                const brx = sx + Math.cos(baseRAng) * (r * 0.85)
+                              + Math.cos(backAng) * (r * 0.2);
+                const bry = sy + Math.sin(baseRAng) * (r * 0.85)
+                              + Math.sin(backAng) * (r * 0.2);
+                ctx.fillStyle = '#ffaa00';
+                ctx.beginPath();
+                ctx.moveTo(blx, bly);
+                ctx.lineTo(tipX, tipY);
+                ctx.lineTo(brx, bry);
+                ctx.closePath();
+                ctx.fill();
+                // Bright inner highlight on the spike
+                ctx.fillStyle = '#ffee44';
+                ctx.beginPath();
+                ctx.moveTo(sx + Math.cos(backAng) * (r + 4),
+                           sy + Math.sin(backAng) * (r + 4));
+                ctx.lineTo(tipX, tipY);
+                ctx.lineTo(sx + Math.cos(backAng) * (r + 4) + Math.cos(segAng) * 1,
+                           sy + Math.sin(backAng) * (r + 4) + Math.sin(segAng) * 1);
+                ctx.closePath();
+                ctx.fill();
+                void spikeBaseW;  // currently unused but kept for future tuning
+            }
+            // === Tiny claw legs on segments 4 and 9 — gives the dragon
+            // a hint of limbs without cluttering. Three-prong claw. ===
+            if (s.i === 4 || s.i === 9) {
+                const clawAng = segAng + Math.PI / 2;
+                const ccx = sx + Math.cos(clawAng) * (r * 0.95);
+                const ccy = sy + Math.sin(clawAng) * (r * 0.95);
+                ctx.fillStyle = '#ffd744';
+                ctx.strokeStyle = '#aa6600';
+                ctx.lineWidth = 1.2;
+                for (let cp = -1; cp <= 1; cp++) {
+                    const cAng = clawAng + cp * 0.25;
+                    ctx.beginPath();
+                    ctx.moveTo(ccx, ccy);
+                    ctx.lineTo(ccx + Math.cos(cAng) * 8,
+                               ccy + Math.sin(cAng) * 8);
+                    ctx.stroke();
+                }
+                // Knob at the base of the claw (foot)
+                ctx.beginPath();
+                ctx.arc(ccx, ccy, 3.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // ===== Head — drawn last so it sits on top =====
+        // Uses translate + rotate so all features attach correctly to an
+        // ELONGATED dragon head (forward = +x in head-local coords).
+        const head = d.history[0];
+        const aheadHead = d.history[Math.min(d.history.length - 1, DRAGON_SPACING)];
+        if (head) {
+            const hx = Math.round(head.x - camera.x);
+            const hy = Math.round(head.y - camera.y);
+            const headAng = aheadHead
+                ? Math.atan2(head.y - aheadHead.y, head.x - aheadHead.x)
+                : d.angle;
+            ctx.save();
+            ctx.translate(hx, hy);
+            ctx.rotate(headAng);
+            // From here on:
+            //   +x = forward (snout direction)
+            //   +y = down (chin direction)
+            //   -y = up (forehead / horn direction)
+            //   -x = back (mane / neck direction)
+
+            // === Head main shape — elongated oval, NOT a circle =====
+            ctx.shadowColor = '#ff2244';
+            ctx.shadowBlur = 22;
+            // Outer rim — slightly bigger
+            ctx.fillStyle = '#770822';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 38, 26, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Main red body
+            ctx.fillStyle = '#ff2244';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 35, 23, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // === Snout — distinct elongated extension forward =====
+            // Sits in front of and slightly below the main head ellipse.
+            ctx.fillStyle = '#770822';
+            ctx.beginPath();
+            ctx.ellipse(28, 4, 22, 14, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ff2244';
+            ctx.beginPath();
+            ctx.ellipse(28, 4, 19, 11, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Snout top scale — slight gradient via overlay arc
+            ctx.fillStyle = '#aa1133';
+            ctx.beginPath();
+            ctx.ellipse(28, -2, 16, 6, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // === Forehead "third-eye" gold plate =====
+            ctx.fillStyle = '#ffd744';
+            ctx.beginPath();
+            ctx.ellipse(-4, -8, 13, 9, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#ff6600';
+            ctx.beginPath();
+            ctx.arc(-4, -8, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // === Top-of-head scale arcs — three layered crescents =====
+            ctx.strokeStyle = '#aa1133';
+            ctx.lineWidth = 1.5;
+            for (let sc = -1; sc <= 1; sc++) {
+                ctx.beginPath();
+                ctx.arc(-12 + sc * 9, -2, 9, -Math.PI * 0.85, -Math.PI * 0.15);
+                ctx.stroke();
+            }
+
+            // === Brow ridges — angled red bumps above each eye =====
+            ctx.fillStyle = '#aa1133';
+            for (const sideSign of [-1, 1]) {
+                ctx.beginPath();
+                ctx.moveTo(-4, sideSign * 6);
+                ctx.lineTo(10, sideSign * 12);
+                ctx.lineTo(2, sideSign * 16);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // === Eyes — golden orbs with red rim, slit pupil, glint =====
+            for (const sideSign of [-1, 1]) {
+                const eX = 4;
+                const eY = sideSign * 14;
+                // Red rim
+                ctx.fillStyle = '#aa0033';
+                ctx.beginPath();
+                ctx.arc(eX, eY, 7, 0, Math.PI * 2);
+                ctx.fill();
+                // Gold sclera
+                ctx.fillStyle = '#ffee44';
+                ctx.beginPath();
+                ctx.arc(eX, eY, 5.5, 0, Math.PI * 2);
+                ctx.fill();
+                // Black vertical slit pupil
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.ellipse(eX + 1, eY, 1.5, 4, 0, 0, Math.PI * 2);
+                ctx.fill();
+                // White glint
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(eX - 1.5, eY - 1, 1.4, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // === Multi-prong antler horns — two horns sweeping back =====
+            for (const sideSign of [-1, 1]) {
+                const baseX = -8;
+                const baseY = -18 + sideSign * 3;
+                const endX = -22;
+                const endY = -28 + sideSign * 4;
+                // Base nub
+                ctx.fillStyle = '#aa6600';
+                ctx.beginPath();
+                ctx.arc(baseX, baseY, 4, 0, Math.PI * 2);
+                ctx.fill();
+                // Main shaft
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = '#ff8800';
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(baseX, baseY);
+                ctx.lineTo(endX, endY);
+                ctx.stroke();
+                // Three prongs from the tip — pointing back-and-up
+                for (let pr = -1; pr <= 1; pr++) {
+                    const pAng = Math.PI - 0.5 + pr * 0.4;  // back/up direction
+                    const tipX = endX + Math.cos(pAng) * 11;
+                    const tipY = endY + Math.sin(pAng) * 11;
+                    ctx.lineWidth = 3;
+                    ctx.strokeStyle = pr === 0 ? '#ffd744' : '#ff8800';
+                    ctx.beginPath();
+                    ctx.moveTo(endX, endY);
+                    ctx.lineTo(tipX, tipY);
+                    ctx.stroke();
+                    // Bright tip dot
+                    ctx.fillStyle = '#ffee44';
+                    ctx.beginPath();
+                    ctx.arc(tipX, tipY, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.lineCap = 'butt';
+            }
+
+            // === Head mane — flame crest along the back-top of the head =====
+            // Sits between the horns and the body, flowing back like fire.
+            ctx.fillStyle = '#ffaa00';
+            for (let m = 0; m < 4; m++) {
+                const mx = -22 - m * 5;
+                const tipY = -22 - (m === 1 ? 6 : m === 2 ? 4 : 0);
+                ctx.beginPath();
+                ctx.moveTo(mx - 4, -10);
+                ctx.lineTo(mx, tipY);
+                ctx.lineTo(mx + 4, -10);
+                ctx.closePath();
+                ctx.fill();
+            }
+            // Bright inner highlight on the mane
+            ctx.fillStyle = '#ffee44';
+            for (let m = 0; m < 4; m++) {
+                const mx = -22 - m * 5;
+                const tipY = -22 - (m === 1 ? 6 : m === 2 ? 4 : 0);
+                ctx.beginPath();
+                ctx.moveTo(mx - 1.5, -12);
+                ctx.lineTo(mx, tipY + 2);
+                ctx.lineTo(mx + 1.5, -12);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // === Cheek frills — gold fin sweeping back behind each eye =====
+            ctx.fillStyle = '#ffaa00';
+            for (const sideSign of [-1, 1]) {
+                ctx.beginPath();
+                ctx.moveTo(-10, sideSign * 18);
+                ctx.lineTo(-26, sideSign * 30);
+                ctx.lineTo(-22, sideSign * 22);
+                ctx.lineTo(-6, sideSign * 22);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // === Nostrils — two small dark dots on top of the snout =====
+            ctx.fillStyle = '#660011';
+            ctx.beginPath();
+            ctx.arc(40, -3, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(40, 5, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            // === Mouth — at the front of the snout, open with fangs =====
+            const mouthX = 46;
+            const mouthY = 6;
+            // Outer dark cavity
+            ctx.fillStyle = '#220000';
+            ctx.beginPath();
+            ctx.ellipse(mouthX, mouthY, 13, 7, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Inner red fire glow
+            ctx.fillStyle = '#ff4400';
+            ctx.beginPath();
+            ctx.ellipse(mouthX, mouthY, 8, 4, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Hot center
+            ctx.fillStyle = '#ffaa00';
+            ctx.beginPath();
+            ctx.ellipse(mouthX, mouthY, 4, 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Fangs — top row hanging down, bottom row pointing up
+            ctx.fillStyle = '#ffffee';
+            for (const off of [-7, -2, 3, 8]) {
+                // Upper fang (hangs down from upper jaw)
+                ctx.beginPath();
+                ctx.moveTo(mouthX + off - 1.5, mouthY - 4);
+                ctx.lineTo(mouthX + off, mouthY + 1);
+                ctx.lineTo(mouthX + off + 1.5, mouthY - 4);
+                ctx.closePath();
+                ctx.fill();
+            }
+            // 2 lower bigger fangs
+            for (const off of [-5, 5]) {
+                ctx.beginPath();
+                ctx.moveTo(mouthX + off - 1.5, mouthY + 5);
+                ctx.lineTo(mouthX + off, mouthY - 1);
+                ctx.lineTo(mouthX + off + 1.5, mouthY + 5);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // === Whiskers — long sine-wave gold curls from upper jaw =====
+            ctx.strokeStyle = '#ffeeaa';
+            ctx.lineWidth = 2.5;
+            ctx.shadowColor = '#ffd744';
+            ctx.shadowBlur = 6;
+            for (const sideSign of [-1, 1]) {
+                const startX = 42;
+                const startY = sideSign * 9;
+                ctx.beginPath();
+                ctx.moveTo(startX, startY);
+                for (let t = 1; t <= 12; t++) {
+                    const wob = Math.sin(d.sineT + t * 0.45 + sideSign) * 7;
+                    const wx = startX + t * 7;
+                    const wy = startY + sideSign * t * 2 + wob;
+                    ctx.lineTo(wx, wy);
+                }
+                ctx.stroke();
+            }
+            ctx.shadowBlur = 0;
+
+            // === Beard — flowing tendrils hanging from below the chin =====
+            // Drift backward as the dragon moves forward (head-local: -x = back)
+            ctx.strokeStyle = '#ffeeaa';
+            ctx.lineWidth = 3;
+            ctx.shadowColor = '#ffd744';
+            ctx.shadowBlur = 8;
+            for (let bd = 0; bd < 5; bd++) {
+                const bStartX = 18 + bd * 4;
+                const bStartY = 16;
+                ctx.beginPath();
+                ctx.moveTo(bStartX, bStartY);
+                for (let t = 1; t <= 8; t++) {
+                    const wob = Math.sin(d.sineT + bd * 0.55 + t * 0.4) * 5;
+                    const bx = bStartX - t * 2.5 + wob * 0.3;  // drift back
+                    const by = bStartY + t * 5 + Math.abs(wob) * 0.5;
+                    ctx.lineTo(bx, by);
+                }
+                ctx.stroke();
+            }
+            ctx.shadowBlur = 0;
+
+            // === Spawn flash halo — golden burst on summon =====
+            if (d.spawnFlash > 0) {
+                const a = d.spawnFlash / 14;
+                ctx.fillStyle = `rgba(255, 230, 100, ${a * 0.6})`;
+                ctx.beginPath();
+                ctx.arc(0, 0, 65 + (1 - a) * 40, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            ctx.restore();
+        }
         ctx.restore();
     }
 }
@@ -9188,6 +9821,16 @@ function shootBullet() {
         screenShake = 4;
         return;
     }
+    // DRAGON DANCER — F summons a Chinese New Year dragon that flows
+    // through enemies and bursts into fireworks. No bullet is fired.
+    if (w.dragonDanceWeapon) {
+        if (typeof spawnDancingDragon === 'function') {
+            // Spawn just in front of the player so the dragon emerges from
+            // the gun. Direction follows the aim, biased forward.
+            spawnDancingDragon(cx + baseDx * 28, cy + baseDy * 28, player.facing || 1);
+        }
+        return;
+    }
     // PRIMUS SUMMONER / CONVOY ION BLASTER — F always fires the convoy
     // ion-blaster volley (triple piercing explosive shots from the
     // weapon definition). The TRANSFORMATION + PRIMUS SUMMON happens on
@@ -9604,10 +10247,11 @@ function updateBullets() {
                             w: 80, h: 100
                         });
                     } else {
-                        // Final stage - go straight into the FINALE giant-robot
-                        // fight after a brief beat (90 frames ~= 1.5s). The
-                        // finale routes into 'won' once EARTHBREAKER falls.
-                        deferFrames(90, () => { startFinale(); });
+                        // Final stage - go straight into the BOSS RUSH
+                        // after a brief beat (90 frames ~= 1.5s). The boss
+                        // rush chains 8 prior bosses + MECH KING in
+                        // regular-stage style (normal scale, normal controls).
+                        deferFrames(90, () => { startBossRush(); });
                     }
                 }
                 hitCage = true;
@@ -10044,10 +10688,793 @@ function updateBullets() {
     }
 }
 
+// ============================================================================
+// BOSS RUSH FINAL TRANSFORMATIONS
+// ============================================================================
+// At 50% HP, every rush boss enters its THEMATIC FINAL FORM with a brief
+// cinematic then a new map-altering ability. Each boss has a distinct
+// transformation:
+//   guard      → "RIOT KING"        — spawns shielder reinforcements
+//   skyhammer  → "BOMBER PRIME"     — drops nuke meteors from above
+//   inferno    → "INFERNO HEART"    — spawns lava columns in arena
+//   ravager    → "ACID HORROR"      — spawns acid puddles + acid drones
+//   cryo       → "ICE EMPEROR"      — tints arena icy + drops icicles
+//   nullifier  → "BLACK HOLE LORD"  — spawns persistent void rifts
+//   omega      → "OMEGA WRAITH"     — spawns mini-omega drones
+//   titan      → "TITAN EMPEROR"    — drops debris meteors
+//
+// triggerBossRushTransform — fires once per boss when HP first crosses 50%.
+// Sets `_rushTransformed`, `_rushTransformTimer` (cinematic length),
+// `_rushFormName`, and `_rushTransformColor`.
+const BOSS_RUSH_TRANSFORM_DEFS = {
+    guard:     { name: 'RIOT KING',       color: '#88ff44', accent: '#aaff88' },
+    skyhammer: { name: 'BOMBER PRIME',    color: '#ffaa00', accent: '#ffdd66' },
+    inferno:   { name: 'INFERNO HEART',   color: '#ff4422', accent: '#ff8844' },
+    ravager:   { name: 'ACID HORROR',     color: '#88ff44', accent: '#aaff66' },
+    cryo:      { name: 'ICE EMPEROR',     color: '#88ddff', accent: '#aaeeff' },
+    nullifier: { name: 'BLACK HOLE LORD', color: '#aa00ff', accent: '#cc88ff' },
+    omega:     { name: 'OMEGA WRAITH',    color: '#ff44ff', accent: '#ffaaff' },
+    titan:     { name: 'TITAN EMPEROR',   color: '#66ffff', accent: '#aaffff' }
+};
+
+function triggerBossRushTransform(e) {
+    const def = BOSS_RUSH_TRANSFORM_DEFS[e.subtype] || {
+        name: 'FINAL FORM', color: '#ff2244', accent: '#ffd744'
+    };
+    e._rushTransformed = true;
+    e._rushTransformTimer = 90;
+    e._rushFormName = def.name;
+    e._rushTransformColor = def.color;
+    e._rushFormAccent = def.accent;
+    // Cinematic burst — 3 layered shockwaves + huge particle storm
+    if (typeof spawnShockwave === 'function') {
+        spawnShockwave(e.x + e.w/2, e.y + e.h/2, 200, def.color);
+        spawnShockwave(e.x + e.w/2, e.y + e.h/2, 320, def.accent);
+        spawnShockwave(e.x + e.w/2, e.y + e.h/2, 460, '#ffffff');
+    }
+    if (typeof spawnParticles === 'function') {
+        spawnParticles(e.x + e.w/2, e.y + e.h/2, def.color, 80, 12);
+        spawnParticles(e.x + e.w/2, e.y + e.h/2, def.accent, 60, 10);
+        spawnParticles(e.x + e.w/2, e.y + e.h/2, '#ffffff', 40, 8);
+    }
+    screenShake = Math.max(screenShake, 30);
+    hitStop = Math.max(hitStop, 12);
+    // Boss grows ~15% bigger on transformation for visual impact
+    if (!e._rushPreTransformW) {
+        e._rushPreTransformW = e.w;
+        e._rushPreTransformH = e.h;
+        e.w = Math.round(e.w * 1.15);
+        e.h = Math.round(e.h * 1.15);
+        e.x -= (e.w - e._rushPreTransformW) / 2;
+    }
+    // Color shift to the form's signature color
+    e.color = def.color;
+    // Banner — uses the new form name
+    if (typeof shopMessage !== 'undefined') {
+        shopMessage = {
+            text: '☠ FINAL FORM ☠   ' + def.name + '   AWAKENS',
+            timer: 240,
+            color: def.accent
+        };
+    }
+    if (typeof audio !== 'undefined' && audio.play) {
+        audio.play('bossIntro');
+        audio.play('explosion', { throttle: 60 });
+    }
+}
+
+// tickBossRushTransformAbility — per-frame ability after transformation.
+// Each subtype has its own cooldown timer field on the boss (e._abilityCd).
+function tickBossRushTransformAbility(e, slowMul) {
+    if (!e._abilityCd) e._abilityCd = 60;
+    e._abilityCd -= slowMul;
+    if (e._abilityCd > 0) return;
+    const ability = BOSS_RUSH_ABILITIES[e.subtype];
+    if (!ability) {
+        e._abilityCd = 240;
+        return;
+    }
+    e._abilityCd = ability.cooldown + Math.random() * (ability.jitter || 30);
+    ability.fire(e);
+}
+
+// Per-subtype final-form abilities. Each is called when the boss's
+// _abilityCd hits 0 and resets the cooldown to its base + jitter.
+const BOSS_RUSH_ABILITIES = {
+    guard: {
+        cooldown: 300, jitter: 60,
+        fire(e) {
+            // RIOT KING — summons 2 shielders to flank the player
+            for (const sign of [-1, 1]) {
+                enemies.push({
+                    x: e.x + sign * 200, y: 510, w: 38, h: 40,
+                    type: 'shielder', hp: 180, maxHp: 180,
+                    vx: 1.4 * sign, dir: -sign,
+                    shootTimer: 30,
+                    patrolStart: e.x + sign * 200 - 100,
+                    patrolEnd: e.x + sign * 200 + 100,
+                    color: '#88ff44', shieldColor: '#aaff88',
+                    _bossRushMinion: true
+                });
+            }
+            spawnParticles(e.x + e.w/2, e.y + e.h/2, '#88ff44', 18, 6);
+            screenShake = Math.max(screenShake, 8);
+        }
+    },
+    skyhammer: {
+        cooldown: 180, jitter: 30,
+        fire(e) {
+            // BOMBER PRIME — calls down 3 nuke meteors at player + offsets
+            const targetX = (player && player.x) || e.x;
+            for (let i = -1; i <= 1; i++) {
+                const tx = targetX + i * 220;
+                if (typeof stageHazards !== 'undefined') {
+                    // Telegraph ring on the ground
+                    stageHazards.push({
+                        kind: 'lightning', x: tx, y: 0, vx: 0, vy: 0,
+                        r: 28, life: 60, dmg: 0, color: '#ffff44',
+                        telegraph: 60
+                    });
+                    // The actual nuke
+                    stageHazards.push({
+                        kind: 'meteor',
+                        x: tx, y: -80 - i * 40,
+                        vx: 0, vy: 6, gravity: 0.4,
+                        r: 28, life: 240, dmg: 24,
+                        color: '#ffaa00', fallStop: true,
+                        homing: 0.05
+                    });
+                }
+            }
+            // Visual flash — bombing run
+            spawnParticles(e.x + e.w/2, e.y + e.h/2, '#ffaa00', 14, 5);
+            if (typeof shopMessage !== 'undefined' && Math.random() < 0.4) {
+                shopMessage = { text: '⚠ BOMBING RUN INCOMING ⚠', timer: 90, color: '#ffaa00' };
+            }
+        }
+    },
+    inferno: {
+        cooldown: 200, jitter: 40,
+        fire(e) {
+            // INFERNO HEART — spawns lava column erupting from ground
+            const targetX = (player && player.x) || e.x;
+            for (let i = -1; i <= 1; i++) {
+                const tx = targetX + i * 140;
+                if (typeof stageHazards !== 'undefined') {
+                    stageHazards.push({
+                        kind: 'lava',
+                        x: tx, y: 540,
+                        vx: 0, vy: -10,
+                        gravity: 0.3,
+                        r: 24, life: 220, dmg: 18,
+                        color: '#ff3300'
+                    });
+                }
+            }
+            spawnParticles(e.x + e.w/2, e.y + e.h/2, '#ff4422', 16, 6);
+            screenShake = Math.max(screenShake, 6);
+        }
+    },
+    ravager: {
+        cooldown: 240, jitter: 60,
+        fire(e) {
+            // ACID HORROR — spawns acid puddles + 1 acid drone monster
+            const targetX = (player && player.x) || e.x;
+            // 3 acid puddles around the player
+            for (let i = -1; i <= 1; i++) {
+                if (typeof stageHazards !== 'undefined') {
+                    stageHazards.push({
+                        kind: 'acidPuddle',
+                        x: targetX + i * 100, y: 580,
+                        w: 80, h: 16,
+                        life: 360, dmg: 6,
+                        color: '#88ff44'
+                    });
+                }
+            }
+            // 1 ACID MONSTER drone
+            enemies.push({
+                x: e.x - 60, y: e.y + e.h * 0.4,
+                w: 32, h: 28,
+                type: 'drone',
+                hp: 120, maxHp: 120,
+                baseY: e.y + e.h * 0.4 + Math.random() * 60,
+                floatTimer: Math.random() * Math.PI * 2,
+                shootTimer: 40,
+                color: '#88ff44',
+                acidShots: true,
+                _bossRushMinion: true
+            });
+            spawnParticles(e.x + e.w/2, e.y + e.h/2, '#88ff44', 18, 6);
+            screenShake = Math.max(screenShake, 6);
+        }
+    },
+    cryo: {
+        cooldown: 90, jitter: 30,
+        fire(e) {
+            // ICE EMPEROR — drops 3 falling icicles + adds an ice patch
+            const targetX = (player && player.x) || e.x;
+            for (let i = 0; i < 3; i++) {
+                const tx = targetX + (Math.random() - 0.5) * 360;
+                if (typeof stageHazards !== 'undefined') {
+                    stageHazards.push({
+                        kind: 'icicle',
+                        x: tx, y: -20,
+                        vx: 0, vy: 5, gravity: 0.3,
+                        r: 16, life: 220, dmg: 12,
+                        color: '#aaeeff', fallStop: true,
+                        homing: 0.12,
+                        onHit: function (p) {
+                            p.iceSlowTimer = 90;
+                            spawnParticles(p.x, p.y, '#aaeeff', 8, 4);
+                        }
+                    });
+                }
+            }
+            // Persistent ice patch on the ground
+            if (typeof stageHazards !== 'undefined') {
+                stageHazards.push({
+                    kind: 'gas',
+                    x: targetX + (Math.random() - 0.5) * 200, y: 580,
+                    w: 120, h: 14,
+                    vx: 0, vy: 0,
+                    r: 60, life: 540, dmg: 1,
+                    color: '#aaeeff'
+                });
+            }
+            spawnParticles(e.x + e.w/2, e.y + e.h/2, '#aaeeff', 14, 5);
+        }
+    },
+    nullifier: {
+        cooldown: 280, jitter: 60,
+        fire(e) {
+            // BLACK HOLE LORD — spawns 1-2 persistent black holes that pull
+            // the player. Reuses the void-rift hazard kind (existing pull).
+            const targetX = (player && player.x) || e.x;
+            const count = 1 + (Math.random() < 0.4 ? 1 : 0);
+            for (let i = 0; i < count; i++) {
+                const hx = targetX + (Math.random() - 0.5) * 360;
+                const hy = 380 + Math.random() * 100;
+                if (typeof stageHazards !== 'undefined') {
+                    stageHazards.push({
+                        kind: 'voidRift',
+                        x: hx, y: hy,
+                        vx: 0, vy: 0,
+                        r: 36, life: 360, dmg: 8,
+                        color: '#aa00ff'
+                    });
+                }
+                // Big visual — black hole spawn shockwave
+                if (typeof spawnShockwave === 'function') {
+                    spawnShockwave(hx, hy, 100, '#aa00ff');
+                    spawnShockwave(hx, hy, 160, '#cc88ff');
+                }
+                spawnParticles(hx, hy, '#aa00ff', 20, 8);
+                spawnParticles(hx, hy, '#000000', 14, 6);
+            }
+            screenShake = Math.max(screenShake, 14);
+            if (typeof audio !== 'undefined' && audio.play) {
+                audio.play('explosion', { throttle: 200 });
+            }
+        }
+    },
+    omega: {
+        cooldown: 240, jitter: 50,
+        fire(e) {
+            // OMEGA WRAITH — spawns 2 mini-omega drones (homing + tough)
+            for (const sign of [-1, 1]) {
+                enemies.push({
+                    x: e.x + sign * 150, y: e.y + 60, w: 30, h: 26,
+                    type: 'drone', hp: 100, maxHp: 100,
+                    baseY: e.y + 60,
+                    floatTimer: Math.random() * Math.PI * 2,
+                    shootTimer: 40,
+                    color: '#ff44ff',
+                    _bossRushMinion: true
+                });
+            }
+            spawnParticles(e.x + e.w/2, e.y + e.h/2, '#ff44ff', 18, 6);
+            screenShake = Math.max(screenShake, 6);
+        }
+    },
+    titan: {
+        cooldown: 200, jitter: 40,
+        fire(e) {
+            // TITAN EMPEROR — debris meteor storm
+            const targetX = (player && player.x) || e.x;
+            for (let i = -2; i <= 2; i++) {
+                const tx = targetX + i * 120;
+                if (typeof stageHazards !== 'undefined') {
+                    stageHazards.push({
+                        kind: 'meteor',
+                        x: tx, y: -60,
+                        vx: 0, vy: 5, gravity: 0.35,
+                        r: 22, life: 240, dmg: 16,
+                        color: '#66ffff', fallStop: true,
+                        homing: 0.12
+                    });
+                }
+            }
+            spawnParticles(e.x + e.w/2, e.y + e.h/2, '#66ffff', 18, 6);
+            screenShake = Math.max(screenShake, 8);
+        }
+    }
+};
+
+// drawBossRushTransformOverlay — visual highlight during the 90-frame
+// transformation cinematic. Drawn ON TOP of the boss render. Counter-
+// rotating energy rings + radial speed lines + form-name banner.
+function drawBossRushTransformOverlay(e, ex, ey) {
+    if (!e._rushTransformTimer || e._rushTransformTimer <= 0) return;
+    const w = e.w;
+    const h = e.h;
+    const cx = ex + w / 2;
+    const cy = ey + h / 2;
+    const t = (90 - e._rushTransformTimer) / 90;   // 0..1 progress
+    const color = e._rushTransformColor || '#ff2244';
+    const accent = e._rushFormAccent || '#ffd744';
+    ctx.save();
+    // Counter-rotating energy rings — 3 of them, expanding outward
+    for (let r = 0; r < 3; r++) {
+        const radius = (50 + r * 40) + t * 60;
+        const alpha = (1 - t) * (0.7 - r * 0.2);
+        ctx.strokeStyle = r % 2 === 0 ? color : accent;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 18;
+        ctx.globalAlpha = alpha;
+        const rot = (e._rushTransformTimer * 0.05) * (r % 2 === 0 ? 1 : -1);
+        ctx.beginPath();
+        for (let s = 0; s < 12; s++) {
+            const a1 = rot + (s / 12) * Math.PI * 2;
+            const a2 = a1 + (Math.PI * 2 / 24);
+            ctx.moveTo(cx + Math.cos(a1) * radius, cy + Math.sin(a1) * radius);
+            ctx.lineTo(cx + Math.cos(a2) * radius, cy + Math.sin(a2) * radius);
+        }
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // Radial speed lines pointing at the boss center — converging
+    const lines = 16;
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 12;
+    for (let l = 0; l < lines; l++) {
+        const ang = (l / lines) * Math.PI * 2 + t * 0.3;
+        const r1 = 80 + (1 - t) * 200;
+        const r2 = 40 + t * 60;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(ang) * r1, cy + Math.sin(ang) * r1);
+        ctx.lineTo(cx + Math.cos(ang) * r2, cy + Math.sin(ang) * r2);
+        ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // Form name banner — flies in horizontally, fades out near end
+    const bannerAlpha = t < 0.7 ? Math.min(1, t * 3) : Math.max(0, 1 - (t - 0.7) * 3);
+    ctx.globalAlpha = bannerAlpha;
+    ctx.font = 'bold 36px Courier New';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = accent;
+    ctx.shadowColor = accent;
+    ctx.shadowBlur = 22;
+    ctx.fillText('☠ ' + (e._rushFormName || 'FINAL FORM') + ' ☠',
+        canvas.width / 2, canvas.height / 2 - 80);
+    ctx.font = 'bold 14px Courier New';
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#ffffff';
+    ctx.shadowBlur = 14;
+    ctx.fillText('— FINAL FORM AWAKENS —',
+        canvas.width / 2, canvas.height / 2 - 50);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+    ctx.restore();
+}
+
+
+// After Titan-Lord falls on stage 8, instead of the giant-mech finale we
+// chain together 9 boss arenas in REGULAR-STAGE STYLE: normal-sized
+// player, normal controls, the boss's own AI + arena theme. Order:
+//   0..7 = the 8 prior bosses (GUARD-1, SKYHAMMER, ... TITAN-LORD)
+//   8    = MECH KING (new boss — recoloured TITAN AI w/ extra HP)
+// When index 8 falls, gameState='won'.
+let bossRush = null;
+
+// Add per-boss themed platforms to the rush arena so each fight room
+// feels distinct. Called from spawnBossRushBoss after buildBossArena.
+// All platforms here are lightweight 'platform' type so they don't get
+// stripped (buildBossArena ran already).
+function addBossRushArenaDecor(idx, isFinal) {
+    if (isFinal) {
+        // === MECH KING throne room ===
+        // Stepped throne dais behind the king + two flanking columns.
+        // Player can hop on the dais to attack from above.
+        platforms.push({ x: 980, y: 540, w: 220, h: 60, type: 'platform' });   // dais step 1
+        platforms.push({ x: 1020, y: 480, w: 140, h: 60, type: 'platform' });  // dais step 2
+        platforms.push({ x: 1060, y: 420, w: 60,  h: 60, type: 'platform' });  // throne base
+        platforms.push({ x: 600,  y: 350, w: 24,  h: 250, type: 'wall' });     // left column
+        platforms.push({ x: 1380, y: 350, w: 24,  h: 250, type: 'wall' });     // right column
+        // Mid-air ledge to dodge ground-pound style attacks
+        platforms.push({ x: 480,  y: 360, w: 110, h: 16, type: 'platform' });
+        platforms.push({ x: 800,  y: 280, w: 110, h: 16, type: 'platform' });
+        return;
+    }
+    // Per-prior-boss layouts. Each arena gets 2-4 themed platforms.
+    switch (idx) {
+        case 0:  // GUARD-1 — facility crates as cover
+            platforms.push({ x: 360, y: 540, w: 90,  h: 60, type: 'platform' });
+            platforms.push({ x: 880, y: 540, w: 90,  h: 60, type: 'platform' });
+            break;
+        case 1:  // SKYHAMMER — floating sky platforms (he flies)
+            platforms.push({ x: 320, y: 380, w: 110, h: 14, type: 'platform' });
+            platforms.push({ x: 540, y: 290, w: 100, h: 14, type: 'platform' });
+            platforms.push({ x: 800, y: 380, w: 110, h: 14, type: 'platform' });
+            break;
+        case 2:  // INFERNO-X — broken bridges over a lava floor
+            platforms.push({ x: 280, y: 460, w: 130, h: 16, type: 'platform' });
+            platforms.push({ x: 520, y: 460, w: 130, h: 16, type: 'platform' });
+            platforms.push({ x: 760, y: 460, w: 130, h: 16, type: 'platform' });
+            break;
+        case 3:  // RAVAGER — scattered barricades to break sightlines
+            platforms.push({ x: 280, y: 540, w: 70,  h: 60, type: 'platform' });
+            platforms.push({ x: 460, y: 510, w: 70,  h: 90, type: 'platform' });
+            platforms.push({ x: 640, y: 530, w: 70,  h: 70, type: 'platform' });
+            platforms.push({ x: 880, y: 520, w: 70,  h: 80, type: 'platform' });
+            break;
+        case 4:  // CRYO-LORD — ice columns
+            platforms.push({ x: 320, y: 420, w: 36,  h: 180, type: 'platform' });
+            platforms.push({ x: 580, y: 380, w: 36,  h: 220, type: 'platform' });
+            platforms.push({ x: 880, y: 420, w: 36,  h: 180, type: 'platform' });
+            break;
+        case 5:  // NULLIFIER — disconnected void chunks
+            platforms.push({ x: 240, y: 380, w: 90,  h: 16, type: 'platform' });
+            platforms.push({ x: 460, y: 320, w: 90,  h: 16, type: 'platform' });
+            platforms.push({ x: 720, y: 380, w: 90,  h: 16, type: 'platform' });
+            platforms.push({ x: 940, y: 320, w: 90,  h: 16, type: 'platform' });
+            break;
+        case 6:  // OMEGA-PRIME — throne plateau
+            platforms.push({ x: 800, y: 540, w: 180, h: 60, type: 'platform' });   // throne base
+            platforms.push({ x: 840, y: 480, w: 100, h: 60, type: 'platform' });   // throne step
+            platforms.push({ x: 380, y: 380, w: 110, h: 16, type: 'platform' });
+            break;
+        case 7:  // TITAN-LORD — ruined city debris
+            platforms.push({ x: 240, y: 480, w: 80,  h: 120, type: 'platform' });
+            platforms.push({ x: 420, y: 420, w: 100, h: 180, type: 'platform' });
+            platforms.push({ x: 880, y: 460, w: 90,  h: 140, type: 'platform' });
+            platforms.push({ x: 320, y: 320, w: 90,  h: 14,  type: 'platform' });
+            break;
+    }
+}
+
+
+function spawnBossRushBoss(idx) {
+    const isFinal = idx >= STAGES.length;
+    let bossDef;
+    if (!isFinal) {
+        // Set the stage so buildLevel uses the right config
+        currentStage = idx;
+        // Build the regular stage so the live `enemies` array gets populated
+        // with the stage's boss (the boss def lives inside buildStage1/2/...
+        // not in STAGES[].enemies). Then we extract & deep-copy the boss
+        // and wipe everything else for a clean arena.
+        if (typeof buildLevel === 'function') buildLevel();
+        const liveBoss = enemies.find(e => e && e.type === 'boss');
+        if (!liveBoss) {
+            console.error('Boss rush: no boss in built stage', idx);
+            return;
+        }
+        bossDef = JSON.parse(JSON.stringify(liveBoss));
+        // === BOSS RUSH BUFF — bosses are way stronger than their stage versions ===
+        // Each boss in the rush gets:
+        //   - 100% of buildLevel's already-buffed HP (was 80% — still too weak)
+        //   - PHASE 3 (RAGE) ATTACKS UNLOCKED FROM THE START
+        //   - Faster fire rate (-40% shoot cooldown)
+        //   - Higher damage (1.7x base)
+        //   - Summons reinforcements when low HP (handled in updateEnemies)
+        const rushScale = idx < 4 ? 1.0 : 0.85;
+        bossDef.hp = Math.max(1000, Math.round(bossDef.hp * rushScale));
+        bossDef.maxHp = bossDef.hp;
+        // Phase 3 from the start — gives the player the FULL boss arsenal
+        // immediately. All rage-mode attacks active.
+        bossDef.phase = 3;
+        bossDef.phase2Triggered = true;
+        bossDef.phase3Triggered = true;
+        // Faster fire rate
+        bossDef.shootTimer = Math.max(30, Math.round((bossDef.shootTimer || 100) * 0.6));
+        // Heavier hitting — extra damage multiplier baked into the def
+        bossDef.dmgMul = 1.7;
+        // Boss-rush flag so drawEnemies + updateEnemies can apply rush-only
+        // visuals (rage aura overlay) and behaviors (summon-on-low-hp).
+        bossDef.bossRush = true;
+        // Suppress per-stage cutscene + victory cutscene so the rush
+        // doesn't freeze on cinematic dialogue.
+        const stage = STAGES[idx];
+        if (stage) {
+            stage.cutsceneShown = true;
+            stage.victoryCutsceneShown = true;
+        }
+    } else {
+        // === MECH KING — final boss (idx 8) ===
+        // Custom subtype 'mechking' — uses titan as AI base for the heavy
+        // attacks but rendered as a TOTALLY DIFFERENT silhouette: massive
+        // throne-king with crown, cape, scepter, and twin shoulder pylons.
+        // Stats are stronger than every gauntlet boss combined: 24000 HP,
+        // 90% damage boost, very fast fire rate, all phases unlocked.
+        bossDef = {
+            type: 'boss', subtype: 'mechking',
+            x: 4700, y: 240, w: 240, h: 260,
+            hp: 24000, maxHp: 24000,
+            phase: 3,                       // start in rage protocol
+            phase2Triggered: true,
+            phase3Triggered: true,
+            shootTimer: 40,                 // very fast attack rate
+            moveTimer: 0,
+            baseX: 4700, baseY: 240,
+            color: '#ff2244',
+            attackPattern: 0,
+            dmgMul: 1.9,
+            displayName: 'MECH KING',
+            isMechKing: true,
+            bossRush: true,
+            // MECH KING uses the TITAN AI under the hood — set the alias
+            // so updateEnemies routes to updateBossTitan when subtype is
+            // 'mechking' (handled by the dispatch fallthrough below).
+            aiSubtype: 'titan'
+        };
+        currentStage = STAGES.length - 1;   // keep stage-8 theming for final
+    }
+
+    // Reset player to a clean arena entry position
+    player.x = 200;
+    player.y = 380;
+    player.vx = 0; player.vy = 0;
+    player.invincible = 90;
+    if (player.hp < player.maxHp * 0.5) {
+        player.hp = Math.min(player.maxHp, player.hp + Math.round(player.maxHp * 0.40));
+    }
+
+    // Wipe arena state — fresh start each boss
+    bullets = [];
+    enemyBullets = [];
+    particles = [];
+    enemies = [];
+    coinPickups = [];
+    healthDrops = [];
+    crates = [];
+    if (typeof minecraftMobs !== 'undefined') minecraftMobs = [];
+    if (typeof minecraftBlocks !== 'undefined') minecraftBlocks = [];
+    if (typeof minecraftSpawners !== 'undefined') minecraftSpawners = [];
+    if (typeof primusTitans !== 'undefined') primusTitans = [];
+    if (typeof dancingDragons !== 'undefined') dancingDragons = [];
+    // Also wipe stage props so leftover arena gates / danger zones / shops
+    // / terminals / lasers / keys from buildLevel don't clutter the rush.
+    if (typeof dangerZones !== 'undefined') dangerZones = [];
+    if (typeof arenaGates !== 'undefined') arenaGates = [];
+    if (typeof bossGates !== 'undefined') bossGates = [];
+    if (typeof keyPickups !== 'undefined') keyPickups = [];
+    if (typeof terminals !== 'undefined') terminals = [];
+    if (typeof laserGrids !== 'undefined') laserGrids = [];
+    if (typeof exitPortals !== 'undefined') exitPortals = [];
+    if (typeof switches !== 'undefined') switches = [];
+    if (typeof doors !== 'undefined') doors = [];
+    if (typeof cages !== 'undefined') cages = [];
+    if (typeof healingStations !== 'undefined') healingStations = [];
+    if (typeof stageHazards !== 'undefined') stageHazards = [];
+    if (player) player.keysHeld = [];
+
+    // Build a fresh ground line — but stripped + re-added below so it
+    // survives buildBossArena's in-range platform purge.
+    platforms = [];
+
+    // Use the existing arena builder — it strips local platforms (already
+    // empty), places the boss at the far right, and clears stage hazards
+    // in the range.
+    buildBossArena(idx, player.x, bossDef);
+
+    // Re-add a wide ground platform AFTER buildBossArena so the player
+    // has solid floor to walk on. (buildBossArena strips platforms that
+    // overlap its range — adding before would lose the ground.)
+    platforms.push({ x: 0, y: 600, w: 4000, h: 100, type: 'ground' });
+
+    // === Per-boss arena layout — gives each fight a distinctive look ===
+    // Adds a few themed platforms so the rooms feel different. Lightweight
+    // variety without rebuilding entire stages.
+    addBossRushArenaDecor(idx, isFinal);
+
+    // Move the boss CLOSER to the player so they're visible right from
+    // the start of the round. buildBossArena placed it at the far right
+    // (~1800px) which means walking right ~1500px to reach it. For a
+    // boss rush we want the boss in view immediately.
+    bossDef.x = isFinal ? 850 : 700;
+    bossDef.baseX = bossDef.x;
+    bossDef.y = 380;
+    bossDef.baseY = 380;
+
+    enemies.push(bossDef);
+
+    // Reset camera to the player so the new arena lines up
+    camera.x = Math.max(0, player.x - canvas.width * 0.3);
+
+    // Banner — different for prior boss vs final mech king
+    if (typeof shopMessage !== 'undefined') {
+        const stageName = !isFinal && STAGES[idx] && STAGES[idx].name
+            ? (STAGES[idx].name.split(':')[1] || '').trim()
+            : '';
+        if (isFinal) {
+            shopMessage = {
+                text: '⚜ FINAL BOSS — MECH KING ⚜  THE MASTERMIND DESCENDS',
+                timer: 300,
+                color: '#ff2244'
+            };
+        } else {
+            shopMessage = {
+                text: `⚔ BOSS RUSH ${idx + 1}/9 — ${(bossDef.subtype || 'BOSS').toUpperCase()} (${stageName})`,
+                timer: 240,
+                color: '#ffaa44'
+            };
+        }
+    }
+    if (typeof audio !== 'undefined' && audio.play) audio.play('bossIntro');
+
+    // === MECH KING grand entrance ===
+    // Uses a custom flash + shockwave entrance instead of the omega-themed
+    // throne cutscene (which was misaligned for MECH KING and made him
+    // appear invisible). The throne backdrop now stays permanently behind
+    // the boss for the whole fight via drawBossMechKing's throne-back layer.
+    if (isFinal) {
+        // Big screen-shake + radial shockwaves + particles around the king
+        if (typeof screenShake !== 'undefined') screenShake = 32;
+        if (typeof spawnShockwave === 'function') {
+            spawnShockwave(bossDef.x + bossDef.w / 2, bossDef.y + bossDef.h / 2, 280, '#ff2244');
+            spawnShockwave(bossDef.x + bossDef.w / 2, bossDef.y + bossDef.h / 2, 420, '#ffd744');
+        }
+        if (typeof spawnParticles === 'function') {
+            spawnParticles(bossDef.x + bossDef.w / 2, bossDef.y + bossDef.h / 2, '#ff2244', 80, 12);
+            spawnParticles(bossDef.x + bossDef.w / 2, bossDef.y + bossDef.h / 2, '#ffd744', 60, 9);
+            spawnParticles(bossDef.x + bossDef.w / 2, bossDef.y + bossDef.h / 2, '#ffffff', 40, 8);
+        }
+        if (typeof hitStop !== 'undefined') hitStop = 14;
+        // Dramatic banner — replaces the regular boss-rush banner
+        if (typeof shopMessage !== 'undefined') {
+            shopMessage = {
+                text: '⚜  M E C H   K I N G  —  T H E   T H R O N E   D E S C E N D S  ⚜',
+                timer: 360,
+                color: '#ffd744'
+            };
+        }
+        // Brief invincibility so the kid sees the king before damage starts
+        bossDef.invincible = 60;
+    }
+}
+
+// Entry point — kicks off the boss rush. Replaces the old startFinale
+// call after stage 8 in normal play. The giant-mech finale rig still
+// exists (dev panel button) for testing but is no longer the main ending.
+function startBossRush() {
+    bossRush = {
+        active: true,
+        index: 0
+    };
+    spawnBossRushBoss(0);
+    gameState = 'playing';
+}
+
+// Mech King's taunts before each gauntlet boss spawn — short, evocative,
+// kid-pitched. Index matches the boss the kid is ABOUT to fight.
+const BOSS_RUSH_TAUNTS = [
+    [
+        { speaker: 'MECH KING', text: 'You think you reached the end? My puppets are eternal.', color: '#ff2244' },
+        { speaker: 'MECH KING', text: 'GUARD-1! RISE! Gate the intruder!',                     color: '#ff2244' }
+    ],
+    [
+        { speaker: 'MECH KING', text: 'Lucky shot. Try the SKY.',                              color: '#ff2244' },
+        { speaker: 'MECH KING', text: 'SKYHAMMER! DROP HIM!',                                  color: '#ff2244' }
+    ],
+    [
+        { speaker: 'MECH KING', text: 'Burn the path he came from.',                           color: '#ff2244' },
+        { speaker: 'MECH KING', text: 'INFERNO-X! ENGAGE!',                                    color: '#ff2244' }
+    ],
+    [
+        { speaker: 'MECH KING', text: 'Tear him apart with your barrels.',                     color: '#ff2244' },
+        { speaker: 'MECH KING', text: 'RAVAGER! WAR PROTOCOL!',                                color: '#ff2244' }
+    ],
+    [
+        { speaker: 'MECH KING', text: 'Freeze him before he takes another step.',              color: '#ff2244' },
+        { speaker: 'MECH KING', text: 'CRYO-LORD! ABSOLUTE ZERO!',                             color: '#ff2244' }
+    ],
+    [
+        { speaker: 'MECH KING', text: 'Erase him from existence.',                             color: '#ff2244' },
+        { speaker: 'MECH KING', text: 'NULLIFIER! VOID HIM!',                                  color: '#ff2244' }
+    ],
+    [
+        { speaker: 'MECH KING', text: 'My finest assassin. Show him true power.',              color: '#ff2244' },
+        { speaker: 'MECH KING', text: 'OMEGA-PRIME! FINISH HIM!',                              color: '#ff2244' }
+    ],
+    [
+        { speaker: 'MECH KING', text: 'My ultimate weapon. The titan that breaks armies.',     color: '#ff2244' },
+        { speaker: 'MECH KING', text: 'TITAN-LORD! CRUSH HIM!',                                color: '#ff2244' }
+    ],
+    [
+        { speaker: 'MECH KING', text: 'Impossible. Every pawn I built... gone.',               color: '#ff2244' },
+        { speaker: 'YOU',       text: 'Your turn now. Get down here.',                         color: '#88ffff' },
+        { speaker: 'MECH KING', text: 'Then you face the THRONE itself. PREPARE!',             color: '#ff2244' }
+    ]
+];
+
+// Triggers a short dialogue cutscene before the next gauntlet boss
+// spawns. Reuses the existing 'cutscene' gameState system. When the
+// dialogue ends, the boss spawn fires automatically.
+function startBossRushCutscene(idx) {
+    const lines = BOSS_RUSH_TAUNTS[idx];
+    if (!lines) {
+        // Shouldn't happen but defend against config drift
+        spawnBossRushBoss(idx);
+        return;
+    }
+    cutscene = {
+        stage: -1,            // -1 sentinel so the regular cutscene renderer
+                              // doesn't try to look up a STAGES entry
+        lines: lines,
+        idx: 0,
+        timer: 0,
+        bossRushNext: idx     // when this dialogue finishes, spawn this boss
+    };
+    gameState = 'cutscene';
+}
+
+// Called from inside handleEnemyKilled when a boss enemy dies during
+// the boss rush. Advances the index and spawns the next boss / wins.
+function advanceBossRush() {
+    if (!bossRush || !bossRush.active) return;
+    bossRush.index++;
+    if (bossRush.index < STAGES.length) {
+        // Next prior boss — play a short Mech King taunt cutscene first,
+        // then spawn the boss.
+        const next = bossRush.index;
+        deferFrames(60, () => {
+            if (bossRush && bossRush.active) startBossRushCutscene(next);
+        });
+    } else if (bossRush.index === STAGES.length) {
+        // Final boss — MECH KING (longer pause + taunt cutscene before
+        // the throne-rise cinematic kicks in).
+        const next = bossRush.index;
+        deferFrames(90, () => {
+            if (bossRush && bossRush.active) startBossRushCutscene(next);
+        });
+    } else {
+        // All defeated — victory!
+        bossRush.active = false;
+        deferFrames(150, () => {
+            gameState = 'won';
+        });
+    }
+}
+
 function handleEnemyKilled(e, j) {
     spawnExplosion(e.x + e.w / 2, e.y + e.h / 2);
     if (e.type === 'boss') audio.play('bossKill');
     score += e.type === 'boss' ? 500 : 100;
+
+    // === BOSS RUSH FAST-PATH ===
+    // During the boss rush we don't want the regular stage-complete +
+    // ally-cage flow. When a boss dies during the rush, do the score/
+    // style/save bookkeeping below as normal, then advance the rush
+    // immediately and skip the rest of the function (which would spawn
+    // a cage and trigger stage-complete). Mid-fight enemies (mobs,
+    // miniboss) still go through the normal flow.
+    let bossRushHandled = false;
+    if (bossRush && bossRush.active && e.type === 'boss') {
+        // Big celebratory FX so the kid knows they won this round
+        for (let p = 0; p < 6; p++) {
+            spawnExplosion(e.x + Math.random() * e.w, e.y + Math.random() * e.h);
+        }
+        screenShake = 24;
+        bossRushHandled = true;
+    }
     // Style points — bigger reward for tougher enemies. Bosses give the
     // biggest boost, mini-bosses next, then elites, then mobs. Combo
     // multiplier already scales coins/score below; style is independent
@@ -10220,7 +11647,9 @@ function handleEnemyKilled(e, j) {
             spawnParticles(ag.x + ag.w / 2, ag.y + ag.h / 2, '#00ff00', 25, 5);
         }
         // Spawn ally cage near the boss death location
-        const allyDef = ALLY_TEMPLATES.find(a => a.stage === currentStage);
+        const allyDef = bossRushHandled
+            ? null
+            : ALLY_TEMPLATES.find(a => a.stage === currentStage);
         if (allyDef) {
             cages.push({
                 x: e.x + e.w / 2 - 30, y: 470,
@@ -10246,8 +11675,10 @@ function handleEnemyKilled(e, j) {
         screenShake = 20;
         // Queue a victory cutscene if defined for this stage. Plays right after
         // the boss explosion before the cage rescue, regardless of stage number.
+        // Skipped during boss rush — the rush chains bosses without per-stage
+        // cutscenes for pacing.
         const stageDef = STAGES[currentStage];
-        if (stageDef && stageDef.victoryCutscene && !stageDef.victoryCutsceneShown) {
+        if (!bossRushHandled && stageDef && stageDef.victoryCutscene && !stageDef.victoryCutsceneShown) {
             stageDef.victoryCutsceneShown = true;
             // Defer slightly so explosion plays first (48 frames ~= 0.8s).
             // Frame-counted so the transition pauses with the rest of the game.
@@ -10267,13 +11698,25 @@ function handleEnemyKilled(e, j) {
         }
         // If no cage, advance immediately (final stage). Otherwise wait for rescue.
         if (currentStage >= STAGES.length - 1 && !allyDef) {
-            // Final stage clear → kick off the FINALE: giant-vs-giant
-            // robot fight against EARTHBREAKER. (Replaces immediate win
-            // jump.) startFinale handles its own state setup and gates
-            // into 'won' when the player triumphs.
-            startFinale();
+            // BOSS RUSH advance — when active, route through advanceBossRush
+            // instead of stageComplete / finale. This handles the post-titan
+            // chain through GUARD-1 → ... → MECH KING.
+            if (bossRush && bossRush.active) {
+                advanceBossRush();
+            } else {
+                // Final stage clear → kick off the BOSS RUSH (regular-stage
+                // chain of 8 prior bosses + MECH KING). The giant-mech
+                // finale rig still exists for the dev panel button but is
+                // no longer the main ending route.
+                startBossRush();
+            }
         } else if (!allyDef) {
-            gameState = 'stageComplete';
+            // Mid-rush stage clear — also route through bossRush if active
+            if (bossRush && bossRush.active) {
+                advanceBossRush();
+            } else {
+                gameState = 'stageComplete';
+            }
         }
         // else: wait for cage to be broken
     }
@@ -10606,6 +12049,19 @@ function bossOrigin(e, slot) {
                 if (slot === 'leftFist')    return { x: e.x - 14, y: e.y + 120 };
                 if (slot === 'rightFist')   return { x: e.x + e.w + 14, y: e.y + 120 };
             }
+            break;
+        case 'mechking':
+            // MECH KING attack origins — twin shoulder pylons (cannons),
+            // chest core, gauntlet fists, scepter orb. Mirrors the visual
+            // layout in drawBossMechKing.
+            if (slot === 'leftCannon')  return { x: cx - 102, y: e.y + 64 };
+            if (slot === 'rightCannon') return { x: cx + 102, y: e.y + 64 };
+            if (slot === 'leftEye')     return { x: cx - 8,  y: e.y + 40 };
+            if (slot === 'rightEye')    return { x: cx + 8,  y: e.y + 40 };
+            if (slot === 'chestCore')   return { x: cx,      y: e.y + e.h * 0.45 };
+            if (slot === 'leftFist')    return { x: cx - 70, y: e.y + e.h - 80 };
+            if (slot === 'rightFist')   return { x: cx + 70, y: e.y + e.h - 80 };
+            if (slot === 'scepter')     return { x: cx + 84, y: e.y + 20 };
             break;
     }
     return { x: cx, y: cy };
@@ -11344,6 +12800,79 @@ function updateEnemies() {
         } else if (e.type === 'boss' || e.type === 'miniboss') {
             // Boss AI - subtype-specific
             e.moveTimer += slowMul;
+            // === BOSS RUSH FINAL TRANSFORMATION ===
+            // At 50% HP, every rush boss gains a thematic FINAL FORM
+            // (frost king, black-hole lord, acid horror, bomber prime, etc.)
+            // with a brief 90-frame cinematic then a new map-altering ability.
+            // Skipped on miniboss / non-rush enemies.
+            if (e.bossRush && e.type === 'boss' && !e._rushTransformed
+                    && e.hp > 0 && e.hp / e.maxHp <= 0.5) {
+                triggerBossRushTransform(e);
+            }
+            // During the transform cinematic the boss is frozen (no attacks)
+            if (e._rushTransformTimer && e._rushTransformTimer > 0) {
+                e._rushTransformTimer -= slowMul;
+                // Pulse extra particles during the cinematic
+                if ((e._rushTransformTimer | 0) % 4 === 0) {
+                    spawnParticles(
+                        e.x + Math.random() * e.w,
+                        e.y + Math.random() * e.h,
+                        e._rushTransformColor || '#ff2244', 3, 6);
+                }
+                screenShake = Math.max(screenShake, 8);
+                continue;   // skip boss AI tick during cinematic
+            }
+            // After transformation, run the unique map-altering ability
+            if (e._rushTransformed) {
+                tickBossRushTransformAbility(e, slowMul);
+            }
+            // === BOSS RUSH RAGE SUMMON ===
+            // When a rush boss drops below 33% HP, periodically summon
+            // 2 reinforcement drones flanking them. Adds the "calling
+            // for backup" feel to make low-HP bosses scarier.
+            if (e.bossRush && e.hp > 0 && e.hp / e.maxHp < 0.33) {
+                if (!e._rushSummonTimer) e._rushSummonTimer = 200;
+                e._rushSummonTimer -= slowMul;
+                if (e._rushSummonTimer <= 0) {
+                    e._rushSummonTimer = 240 + Math.random() * 60;
+                    // Spawn pair of drones above the boss
+                    for (const sign of [-1, 1]) {
+                        enemies.push({
+                            x: e.x + e.w / 2 + sign * 80,
+                            y: e.y + 40,
+                            w: 28, h: 22,
+                            type: 'drone',
+                            hp: 70, maxHp: 70,
+                            baseY: e.y + 40 + Math.random() * 60,
+                            floatTimer: Math.random() * Math.PI * 2,
+                            shootTimer: 50 + Math.random() * 30,
+                            color: '#ff4422',
+                            _bossRushMinion: true
+                        });
+                    }
+                    if (typeof spawnParticles === 'function') {
+                        spawnParticles(e.x + e.w / 2, e.y + e.h * 0.4,
+                            e.color || '#ff2244', 18, 6);
+                        spawnParticles(e.x + e.w / 2, e.y + e.h * 0.4,
+                            '#ffd744', 12, 5);
+                    }
+                    if (typeof screenShake !== 'undefined') {
+                        screenShake = Math.max(screenShake, 8);
+                    }
+                    if (typeof shopMessage !== 'undefined' && !e._rushSummonAnnounced) {
+                        shopMessage = {
+                            text: '☠ ' + (e.displayName || (e.subtype || 'BOSS').toUpperCase())
+                                  + ' SUMMONS REINFORCEMENTS ☠',
+                            timer: 180,
+                            color: '#ff4422'
+                        };
+                        e._rushSummonAnnounced = true;
+                    }
+                    if (typeof audio !== 'undefined' && audio.play) {
+                        audio.play('warpIn', { throttle: 200 });
+                    }
+                }
+            }
             // Decrement phase-transition flash timer for the renderer
             if (e.phaseFlashTimer && e.phaseFlashTimer > 0) e.phaseFlashTimer--;
             // Decrement signature-attack telegraph timer; while it's active
@@ -12645,6 +14174,13 @@ function updateEnemies() {
                 }
             } else if (e.subtype === 'titan') {
                 updateBossTitan(e, playerAngle, slowMul);
+            } else if (e.subtype === 'mechking') {
+                // MECH KING — uses TITAN-LORD AI as the base for heavy
+                // transformation attacks, plus an extra summon ability
+                // tick (turret drones every ~3s) for the "summons more
+                // pawns" mastermind feel.
+                updateBossTitan(e, playerAngle, slowMul);
+                updateBossMechKingExtra(e, playerAngle, slowMul);
             } else if (e.subtype === 'warden') {
                 // WARDEN-K — sentinel-class mini-boss. Hovers, tracks player
                 // with its optic eye, fires triple beams, drops spike claws,
@@ -16132,11 +17668,19 @@ function updateThroneCutscene() {
         player.throneSkipHeld = false;
     }
 
-    // End — transition to regular cutscene dialogue
+    // End — transition to regular cutscene dialogue, OR straight back
+    // to gameplay if no follow-up is queued (used by MECH KING boss-rush
+    // throne entrance which has no per-stage cutscene to play).
     if (t >= throneCutscene.duration) {
-        cutscene = throneCutscene.throneCutsceneNext;
+        const next = throneCutscene.throneCutsceneNext;
         throneCutscene = null;
-        gameState = 'cutscene';
+        if (next) {
+            cutscene = next;
+            gameState = 'cutscene';
+        } else {
+            cutscene = null;
+            gameState = 'playing';
+        }
     }
 }
 
@@ -16844,7 +18388,29 @@ function drawBossBody(ex, ey, e) {
         case 'nullifier': drawBossNullifier(ex, ey, e); break;
         case 'omega':     drawBossOmega(ex, ey, e); break;
         case 'titan':     drawBossTitan(ex, ey, e); break;
+        case 'mechking':  drawBossMechKing(ex, ey, e); break;
         default:          drawBossGeneric(ex, ey, e); break;
+    }
+    // === MECH KING ROYAL OVERLAY ===
+    // Boss rush final boss reuses the TITAN-LORD silhouette but is painted
+    // with a 5-spike gold crown + flowing red cape + glowing red core so
+    // he's visually distinct as the mastermind, not just a recoloured Titan.
+    // (Now used as supplementary VFX on top of drawBossMechKing.)
+    if (e.isMechKing && e.subtype !== 'mechking') {
+        drawMechKingCrown(ex, ey, e);
+    }
+    // === BOSS RUSH RAGE AURA ===
+    // Pulsing crimson aura + crackling lightning arcs around any boss
+    // when their HP drops below 33%. Adds to the "this is the climax"
+    // feel for every fight in the boss rush.
+    if (e.bossRush && e.hp > 0 && e.hp / e.maxHp < 0.33) {
+        drawBossRageAura(ex, ey, e);
+    }
+    // === BOSS RUSH TRANSFORMATION CINEMATIC OVERLAY ===
+    // During the 90-frame transformation cinematic, paint expanding
+    // energy rings + speed lines + the form-name banner.
+    if (e.bossRush && e._rushTransformTimer && e._rushTransformTimer > 0) {
+        drawBossRushTransformOverlay(e, ex, ey);
     }
     // === BOSS TRANSFORMATION OVERLAY ===
     // When the boss enters phase 2 it visibly "transforms" — extra armor and
@@ -16928,6 +18494,635 @@ function drawBossHpCore(ex, ey, e, color, radius) {
     ctx.beginPath();
     ctx.arc(ex + e.w / 2 - 3, ey + e.h / 2 - 3, radius * 0.4, 0, Math.PI * 2);
     ctx.fill();
+}
+
+// =====================================================================
+// MECH KING ROYAL OVERLAY — crown + cape + core glow drawn ON TOP of
+// the existing TITAN-LORD silhouette. Lets the boss rush final boss
+// look distinctly royal without rewriting the whole boss AI/render.
+// =====================================================================
+function drawMechKingCrown(ex, ey, e) {
+    const w = e.w;
+    const h = e.h;
+    const cx = ex + w / 2;
+    const headTop = ey + 4;
+    const t = (typeof bossRush !== 'undefined' && bossRush) ? Date.now() * 0.005 : 0;
+
+    // === Cape — flowing red cape behind the body ===
+    // Drawn first (behind the body) by saving + clipping out the body
+    // box. Easier alternative: just draw cape OFF to the sides where
+    // the body silhouette doesn't cover it.
+    ctx.save();
+    ctx.shadowColor = '#ff2244';
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = '#aa0033';
+    // Two cape "panels" hanging from each shoulder, swaying with time
+    const sway = Math.sin(t) * 6;
+    const capeW = 38;
+    const capeH = h * 0.85;
+    // Left panel
+    ctx.beginPath();
+    ctx.moveTo(ex - 2 + sway, ey + 14);
+    ctx.lineTo(ex - 18 + sway, ey + 14);
+    ctx.lineTo(ex - 24 - sway, ey + capeH);
+    ctx.lineTo(ex + 6 - sway, ey + capeH);
+    ctx.closePath();
+    ctx.fill();
+    // Right panel
+    ctx.beginPath();
+    ctx.moveTo(ex + w + 2 - sway, ey + 14);
+    ctx.lineTo(ex + w + 18 - sway, ey + 14);
+    ctx.lineTo(ex + w + 24 + sway, ey + capeH);
+    ctx.lineTo(ex + w - 6 + sway, ey + capeH);
+    ctx.closePath();
+    ctx.fill();
+    // Brighter cape inner (gives a 2-tone fold effect)
+    ctx.fillStyle = '#ff2244';
+    ctx.beginPath();
+    ctx.moveTo(ex + 2 + sway * 0.5, ey + 18);
+    ctx.lineTo(ex - 8 + sway * 0.5, ey + 18);
+    ctx.lineTo(ex - 12, ey + capeH - 8);
+    ctx.lineTo(ex + 4, ey + capeH - 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(ex + w - 2 - sway * 0.5, ey + 18);
+    ctx.lineTo(ex + w + 8 - sway * 0.5, ey + 18);
+    ctx.lineTo(ex + w + 12, ey + capeH - 8);
+    ctx.lineTo(ex + w - 4, ey + capeH - 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // === Crown — 5-spike gold crown sitting on the head ===
+    ctx.save();
+    ctx.shadowColor = '#ffd744';
+    ctx.shadowBlur = 22;
+    // Crown band — wide gold base
+    const bandY = headTop - 18;
+    const bandH = 12;
+    const bandX = cx - 32;
+    const bandW = 64;
+    ctx.fillStyle = '#bb8800';
+    ctx.fillRect(bandX, bandY, bandW, bandH);
+    ctx.fillStyle = '#ffd744';
+    ctx.fillRect(bandX + 1, bandY + 1, bandW - 2, bandH - 4);
+    // Inset highlight on the band
+    ctx.fillStyle = '#ffeeaa';
+    ctx.fillRect(bandX + 2, bandY + 2, bandW - 4, 3);
+    // 5 crown spikes — middle is tallest
+    for (let s = -2; s <= 2; s++) {
+        const sx = cx + s * 14;
+        const spikeH = 26 - Math.abs(s) * 5;
+        ctx.fillStyle = '#bb8800';
+        ctx.beginPath();
+        ctx.moveTo(sx - 7, bandY);
+        ctx.lineTo(sx, bandY - spikeH);
+        ctx.lineTo(sx + 7, bandY);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#ffd744';
+        ctx.beginPath();
+        ctx.moveTo(sx - 5, bandY);
+        ctx.lineTo(sx, bandY - spikeH + 2);
+        ctx.lineTo(sx + 5, bandY);
+        ctx.closePath();
+        ctx.fill();
+        // Glowing red gem at the tip of the middle spike
+        if (s === 0) {
+            ctx.fillStyle = '#ff2244';
+            ctx.shadowColor = '#ff2244';
+            ctx.shadowBlur = 14;
+            ctx.beginPath();
+            ctx.arc(sx, bandY - spikeH + 6, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowColor = '#ffd744';
+            ctx.shadowBlur = 22;
+        }
+    }
+    // 3 inset gold gems along the crown band
+    ctx.fillStyle = '#ff2244';
+    ctx.shadowColor = '#ff2244';
+    ctx.shadowBlur = 10;
+    for (const off of [-22, 0, 22]) {
+        ctx.beginPath();
+        ctx.arc(cx + off, bandY + bandH / 2, 3, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore();
+
+    // === Royal core glow on the chest ===
+    ctx.save();
+    ctx.shadowColor = '#ffd744';
+    ctx.shadowBlur = 20;
+    const corePulse = 0.7 + Math.sin(t * 2) * 0.3;
+    const coreR = 9 * corePulse;
+    ctx.fillStyle = '#ff2244';
+    ctx.beginPath();
+    ctx.arc(cx, ey + h * 0.45, coreR + 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffd744';
+    ctx.beginPath();
+    ctx.arc(cx, ey + h * 0.45, coreR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(cx - coreR * 0.25, ey + h * 0.45 - coreR * 0.25, coreR * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // === Floor halo — soft red glow under his feet (he's the king!) ===
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 34, 68, 0.15)';
+    ctx.beginPath();
+    ctx.ellipse(cx, ey + h - 4, w * 0.7, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+}
+
+// =====================================================================
+// drawBossRageAura — applied on top of any boss when their HP drops
+// below 33% in the boss rush. Pulsing crimson aura + 4 lightning arcs
+// crackling outward from random points around the body. Reads the
+// current frame timer for animation phase. Called from drawEnemies
+// dispatch only when e.bossRush && hpFrac < 0.33.
+// =====================================================================
+function drawBossRageAura(ex, ey, e) {
+    const w = e.w;
+    const h = e.h;
+    const cx = ex + w / 2;
+    const cy = ey + h / 2;
+    const t = Date.now() * 0.008;
+    const hpFrac = Math.max(0, e.hp / e.maxHp);
+    // Aura intensity ramps up as HP drops (0 at 33%, 1 at 0%)
+    const intensity = Math.min(1, (0.33 - hpFrac) / 0.33);
+
+    ctx.save();
+    // Outer crimson aura — radial gradient
+    const auraR = Math.max(w, h) * 0.85 + Math.sin(t * 1.5) * 8;
+    const grad = ctx.createRadialGradient(cx, cy, 20, cx, cy, auraR);
+    grad.addColorStop(0, `rgba(255, 34, 68, 0)`);
+    grad.addColorStop(0.5, `rgba(255, 34, 68, ${0.18 * intensity})`);
+    grad.addColorStop(0.8, `rgba(255, 80, 30, ${0.32 * intensity})`);
+    grad.addColorStop(1, 'rgba(255, 34, 68, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, auraR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Pulsing inner ring
+    ctx.strokeStyle = `rgba(255, 80, 100, ${0.6 * intensity})`;
+    ctx.lineWidth = 2 + Math.sin(t * 3) * 1;
+    ctx.shadowColor = '#ff2244';
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(w, h) * 0.55 + Math.sin(t * 2) * 4, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Lightning arcs — 4 random crackles per frame around the body
+    ctx.strokeStyle = '#ffeebb';
+    ctx.lineWidth = 1.8;
+    ctx.shadowColor = '#ffaa00';
+    ctx.shadowBlur = 14;
+    for (let arc = 0; arc < 4; arc++) {
+        const ang = t + arc * (Math.PI / 2) + (Math.sin(t * 5 + arc) * 0.5);
+        const sx = cx + Math.cos(ang) * Math.max(w, h) * 0.45;
+        const sy = cy + Math.sin(ang) * Math.max(w, h) * 0.45;
+        const ex2 = cx + Math.cos(ang) * Math.max(w, h) * 0.85;
+        const ey2 = cy + Math.sin(ang) * Math.max(w, h) * 0.85;
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        // 3 zigzag points
+        const dx = ex2 - sx;
+        const dy = ey2 - sy;
+        const perpX = -dy * 0.18;
+        const perpY = dx * 0.18;
+        ctx.lineTo(sx + dx * 0.33 + perpX * (Math.random() - 0.5),
+                   sy + dy * 0.33 + perpY * (Math.random() - 0.5));
+        ctx.lineTo(sx + dx * 0.66 - perpX * (Math.random() - 0.5),
+                   sy + dy * 0.66 - perpY * (Math.random() - 0.5));
+        ctx.lineTo(ex2, ey2);
+        ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // "RAGE" text floating above the boss every ~30 frames
+    if ((e.moveTimer | 0) % 60 < 30) {
+        ctx.fillStyle = `rgba(255, 80, 80, ${0.8 * intensity})`;
+        ctx.font = 'bold 14px Courier New';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = '#ff2244';
+        ctx.shadowBlur = 12;
+        ctx.fillText('☠ RAGE ☠', cx, ey - 16);
+        ctx.shadowBlur = 0;
+        ctx.textAlign = 'left';
+    }
+    ctx.restore();
+}
+
+
+// NOT a recolour of TITAN-LORD. Big throne-king with broad shoulders,
+// chest plate, gauntlets, scepter, dual shoulder pylons. Rendered with
+// the existing crown overlay drawn on top (drawMechKingCrown is also
+// invoked for cape/crown/core glow consistency).
+// =====================================================================
+function drawBossMechKing(ex, ey, e) {
+    const w = e.w;
+    const h = e.h;
+    const cx = ex + w / 2;
+    const t = Date.now() * 0.005;
+    const phase3 = e.phase >= 3;
+
+    // === Drop shadow / floor mark ===
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+    ctx.beginPath();
+    ctx.ellipse(cx, ey + h - 4, w * 0.55, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // === Throne back — flat dark trapezoid behind the king ===
+    ctx.save();
+    ctx.fillStyle = '#220011';
+    ctx.shadowColor = '#440022';
+    ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.moveTo(cx - 80, ey + 30);
+    ctx.lineTo(cx - 110, ey + h - 30);
+    ctx.lineTo(cx + 110, ey + h - 30);
+    ctx.lineTo(cx + 80, ey + 30);
+    ctx.closePath();
+    ctx.fill();
+    // Throne back accent — gold trim
+    ctx.strokeStyle = '#ffd744';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#ffd744';
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.moveTo(cx - 80, ey + 30);
+    ctx.lineTo(cx - 110, ey + h - 30);
+    ctx.moveTo(cx + 80, ey + 30);
+    ctx.lineTo(cx + 110, ey + h - 30);
+    ctx.stroke();
+    // Throne pillars at the back
+    for (const sign of [-1, 1]) {
+        ctx.fillStyle = '#440022';
+        ctx.fillRect(cx + sign * 95 - 6, ey + 20, 12, h - 50);
+        // Pillar caps
+        ctx.fillStyle = '#ffd744';
+        ctx.fillRect(cx + sign * 95 - 8, ey + 18, 16, 6);
+    }
+    ctx.restore();
+
+    // === Big body torso — deep red royal armor ===
+    ctx.save();
+    ctx.shadowColor = '#ff2244';
+    ctx.shadowBlur = 18;
+    // Torso main shape — wider at top (broad shoulders), tapers to belt
+    ctx.fillStyle = '#220011';
+    ctx.beginPath();
+    ctx.moveTo(cx - 60, ey + 40);
+    ctx.lineTo(cx - 70, ey + 60);
+    ctx.lineTo(cx - 50, ey + h - 80);
+    ctx.lineTo(cx + 50, ey + h - 80);
+    ctx.lineTo(cx + 70, ey + 60);
+    ctx.lineTo(cx + 60, ey + 40);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#aa0033';
+    ctx.beginPath();
+    ctx.moveTo(cx - 56, ey + 44);
+    ctx.lineTo(cx - 64, ey + 60);
+    ctx.lineTo(cx - 46, ey + h - 84);
+    ctx.lineTo(cx + 46, ey + h - 84);
+    ctx.lineTo(cx + 64, ey + 60);
+    ctx.lineTo(cx + 56, ey + 44);
+    ctx.closePath();
+    ctx.fill();
+    // Chest highlight (gold-trimmed plate)
+    ctx.fillStyle = '#ff2244';
+    ctx.fillRect(cx - 36, ey + 56, 72, 60);
+    ctx.strokeStyle = '#ffd744';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(cx - 36, ey + 56, 72, 60);
+    // Diagonal gold sash across chest
+    ctx.fillStyle = '#ffd744';
+    ctx.beginPath();
+    ctx.moveTo(cx - 36, ey + 100);
+    ctx.lineTo(cx - 16, ey + 56);
+    ctx.lineTo(cx - 8, ey + 56);
+    ctx.lineTo(cx - 28, ey + 108);
+    ctx.closePath();
+    ctx.fill();
+    // Belt
+    ctx.fillStyle = '#ffd744';
+    ctx.fillRect(cx - 50, ey + h - 90, 100, 14);
+    ctx.fillStyle = '#bb8800';
+    ctx.fillRect(cx - 12, ey + h - 92, 24, 18);   // belt buckle
+    ctx.fillStyle = '#ff2244';
+    ctx.fillRect(cx - 6, ey + h - 88, 12, 10);
+    ctx.restore();
+
+    // === Shoulder pylons — twin pulsing red cannons ===
+    ctx.save();
+    ctx.shadowColor = '#ff2244';
+    ctx.shadowBlur = 16;
+    for (const sign of [-1, 1]) {
+        const sx = cx + sign * 70;
+        const sy = ey + 50;
+        // Pylon body
+        ctx.fillStyle = '#440022';
+        ctx.fillRect(sx - 18, sy, 36, 28);
+        ctx.fillStyle = '#aa0033';
+        ctx.fillRect(sx - 16, sy + 2, 32, 22);
+        // Gold trim spikes pointing up
+        ctx.fillStyle = '#ffd744';
+        ctx.beginPath();
+        ctx.moveTo(sx - 14, sy);
+        ctx.lineTo(sx - 8, sy - 14);
+        ctx.lineTo(sx - 4, sy);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(sx + 4, sy);
+        ctx.lineTo(sx + 8, sy - 14);
+        ctx.lineTo(sx + 14, sy);
+        ctx.closePath();
+        ctx.fill();
+        // Cannon nozzle pointing forward
+        ctx.fillStyle = '#220011';
+        ctx.fillRect(sx + sign * 16, sy + 8, sign * 14, 12);
+        // Cannon glow tip
+        const glowPulse = 0.6 + Math.sin(t + sign) * 0.4;
+        ctx.fillStyle = '#ff2244';
+        ctx.shadowColor = '#ff2244';
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.arc(sx + sign * 30, sy + 14, 5 * glowPulse, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore();
+
+    // === Arms with gauntlets — broad armored shoulders to gold gauntlets ===
+    ctx.save();
+    ctx.shadowColor = '#ff2244';
+    ctx.shadowBlur = 14;
+    for (const sign of [-1, 1]) {
+        const baseX = cx + sign * 56;
+        const baseY = ey + 70;
+        const elbowX = cx + sign * 80 + Math.sin(t * 0.6 + sign) * 4;
+        const elbowY = ey + 130;
+        const handX = cx + sign * 70;
+        const handY = ey + h - 80;
+        // Upper arm
+        ctx.strokeStyle = '#aa0033';
+        ctx.lineWidth = 14;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        ctx.lineTo(elbowX, elbowY);
+        ctx.stroke();
+        // Forearm
+        ctx.beginPath();
+        ctx.moveTo(elbowX, elbowY);
+        ctx.lineTo(handX, handY);
+        ctx.stroke();
+        // Elbow joint
+        ctx.fillStyle = '#440022';
+        ctx.beginPath();
+        ctx.arc(elbowX, elbowY, 9, 0, Math.PI * 2);
+        ctx.fill();
+        // Gauntlet (gold)
+        ctx.fillStyle = '#ffd744';
+        ctx.shadowColor = '#ffd744';
+        ctx.shadowBlur = 10;
+        ctx.fillRect(handX - 12, handY - 4, 24, 22);
+        ctx.fillStyle = '#bb8800';
+        ctx.fillRect(handX - 10, handY + 14, 20, 4);
+        // Knuckle spikes
+        for (let k = -2; k <= 2; k++) {
+            ctx.fillStyle = '#ffeeaa';
+            ctx.beginPath();
+            ctx.moveTo(handX + k * 4, handY - 4);
+            ctx.lineTo(handX + k * 4 + 1, handY - 12);
+            ctx.lineTo(handX + k * 4 + 2, handY - 4);
+            ctx.closePath();
+            ctx.fill();
+        }
+    }
+    ctx.lineCap = 'butt';
+    ctx.restore();
+
+    // === Scepter held in right hand — a vertical staff with red crystal ===
+    ctx.save();
+    const scX = cx + 70 + 14;
+    const scTop = ey + 20;
+    const scBot = ey + h - 50;
+    // Staff
+    ctx.strokeStyle = '#bb8800';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(scX, scTop);
+    ctx.lineTo(scX, scBot);
+    ctx.stroke();
+    ctx.strokeStyle = '#ffd744';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(scX, scTop);
+    ctx.lineTo(scX, scBot);
+    ctx.stroke();
+    // Crystal head — pulsing red orb
+    const orbPulse = 1 + Math.sin(t * 1.5) * 0.15;
+    ctx.fillStyle = '#440022';
+    ctx.beginPath();
+    ctx.arc(scX, scTop, 14 * orbPulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ff2244';
+    ctx.shadowColor = '#ff2244';
+    ctx.shadowBlur = 22;
+    ctx.beginPath();
+    ctx.arc(scX, scTop, 11 * orbPulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(scX - 3, scTop - 3, 4, 0, Math.PI * 2);
+    ctx.fill();
+    // Wing-like flares around the crystal head
+    ctx.fillStyle = '#ffd744';
+    for (const sign of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(scX, scTop - 8);
+        ctx.lineTo(scX + sign * 18, scTop - 4);
+        ctx.lineTo(scX + sign * 8, scTop + 2);
+        ctx.closePath();
+        ctx.fill();
+    }
+    ctx.restore();
+
+    // === Head — bigger, with helm visor + mouth-mask ===
+    ctx.save();
+    ctx.shadowColor = '#ff2244';
+    ctx.shadowBlur = 20;
+    // Helm dome
+    ctx.fillStyle = '#220011';
+    ctx.beginPath();
+    ctx.arc(cx, ey + 40, 28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#aa0033';
+    ctx.beginPath();
+    ctx.arc(cx, ey + 40, 25, 0, Math.PI * 2);
+    ctx.fill();
+    // Visor — wide black slit with bright red inner glow
+    ctx.fillStyle = '#000';
+    ctx.fillRect(cx - 18, ey + 36, 36, 8);
+    ctx.fillStyle = '#ff2244';
+    ctx.shadowColor = '#ff2244';
+    ctx.shadowBlur = 14;
+    const visorPulse = phase3 ? (0.6 + Math.sin(t * 4) * 0.4) : 0.8;
+    ctx.fillRect(cx - 16, ey + 38, 32, 4);
+    // Eye lights inside the visor
+    ctx.fillStyle = '#ffee44';
+    ctx.beginPath();
+    ctx.arc(cx - 8, ey + 40, 2, 0, Math.PI * 2);
+    ctx.arc(cx + 8, ey + 40, 2, 0, Math.PI * 2);
+    ctx.fill();
+    void visorPulse;
+    // Mouth mask — gold grill below visor
+    ctx.fillStyle = '#ffd744';
+    ctx.fillRect(cx - 10, ey + 50, 20, 6);
+    ctx.fillStyle = '#bb8800';
+    for (let k = 0; k < 4; k++) {
+        ctx.fillRect(cx - 8 + k * 5, ey + 51, 1, 4);
+    }
+    ctx.restore();
+
+    // Now layer the cape + crown + chest core overlay (reuse the helper)
+    drawMechKingCrown(ex, ey, e);
+
+    // === Rotating energy ring around the king (mark of the throne) ===
+    // 3 counter-rotating rings of red+gold runes orbiting his torso.
+    ctx.save();
+    ctx.translate(cx, ey + h * 0.5);
+    for (let ring = 0; ring < 3; ring++) {
+        const ringR = 90 + ring * 18;
+        const ringRot = t * (ring % 2 === 0 ? 1 : -1) * 0.6;
+        ctx.save();
+        ctx.rotate(ringRot);
+        ctx.strokeStyle = ring === 1 ? '#ffd744' : '#ff2244';
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = ring === 1 ? '#ffd744' : '#ff2244';
+        ctx.shadowBlur = 10;
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        // Dotted ring (4 segments per quadrant)
+        for (let s = 0; s < 16; s++) {
+            const a1 = (s / 16) * Math.PI * 2;
+            const a2 = a1 + Math.PI * 2 / 32;
+            ctx.moveTo(Math.cos(a1) * ringR, Math.sin(a1) * ringR);
+            ctx.lineTo(Math.cos(a2) * ringR, Math.sin(a2) * ringR);
+        }
+        ctx.stroke();
+        // Bright "rune" point on the ring
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#ffeebb';
+        ctx.shadowBlur = 14;
+        for (let r = 0; r < 4; r++) {
+            const a = (r / 4) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.arc(Math.cos(a) * ringR, Math.sin(a) * ringR, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+    ctx.restore();
+
+    // === Lightning arcs from scepter to crown gem ===
+    // The two power sources are linked by visible energy bolts.
+    ctx.save();
+    const arcStart = { x: scX, y: scTop };
+    const crownTip = { x: cx, y: ey + 4 - 28 };  // approx middle crown spike tip
+    ctx.strokeStyle = '#ffeebb';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#ff2244';
+    ctx.shadowBlur = 16;
+    ctx.beginPath();
+    ctx.moveTo(arcStart.x, arcStart.y);
+    // 3 zigzag points
+    const zdx = crownTip.x - arcStart.x;
+    const zdy = crownTip.y - arcStart.y;
+    const arcWobble = Math.sin(t * 4) * 6;
+    ctx.lineTo(arcStart.x + zdx * 0.3 + arcWobble,
+               arcStart.y + zdy * 0.3 - 4);
+    ctx.lineTo(arcStart.x + zdx * 0.6 - arcWobble,
+               arcStart.y + zdy * 0.6 + 2);
+    ctx.lineTo(crownTip.x, crownTip.y);
+    ctx.stroke();
+    ctx.restore();
+}
+
+// updateBossMechKingExtra — periodic summon attack on top of the titan AI.
+// Summons drone turrets flanking him to add pressure. Frequency + count
+// scale with HP — at low HP he becomes much more aggressive.
+function updateBossMechKingExtra(e, playerAngle, slowMul) {
+    if (!e._mkSummonTimer) e._mkSummonTimer = 120;
+    e._mkSummonTimer -= slowMul;
+    if (e._mkSummonTimer <= 0) {
+        const hpFrac = Math.max(0, e.hp / e.maxHp);
+        // Faster summon rate as HP drops: 240f at full → 80f at 25%
+        e._mkSummonTimer = 80 + hpFrac * 160 + Math.random() * 30;
+        // 2 drones at full, up to 4 at low HP
+        const droneCount = hpFrac > 0.66 ? 2 : (hpFrac > 0.33 ? 3 : 4);
+        for (let i = 0; i < droneCount; i++) {
+            const sign = i % 2 === 0 ? -1 : 1;
+            const tier = i >= 2 ? 1 : 0;   // outer drones farther out
+            enemies.push({
+                x: e.x + sign * (100 + tier * 60),
+                y: e.y + 60 + tier * 30,
+                w: 28, h: 22,
+                type: 'drone', hp: 80, maxHp: 80,
+                baseY: e.y + 60 + tier * 30 + Math.random() * 40,
+                floatTimer: Math.random() * Math.PI * 2,
+                shootTimer: 50 + Math.random() * 30,
+                color: '#ff2244',
+                _kingMinion: true
+            });
+        }
+        // VFX — red flash + particles at king's hands
+        if (typeof spawnParticles === 'function') {
+            spawnParticles(e.x + e.w / 2, e.y + 100, '#ff2244', 18, 7);
+            spawnParticles(e.x + e.w / 2, e.y + 100, '#ffd744', 14, 6);
+        }
+        if (typeof audio !== 'undefined' && audio.play) audio.play('warpIn', { throttle: 200 });
+    }
+
+    // === LOW-HP DESPERATION FIRE BARRAGE ===
+    // Below 33% HP, the king's fire rate doubles AND he periodically
+    // unleashes a 12-bullet radial spread aimed at the player.
+    if (e.hp / e.maxHp < 0.33) {
+        if (!e._mkBarrageTimer) e._mkBarrageTimer = 90;
+        e._mkBarrageTimer -= slowMul;
+        if (e._mkBarrageTimer <= 0) {
+            e._mkBarrageTimer = 110 + Math.random() * 30;
+            const cx = e.x + e.w / 2;
+            const cy = e.y + e.h * 0.45;
+            for (let a = 0; a < 12; a++) {
+                const ang = (a / 12) * Math.PI * 2 + Math.sin(e.moveTimer * 0.05) * 0.2;
+                enemyBullets.push({
+                    x: cx, y: cy,
+                    vx: Math.cos(ang) * 6,
+                    vy: Math.sin(ang) * 6,
+                    life: 110, color: '#ff2244', glow: '#ffd744',
+                    size: 7, big: true
+                });
+            }
+            if (typeof spawnShockwave === 'function') {
+                spawnShockwave(cx, cy, 130, '#ff2244');
+            }
+            if (typeof audio !== 'undefined' && audio.play) {
+                audio.play('shootHeavy', { throttle: 150 });
+            }
+        }
+    }
 }
 
 // Boxy security guard with riot shield + shoulder cannons -----------------
@@ -24028,6 +26223,7 @@ function updateCamera() {
 // Restart
 function restart() {
     currentStage = 0;
+    if (typeof bossRush !== 'undefined') bossRush = null;
     player.x = 100; player.y = 400;
     player.vx = 0; player.vy = 0;
     player.hp = 220; player.maxHp = 220;
@@ -24072,23 +26268,108 @@ function restart() {
 // FINALE — GIANT-ROBOT FINAL CONFRONTATION
 // ============================================================================
 // After Titan-Lord falls, the player ascends to giant scale and fights
-// EARTHBREAKER, a planet-sized mech, to save the world.
+// MECH KING — the mastermind who orchestrated all 8 prior bosses as his
+// pawns. Mech King first SUMMONS each prior boss in sequence as a giant
+// phantom; once all 8 are defeated, his TRUE FORM descends and the
+// existing 2-life city → space fight begins.
 //
 // Self-contained module with its own bullets/enemies/particles arrays so
-// it doesn't leak into normal-stage state. State machine has three phases:
+// it doesn't leak into normal-stage state. Phase machine:
 //
-//   1. 'intro'   — 240-frame cinematic. Player rises and grows; the
-//                  EARTHBREAKER lands from orbit. Banner reveal.
-//   2. 'battle'  — actual fight. Hero (giant) on the left, boss (giant)
-//                  on the right. Player F shoots; movement W/A/S/D.
-//                  Boss has 4 attack patterns + a phase 2 at 50% HP.
-//   3. 'victory' — 240-frame epilogue. EARTHBREAKER explodes, hero
-//                  poses, "WORLD SAVED" banner. Then routes to 'won'.
+//   1. 'intro'           — 240-frame cinematic. Player rises and grows;
+//                          MECH KING's silhouette descends from orbit.
+//   2. 'dialogue1'       — pre-battle dialogue (Mech King reveals himself).
+//   3. 'transformAnime'  — player transforms to giant form.
+//   4. 'gauntletSpawn'   — 150-frame cinematic where the next gauntlet
+//                          boss falls from the sky in a beam of light.
+//                          Repeats once per gauntlet boss (8 of them).
+//   5. 'battle'          — fight the current gauntlet boss. When defeated,
+//                          handleBossDefeated() advances the gauntlet.
+//   6. 'cityToSpace'     — existing 15s knockdown→space cinematic for
+//                          MECH KING's life 1 → life 2 transition.
+//   7. 'battle2'         — life 2 (space form) of MECH KING.
+//   8. 'victory'         — 240-frame epilogue + route to 'won'.
 //
 // Coordinate space: simple screen-space (0,0 top-left) — no world camera.
 // Player x clamped to [60, 400], boss x clamped to [560, 900], both share
 // y at GROUND_Y (~520). Big sprite scale (~3x normal player size).
 let finale = null;
+
+// ============================================================================
+// GAUNTLET BOSSES — Mech King summons each prior boss in sequence
+// ============================================================================
+// Each entry holds the visual + behavior overrides applied to finale.boss
+// when that gauntlet boss is active. The boss object itself stays the
+// same shape (so all the existing combat code keeps working) — only
+// HP, name, theme colors, and attack-pattern bias change per entry.
+//
+// `prefer` is an array of attack-pattern indices the boss favors (see
+// finaleBossAttack — patterns 0..14). null = full pool (used for
+// MECH KING's true form). Reduced HP keeps the gauntlet snappy — you
+// fight 8 bosses in sequence so each one needs to die in ~30-60s.
+const GAUNTLET_BOSSES = [
+    { name: 'GUARD-1',     color: '#00ff44', accent: '#88ff88', hp: 1500, prefer: [0, 1, 6, 7] },
+    { name: 'SKYHAMMER',   color: '#ffaa00', accent: '#ffdd66', hp: 1700, prefer: [0, 1, 8, 10] },
+    { name: 'INFERNO-X',   color: '#ff4422', accent: '#ff8844', hp: 1900, prefer: [0, 3, 11, 14] },
+    { name: 'RAVAGER',     color: '#aa44ff', accent: '#cc88ff', hp: 2100, prefer: [6, 7, 12, 8] },
+    { name: 'CRYO-LORD',   color: '#88ddff', accent: '#aaeeff', hp: 2300, prefer: [2, 4, 5, 13] },
+    { name: 'NULLIFIER',   color: '#666688', accent: '#aaaacc', hp: 2500, prefer: [4, 5, 9, 10] },
+    { name: 'OMEGA-PRIME', color: '#ff00aa', accent: '#ff44dd', hp: 2700, prefer: [0, 5, 11, 12, 14] },
+    { name: 'TITAN-LORD',  color: '#ffd744', accent: '#ffee88', hp: 3000, prefer: [6, 7, 8, 12] }
+];
+const MECH_KING_FINAL = {
+    name: 'MECH KING',
+    color: '#440022',
+    accent: '#ffd744',
+    hp: 6500,
+    prefer: null   // full attack pool (existing behavior)
+};
+const GAUNTLET_FINAL_INDEX = GAUNTLET_BOSSES.length;  // 8 = MECH KING
+
+// Pull the config for the current finale.gauntletIndex.
+// Returns MECH_KING_FINAL when idx === 8.
+function getGauntletConfig() {
+    if (!finale) return MECH_KING_FINAL;
+    const idx = finale.gauntletIndex;
+    if (idx == null || idx < 0 || idx >= GAUNTLET_BOSSES.length) return MECH_KING_FINAL;
+    return GAUNTLET_BOSSES[idx];
+}
+
+// Reset finale.boss state and apply the given gauntlet config. Called by
+// handleBossDefeated when advancing the gauntlet, and by startFinale on
+// initial setup. Keeps the boss in the same x/y/w/h slot — only stats,
+// theme colors, and combat state get reset.
+function applyGauntletConfig(cfg) {
+    if (!finale || !finale.boss) return;
+    const b = finale.boss;
+    b.themeName = cfg.name;
+    b.themeColor = cfg.color;
+    b.themeAccent = cfg.accent;
+    b.preferAttacks = cfg.prefer;   // null or array of attack pattern indices
+    b.hp = cfg.hp;
+    b.maxHp = cfg.hp;
+    // Reset combat state so the new boss starts fresh
+    b.phase = 1;
+    b.attackTimer = 200;
+    b.attackPattern = 0;
+    b.telegraphTimer = 0;
+    b.phase2Triggered = false;
+    b.phase3Triggered = false;
+    b.phase4Triggered = false;
+    b.stagger = 0;
+    b.knockback = 0;
+    b.hitFlash = 0;
+    b.shakeOffset = 0;
+    b.armAttackTimer = 0;
+    b.chargeTimer = 0;
+    b.grabTimer = 0;
+    b.grabbedPlayer = false;
+    b.slamWindup = 0;
+    b.hazards = [];
+    b.minionsToSpawn = 0;
+    b.minionSpawnCooldown = 0;
+}
+
 
 function startFinale() {
     finale = {
@@ -24165,12 +26446,15 @@ function startFinale() {
             knockedDownAng: 0,        // body tilt in radians (0 upright, π/2 = lying down)
             knockedDownLift: 0        // upward offset during stand-up (negative pulls toward ground)
         },
-        // Boss — EARTHBREAKER. 2 lives: city → space.
+        // Boss — finale.boss starts as gauntlet[0] (GUARD-1) and gets
+        // its theme/HP swapped via applyGauntletConfig as the player
+        // defeats each one. After all 8 are down, MECH_KING_FINAL is
+        // applied and the existing 2-life city → space rig kicks in.
         boss: {
             x: 760, y: 320,
             w: 130, h: 220,
             hp: 6500, maxHp: 6500,
-            life: 1,                // 1 = city form, 2 = space form
+            life: 1,                // 1 = city form, 2 = space form (MECH KING true form only)
             phase: 1,
             attackTimer: 200,      // first attack delay
             attackPattern: 0,
@@ -24242,9 +26526,20 @@ function startFinale() {
         // Pre-fight + city→space dialogue cutscene state
         dialogue: null,            // { lines, idx, timer }
         // Stars for space form backdrop
-        stars: null
+        stars: null,
+        // === GAUNTLET STATE ===
+        // Track which prior boss is currently being summoned (0..7) or
+        // 8 = MECH KING true form. Set up by applyGauntletConfig below.
+        gauntletIndex: 0,
+        gauntletBannerTimer: 0,    // Frames remaining to show "RISE, [BOSSNAME]!" banner
+        gauntletBannerName: '',    // Name to display in the banner overlay
+        gauntletKingShadow: 0      // 0..1 alpha for the Mech King silhouette in the BG
     };
     gameState = 'finale';
+    // Set up the intro to show MECH KING descending from orbit (the
+    // mastermind reveal). The first gauntlet boss (GUARD-1) gets swapped
+    // in by transformAnime's exit when 'gauntletSpawn' begins.
+    applyGauntletConfig(MECH_KING_FINAL);
     audio.play('bossIntro');
 }
 
@@ -24517,6 +26812,7 @@ function updateFinale() {
     else if (finale.phase === 'dialogue1') updateFinaleDialogue();
     else if (finale.phase === 'transformAnime') updateFinaleTransformAnime();
     else if (finale.phase === 'dialogue2') updateFinaleDialogue();
+    else if (finale.phase === 'gauntletSpawn') updateFinaleGauntletSpawn();
     else if (finale.phase === 'knockdown')      updateFinaleKnockdown();
     else if (finale.phase === 'knockdownDialogue') updateFinaleDialogue();
     else if (finale.phase === 'knockdownRevive') updateFinaleKnockdownRevive();
@@ -24579,8 +26875,9 @@ function updateFinaleIntro() {
         f.dialogue = {
             lines: [
                 { speaker: 'YOU',          text: 'You — what ARE you?', color: '#88ffff' },
-                { speaker: 'EARTHBREAKER', text: 'I am the cleansing fire. Your world ends here.', color: '#ff4422' },
-                { speaker: 'YOU',          text: 'Not while I still stand. Bring it.', color: '#88ffff' }
+                { speaker: 'MECH KING',    text: 'Every robot you destroyed... my puppets. Every boss... my pawns.', color: '#ff4422' },
+                { speaker: 'MECH KING',    text: 'I am MECH KING. Now FACE my legion — every soul you crushed, again.', color: '#ff4422' },
+                { speaker: 'YOU',          text: 'Bring them. I\'ll tear through every one of them — then YOU.', color: '#88ffff' }
             ],
             idx: 0,
             charTimer: 0,
@@ -24622,6 +26919,12 @@ function updateFinaleDialogue() {
                 f.bannerTimer = 0;
                 audio.play('transform');
             } else {
+                // Default: dialogue2 → 'battle'. Used by:
+                //   - The post-revive dialogue2 (after cityToSpace) which
+                //     enters life 2 of MECH KING for the space form fight.
+                //   - The mid-cityToSpace cinematic dialogue.
+                // The first GUARD-1 drop is reached via transformAnime →
+                // 'gauntletSpawn' (not via this dialogue path).
                 f.phase = 'battle';
                 f.timer = 0;
                 f.bannerTimer = 200;
@@ -24679,9 +26982,19 @@ function updateFinaleTransformAnime() {
         audio.play('evolve');
     }
     if (t >= 220) {
-        f.phase = 'battle';
+        // Player has finished transforming — kick off the gauntlet by
+        // dropping the first boss (GUARD-1) from the sky. handleBossDefeated
+        // re-enters this same phase between subsequent gauntlet bosses.
+        f.gauntletIndex = 0;
+        applyGauntletConfig(GAUNTLET_BOSSES[0]);
+        f.phase = 'gauntletSpawn';
         f.timer = 0;
-        f.bannerTimer = 200;
+        f.bannerTimer = 0;
+        f.gauntletBannerTimer = 0;
+        if (f.boss) {
+            f.boss.y = -260;
+            f.boss.landed = false;
+        }
         audio.play('bossIntro');
     }
 }
@@ -24696,6 +27009,34 @@ function updateFinaleTransformAnime() {
 function finaleOnPlayerDeath() {
     const f = finale;
     if (!f) return false;
+    // === GAUNTLET PHASE — infinite respawns ===
+    // The kid will die a lot during the 8-boss gauntlet. Just refill HP
+    // and give brief invincibility instead of game-over so the run keeps
+    // flowing. Skips the elaborate revive cinematic (only used for MK).
+    if (f.gauntletIndex != null && f.gauntletIndex < GAUNTLET_FINAL_INDEX) {
+        f.player.hp = f.player.maxHp;
+        f.player.vx = 0;
+        f.player.vy = 0;
+        f.player.invincible = 180;   // 3s of grace
+        spawnFinaleShockwave(f.player.x, f.player.y + f.player.h * 0.5, 220,
+            f.player.charAccent || '#88ffff', 1.0);
+        for (let k = 0; k < 32; k++) {
+            const ang = Math.random() * Math.PI * 2;
+            spawnFinaleParticle(f.player.x, f.player.y + f.player.h * 0.5,
+                ['#ffffff', f.player.charAccent || '#88ffff', '#ffd744'][k % 3],
+                Math.cos(ang) * (3 + Math.random() * 4),
+                Math.sin(ang) * (3 + Math.random() * 4), 50);
+        }
+        f.hitTexts.push({
+            text: '⚡ RESURGE ⚡', x: f.player.x, y: f.player.y - 40,
+            vy: -1, life: 90, color: '#ffd744'
+        });
+        screenShake = 16;
+        hitStop = 4;
+        audio.play('warpIn');
+        return true;
+    }
+    // === MECH KING true form — first death triggers the rescue cinematic ===
     if (f.boss.life !== 1 || f.usedRevive) return false;
     f.usedRevive = true;
     f.knockdownPath = true;
@@ -24839,7 +27180,7 @@ function updateFinaleKnockdownRevive() {
         f.cameraX = 0;
         f.dialogue = {
             lines: [
-                { speaker: 'EARTHBREAKER', text: 'Impossible — you should be ASH.', color: '#ff44ff' },
+                { speaker: 'MECH KING',    text: 'Impossible — you should be ASH. EVERY pawn fell to me!', color: '#ff44ff' },
                 { speaker: 'YOU',          text: 'I came back. Now finish this — in orbit.', color: '#88ffff' }
             ],
             idx: 0,
@@ -25201,37 +27542,7 @@ function updateFinaleBattle() {
             }
             // Lethal melee
             if (b.hp <= 0) {
-                b.hp = 0;
-                if (b.life === 1) {
-                    f.phase = 'cityToSpace';
-                    f.timer = 0;
-                    f.bannerTimer = 0;
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 320, '#ffffff', 1.0);
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 480, '#ff8844', 1.0);
-                    for (let k = 0; k < 80; k++) {
-                        const ang = Math.random() * Math.PI * 2;
-                        spawnFinaleParticle(b.x, b.y + b.h / 2,
-                            ['#ffffff', '#ffaa00', '#ff4422'][k % 3],
-                            Math.cos(ang) * (4 + Math.random() * 6),
-                            Math.sin(ang) * (4 + Math.random() * 6), 80);
-                    }
-                    screenShake = 36; hitStop = 12;
-                    audio.play('bossKill');
-                } else {
-                    f.phase = 'victory';
-                    f.timer = 0; f.bannerTimer = 240;
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 400, '#ffffff', 1.0);
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 600, '#ffaa00', 1.0);
-                    for (let k = 0; k < 100; k++) {
-                        const ang = Math.random() * Math.PI * 2;
-                        spawnFinaleParticle(b.x, b.y + b.h / 2,
-                            ['#ffffff', '#ffaa00', '#ff4422'][k % 3],
-                            Math.cos(ang) * (4 + Math.random() * 6),
-                            Math.sin(ang) * (4 + Math.random() * 6), 80);
-                    }
-                    screenShake = 40; hitStop = 14;
-                    audio.play('bossKill');
-                }
+                handleBossDefeated();
                 return;
             }
         } else {
@@ -25392,19 +27703,7 @@ function updateFinaleBattle() {
             screenShake = Math.max(screenShake, 14);
             hitStop = Math.max(hitStop, 4);
             if (b.hp <= 0) {
-                b.hp = 0;
-                if (b.life === 1) {
-                    f.phase = 'cityToSpace';
-                    f.timer = 0; f.bannerTimer = 0;
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 320, '#ffffff', 1.0);
-                    screenShake = 36; hitStop = 12;
-                    audio.play('bossKill');
-                } else {
-                    f.phase = 'victory';
-                    f.timer = 0; f.bannerTimer = 240;
-                    screenShake = 40; hitStop = 14;
-                    audio.play('bossKill');
-                }
+                handleBossDefeated();
                 return;
             }
         }
@@ -26247,42 +28546,7 @@ function updateFinaleBattle() {
             screenShake = Math.max(screenShake, 4);
             audio.play('hit', { throttle: 40 });
             if (b.hp <= 0) {
-                b.hp = 0;
-                if (b.life === 1) {
-                    // First kill → city-to-space cinematic, full HP refill
-                    f.phase = 'cityToSpace';
-                    f.timer = 0;
-                    f.bannerTimer = 0;
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 320, '#ffffff', 1.0);
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 480, '#ff8844', 1.0);
-                    for (let k = 0; k < 80; k++) {
-                        const ang = Math.random() * Math.PI * 2;
-                        spawnFinaleParticle(b.x, b.y + b.h / 2,
-                            ['#ffffff', '#ffaa00', '#ff4422'][k % 3],
-                            Math.cos(ang) * (4 + Math.random() * 6),
-                            Math.sin(ang) * (4 + Math.random() * 6), 80);
-                    }
-                    screenShake = 36;
-                    hitStop = 12;
-                    audio.play('bossKill');
-                } else {
-                    // Final kill — victory
-                    f.phase = 'victory';
-                    f.timer = 0;
-                    f.bannerTimer = 240;
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 400, '#ffffff', 1.0);
-                    spawnFinaleShockwave(b.x, b.y + b.h / 2, 600, '#ffaa00', 1.0);
-                    for (let k = 0; k < 100; k++) {
-                        const ang = Math.random() * Math.PI * 2;
-                        spawnFinaleParticle(b.x, b.y + b.h / 2,
-                            ['#ffffff', '#ffaa00', '#ff4422'][k % 3],
-                            Math.cos(ang) * (4 + Math.random() * 6),
-                            Math.sin(ang) * (4 + Math.random() * 6), 80);
-                    }
-                    screenShake = 40;
-                    hitStop = 14;
-                    audio.play('bossKill');
-                }
+                handleBossDefeated();
                 return;
             }
         }
@@ -26844,9 +29108,9 @@ function updateFinaleCityToSpace() {
         f.cinematicQuips = null;
         f.dialogue = {
             lines: [
-                { speaker: 'EARTHBREAKER', text: 'You... you came BACK?', color: '#ff0000' },
+                { speaker: 'MECH KING',    text: 'You... you came BACK?', color: '#ff0000' },
                 { speaker: 'YOU',          text: 'I am EVERYONE\'S strength now. We end this together.', color: '#ffdd44' },
-                { speaker: 'EARTHBREAKER', text: 'Then I shall consume galaxies to match you.', color: '#ff0000' }
+                { speaker: 'MECH KING',    text: 'Then I shall consume galaxies to match you.', color: '#ff0000' }
             ],
             idx: 0,
             charTimer: 0,
@@ -26955,8 +29219,18 @@ function finaleBossAttack() {
     else if (phase2) pool = 14;
     else pool = 6;
     let next;
-    do { next = Math.floor(Math.random() * pool); }
-    while (next === b.attackPattern && Math.random() > 0.2);
+    // Gauntlet bosses bias their pick toward `preferAttacks` (config-driven)
+    // 70% of the time. Falls back to the normal pool otherwise — keeps
+    // them unpredictable but flavor-correct.
+    if (b.preferAttacks && b.preferAttacks.length > 0 && Math.random() < 0.7) {
+        do { next = b.preferAttacks[Math.floor(Math.random() * b.preferAttacks.length)]; }
+        while (next === b.attackPattern && Math.random() > 0.2);
+        // Clamp to current pool size
+        if (next >= pool) next = next % pool;
+    } else {
+        do { next = Math.floor(Math.random() * pool); }
+        while (next === b.attackPattern && Math.random() > 0.2);
+    }
     b.attackPattern = next;
     b.armSwing = 1;
     const muzzleX = b.x;
@@ -27208,6 +29482,199 @@ function spawnFinaleShockwave(x, y, maxR, color, life) {
 }
 
 // ============================================================================
+// GAUNTLET — SPAWN PHASE & DEFEAT HANDLER
+// ============================================================================
+
+// updateFinaleGauntletSpawn — 150-frame cinematic that drops the next
+// gauntlet boss into the arena from the sky in a beam of light. For the
+// MECH KING true form (gauntletIndex === 8), the cinematic is longer
+// (260 frames) and adds a throne-descent flash for grand entrance feel.
+//
+// Phase entered from handleBossDefeated() when advancing the gauntlet,
+// and from updateFinaleTransformAnime() at the very start (after the
+// player transforms to giant scale, before the first GUARD-1 fight).
+function updateFinaleGauntletSpawn() {
+    const f = finale;
+    const b = f.boss;
+    const isFinal = f.gauntletIndex === GAUNTLET_FINAL_INDEX;
+    const totalFrames = isFinal ? 260 : 150;
+    const t = f.timer;
+
+    // Mech King silhouette in the BG — fades in during gauntlet spawns
+    // (he's the one summoning each prior boss). Goes away during his
+    // OWN spawn (gauntletIndex === 8) since that's HIM descending.
+    if (!isFinal) {
+        f.gauntletKingShadow = Math.min(1, f.gauntletKingShadow + 0.02);
+    } else {
+        f.gauntletKingShadow = Math.max(0, f.gauntletKingShadow - 0.02);
+    }
+
+    // Banner — appears at frame 30, fades by end
+    if (t === 30) {
+        f.gauntletBannerName = b.themeName;
+        f.gauntletBannerTimer = totalFrames - 30;
+        audio.play('bossIntro');
+    }
+    if (f.gauntletBannerTimer > 0) f.gauntletBannerTimer--;
+
+    // Boss drops from the sky — interpolate y from offscreen down to landing
+    const landFrame = isFinal ? 200 : 110;
+    if (t < landFrame) {
+        const k = t / landFrame;
+        // Easing curve — slow start, fast finish
+        const ease = k * k * (3 - 2 * k);
+        b.y = -260 + (320 + 260) * ease;
+        b.landed = false;
+        b.invincible = 9999;   // can't be hit during spawn
+        // Light beam particles falling around the boss
+        if (t % 3 === 0) {
+            for (let i = 0; i < 3; i++) {
+                spawnFinaleParticle(
+                    b.x + (Math.random() - 0.5) * b.w * 1.4,
+                    b.y - 200 + Math.random() * 200,
+                    isFinal ? '#ffd744' : (b.themeAccent || '#ffaa00'),
+                    (Math.random() - 0.5) * 1,
+                    -1 - Math.random() * 2,
+                    50);
+            }
+        }
+    }
+    // Landing impact
+    else if (t === landFrame) {
+        b.y = 320;
+        b.landed = true;
+        b.invincible = 60;
+        spawnFinaleShockwave(b.x, 600, 320, b.themeAccent || '#ffaa00', 1.0);
+        spawnFinaleShockwave(b.x, 600, 480, b.themeColor || '#ff8844', 1.0);
+        screenShake = 26;
+        hitStop = 8;
+        for (let k = 0; k < 60; k++) {
+            const ang = Math.random() * Math.PI * 2;
+            spawnFinaleParticle(b.x, 600,
+                ['#ffffff', b.themeColor || '#ff8844', b.themeAccent || '#ffd744'][k % 3],
+                Math.cos(ang) * (4 + Math.random() * 6),
+                Math.sin(ang) * (4 + Math.random() * 6),
+                70);
+        }
+        if (isFinal) {
+            // Extra flourish for Mech King — bigger, redder
+            spawnFinaleShockwave(b.x, 600, 600, '#ff2244', 1.0);
+            screenShake = 36;
+            hitStop = 14;
+        }
+        audio.play('explosion');
+    }
+    // Player can be repositioned during cinematic — push them back to start
+    if (t < 60) {
+        f.player.x = 220;
+        f.player.shootTimer = 6;   // brief lockout
+    }
+
+    // End — switch to battle
+    if (t >= totalFrames) {
+        f.phase = 'battle';
+        f.timer = 0;
+        f.bannerTimer = 90;
+        b.invincible = 0;
+        b.attackTimer = 200;       // generous first-attack delay
+    }
+}
+
+// handleBossDefeated — called from each of the 3 b.hp <= 0 sites. Routes
+// through the gauntlet:
+//   - If still on a gauntlet boss (idx 0..6): advance to next, play 'gauntletSpawn'
+//   - If just killed gauntlet boss 7 (TITAN-LORD): switch to MECH KING true form
+//   - If gauntletIndex === 8 (MECH KING) life 1: existing 'cityToSpace' transition
+//   - If gauntletIndex === 8 life 2: 'victory'
+// Returns true if it consumed the death (so the caller can early-return).
+function handleBossDefeated() {
+    const f = finale;
+    if (!f) return false;
+    // Training mode auto-resets HP — don't touch phase or advance gauntlet
+    if (f.phase === 'training') return false;
+    const b = f.boss;
+    const idx = f.gauntletIndex;
+
+    // === Gauntlet bosses 0..7 — advance to next ===
+    if (idx < GAUNTLET_FINAL_INDEX) {
+        // Big celebratory burst on this boss's death
+        spawnFinaleShockwave(b.x, b.y + b.h / 2, 320, '#ffffff', 1.0);
+        spawnFinaleShockwave(b.x, b.y + b.h / 2, 480, b.themeAccent || '#ffaa00', 1.0);
+        for (let k = 0; k < 80; k++) {
+            const ang = Math.random() * Math.PI * 2;
+            spawnFinaleParticle(b.x, b.y + b.h / 2,
+                ['#ffffff', b.themeColor || '#ff8844', b.themeAccent || '#ffd744'][k % 3],
+                Math.cos(ang) * (4 + Math.random() * 6),
+                Math.sin(ang) * (4 + Math.random() * 6), 80);
+        }
+        screenShake = 30;
+        hitStop = 10;
+        audio.play('bossKill');
+        // Heal player ~30% between fights so the gauntlet doesn't trivially win on attrition
+        f.player.hp = Math.min(f.player.maxHp, f.player.hp + Math.round(f.player.maxHp * 0.30));
+        // Clear stale combat state
+        f.bullets.length = 0;
+        f.enemyBullets.length = 0;
+        if (f.minions) f.minions.length = 0;
+        // Advance to next gauntlet boss
+        f.gauntletIndex = idx + 1;
+        const nextCfg = (f.gauntletIndex === GAUNTLET_FINAL_INDEX)
+            ? MECH_KING_FINAL
+            : GAUNTLET_BOSSES[f.gauntletIndex];
+        applyGauntletConfig(nextCfg);
+        b.y = -260;          // reset off-screen for the spawn cinematic
+        b.landed = false;
+        f.phase = 'gauntletSpawn';
+        f.timer = 0;
+        f.gauntletBannerTimer = 0;
+        return true;
+    }
+
+    // === MECH KING true form — life 1 (city) → life 2 (space) ===
+    if (idx === GAUNTLET_FINAL_INDEX && b.life === 1) {
+        b.hp = 0;
+        f.phase = 'cityToSpace';
+        f.timer = 0;
+        f.bannerTimer = 0;
+        spawnFinaleShockwave(b.x, b.y + b.h / 2, 320, '#ffffff', 1.0);
+        spawnFinaleShockwave(b.x, b.y + b.h / 2, 480, '#ff8844', 1.0);
+        for (let k = 0; k < 80; k++) {
+            const ang = Math.random() * Math.PI * 2;
+            spawnFinaleParticle(b.x, b.y + b.h / 2,
+                ['#ffffff', '#ffaa00', '#ff4422'][k % 3],
+                Math.cos(ang) * (4 + Math.random() * 6),
+                Math.sin(ang) * (4 + Math.random() * 6), 80);
+        }
+        screenShake = 36;
+        hitStop = 12;
+        audio.play('bossKill');
+        return true;
+    }
+
+    // === MECH KING true form — life 2 (space) → victory ===
+    if (idx === GAUNTLET_FINAL_INDEX && b.life === 2) {
+        b.hp = 0;
+        f.phase = 'victory';
+        f.timer = 0;
+        f.winTimer = 0;
+        spawnFinaleShockwave(b.x, b.y + b.h / 2, 400, '#ffffff', 1.0);
+        spawnFinaleShockwave(b.x, b.y + b.h / 2, 600, '#ffd744', 1.0);
+        for (let k = 0; k < 120; k++) {
+            const ang = Math.random() * Math.PI * 2;
+            spawnFinaleParticle(b.x, b.y + b.h / 2,
+                ['#ffffff', '#ffd744', '#ff44ff'][k % 3],
+                Math.cos(ang) * (5 + Math.random() * 8),
+                Math.sin(ang) * (5 + Math.random() * 8), 120);
+        }
+        screenShake = 40;
+        hitStop = 16;
+        audio.play('bossKill');
+        return true;
+    }
+    return false;
+}
+
+// ============================================================================
 // FINALE — DRAW
 // ============================================================================
 function drawFinale() {
@@ -27258,6 +29725,9 @@ function drawFinale() {
     // the focus of the entire sequence.
     drawFinalePlayer();
     drawFinaleBoss();
+    // Gauntlet overlay — name label above the boss + colored aura +
+    // Mech King silhouette in the BG while the gauntlet is active.
+    drawGauntletOverlay();
 
     // === Allies channeling energy (cityToSpace Act 3) ===
     if (f.phase === 'cityToSpace' && f.allies) {
@@ -27750,7 +30220,7 @@ function drawFinale() {
         ctx.shadowBlur = 30;
         ctx.font = 'bold 38px Courier New';
         ctx.textAlign = 'center';
-        ctx.fillText('☠ EARTHBREAKER · CORE FORM ☠',
+        ctx.fillText('☠ MECH KING · CORE FORM ☠',
             canvas.width / 2, 110);
         ctx.font = 'bold 14px Courier New';
         ctx.fillStyle = '#ffaa00';
@@ -27845,6 +30315,201 @@ function drawFinale() {
     // Training mode HUD — dummy HP bar + DPS stats + key reference
     if (f.phase === 'training') {
         drawFinaleTrainingHUD();
+    }
+}
+
+// drawGauntletOverlay — name label above the boss + colored theme aura
+// + Mech King silhouette looming in the background while he summons each
+// gauntlet boss. Also paints the "RISE, [BOSSNAME]!" banner during the
+// 'gauntletSpawn' phase. Called from drawFinale right after drawFinaleBoss.
+function drawGauntletOverlay() {
+    const f = finale;
+    if (!f) return;
+    const b = f.boss;
+    const onGauntletBoss = (f.gauntletIndex != null && f.gauntletIndex < GAUNTLET_FINAL_INDEX);
+
+    // === Mech King BG silhouette ===
+    // Looms in the upper-right while a gauntlet boss is active. Hand
+    // outstretched as if summoning. Drawn before the foreground so it
+    // sits behind the actual boss. Only visible during 'battle' /
+    // 'gauntletSpawn' phases for gauntlet bosses 0-7 (during MECH KING's
+    // own fight at idx 8 the player IS fighting him in the foreground).
+    const showKing = onGauntletBoss
+        && f.gauntletKingShadow > 0
+        && (f.phase === 'battle' || f.phase === 'gauntletSpawn');
+    if (showKing) {
+        ctx.save();
+        ctx.globalAlpha = 0.32 * f.gauntletKingShadow;
+        // Far back: massive sitting silhouette of MECH KING. Rough shape:
+        // crown peak (5 spikes), wide shoulders, throne-back outline,
+        // glowing red core in the chest.
+        const kx = 1080;
+        const ky = 130;
+        ctx.fillStyle = '#220011';
+        ctx.shadowColor = '#ff2244';
+        ctx.shadowBlur = 30;
+        // Throne-back trapezoid
+        ctx.beginPath();
+        ctx.moveTo(kx - 200, ky + 160);
+        ctx.lineTo(kx - 240, ky + 360);
+        ctx.lineTo(kx + 240, ky + 360);
+        ctx.lineTo(kx + 200, ky + 160);
+        ctx.closePath();
+        ctx.fill();
+        // Body
+        ctx.beginPath();
+        ctx.ellipse(kx, ky + 200, 120, 100, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Head
+        ctx.beginPath();
+        ctx.ellipse(kx, ky + 100, 60, 60, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Crown — 5 sharp spikes
+        for (let s = -2; s <= 2; s++) {
+            const sx = kx + s * 22;
+            const sh = 50 - Math.abs(s) * 8;
+            ctx.beginPath();
+            ctx.moveTo(sx - 8, ky + 60);
+            ctx.lineTo(sx, ky + 60 - sh);
+            ctx.lineTo(sx + 8, ky + 60);
+            ctx.closePath();
+            ctx.fill();
+        }
+        // Chest core — pulsing red
+        ctx.shadowBlur = 40;
+        ctx.fillStyle = '#ff2244';
+        const corePulse = 1 + Math.sin(f.timer * 0.08) * 0.2;
+        ctx.beginPath();
+        ctx.arc(kx, ky + 200, 18 * corePulse, 0, Math.PI * 2);
+        ctx.fill();
+        // Outstretched arm (toward the active boss) — visible during
+        // 'gauntletSpawn' when he's actively summoning
+        if (f.phase === 'gauntletSpawn') {
+            ctx.shadowBlur = 12;
+            ctx.fillStyle = '#220011';
+            const armSwing = Math.min(1, f.timer / 60);
+            ctx.beginPath();
+            ctx.ellipse(kx - 130 - armSwing * 80, ky + 220 + armSwing * 30,
+                        50, 22, -0.4 - armSwing * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+            // Glowing fingertip energy at the boss
+            ctx.fillStyle = '#ffd744';
+            ctx.shadowColor = '#ffd744';
+            ctx.shadowBlur = 24;
+            const fx = kx - 220 - armSwing * 80;
+            const fy = ky + 250 + armSwing * 30;
+            ctx.beginPath();
+            ctx.arc(fx, fy, 14 + Math.sin(f.timer * 0.3) * 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+
+    // === Theme aura ring around the active boss ===
+    // Distinguishes each gauntlet boss visually without rewriting the
+    // boss render code. Drawn behind the boss silhouette would require
+    // re-ordering — instead we draw a low-alpha glow ring on top.
+    const showAura = b
+        && b.themeColor
+        && (f.phase === 'battle' || f.phase === 'battle2' || f.phase === 'gauntletSpawn')
+        && b.landed
+        && b.invincible <= 60;
+    if (showAura) {
+        ctx.save();
+        const auraR = 90 + Math.sin(f.timer * 0.06) * 8;
+        const auraGrad = ctx.createRadialGradient(
+            b.x, b.y + b.h * 0.4, 30,
+            b.x, b.y + b.h * 0.4, auraR + 60);
+        auraGrad.addColorStop(0, b.themeColor + '00');
+        auraGrad.addColorStop(0.55, b.themeColor + '55');
+        auraGrad.addColorStop(1, b.themeColor + '00');
+        ctx.fillStyle = auraGrad;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y + b.h * 0.4, auraR + 60, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // === Boss name label above the HP bar ===
+    // Persistent during battle so the kid always knows which gauntlet
+    // boss is active. Larger / more dramatic during the spawn cinematic.
+    // Hidden during intro / dialogue / cinematic phases since those have
+    // their own labelling UI.
+    const showLabel = b
+        && b.themeName
+        && (f.phase === 'battle' || f.phase === 'gauntletSpawn');
+    if (showLabel) {
+        ctx.save();
+        const labelY = b.y - 30;
+        const labelText = b.themeName;
+        const isFinal = f.gauntletIndex === GAUNTLET_FINAL_INDEX;
+        const baseSize = (f.phase === 'gauntletSpawn') ? 28 : 16;
+        ctx.font = `bold ${baseSize}px Courier New`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.shadowColor = b.themeAccent || b.themeColor || '#ffaa00';
+        ctx.shadowBlur = 14;
+        ctx.fillStyle = isFinal ? '#ffffff' : (b.themeAccent || '#ffd744');
+        ctx.fillText(labelText, b.x, labelY);
+        // Sub-label during gauntlet spawn — "RISE, [NAME]!" / "MECH KING DESCENDS"
+        if (f.phase === 'gauntletSpawn' && f.gauntletBannerTimer > 0) {
+            ctx.font = 'bold 18px Courier New';
+            ctx.fillStyle = b.themeColor || '#ff2244';
+            const sub = isFinal ? '⚜ TRUE FORM DESCENDS ⚜' : '⚔ MECH KING SUMMONS ⚔';
+            ctx.fillText(sub, b.x, labelY - 32);
+        }
+        ctx.shadowBlur = 0;
+        ctx.textBaseline = 'alphabetic';
+        ctx.restore();
+    }
+
+    // === Gauntlet progress dots — 8 dots near top showing kills ===
+    if (b && b.themeName && (f.phase === 'battle' || f.phase === 'gauntletSpawn')) {
+        ctx.save();
+        const dotY = 36;
+        const startX = canvas.width / 2 - (GAUNTLET_BOSSES.length - 1) * 12;
+        for (let i = 0; i < GAUNTLET_BOSSES.length; i++) {
+            const dotX = startX + i * 24;
+            const defeated = f.gauntletIndex > i;
+            const active = f.gauntletIndex === i;
+            ctx.fillStyle = defeated ? '#666666' : (active ? '#ffd744' : '#222222');
+            ctx.shadowColor = active ? '#ffd744' : 'transparent';
+            ctx.shadowBlur = active ? 14 : 0;
+            ctx.beginPath();
+            ctx.arc(dotX, dotY, active ? 7 : 5, 0, Math.PI * 2);
+            ctx.fill();
+            // X mark for defeated
+            if (defeated) {
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(dotX - 3, dotY - 3);
+                ctx.lineTo(dotX + 3, dotY + 3);
+                ctx.moveTo(dotX + 3, dotY - 3);
+                ctx.lineTo(dotX - 3, dotY + 3);
+                ctx.stroke();
+            }
+        }
+        // Crown for the final slot
+        const finalX = startX + GAUNTLET_BOSSES.length * 24 + 8;
+        const finalDefeated = f.gauntletIndex > GAUNTLET_FINAL_INDEX;
+        const finalActive = f.gauntletIndex === GAUNTLET_FINAL_INDEX;
+        ctx.fillStyle = finalDefeated ? '#666666' : (finalActive ? '#ff2244' : '#440022');
+        ctx.shadowColor = finalActive ? '#ff2244' : 'transparent';
+        ctx.shadowBlur = finalActive ? 18 : 0;
+        // 5-spike crown shape
+        ctx.beginPath();
+        ctx.moveTo(finalX - 9, dotY + 4);
+        ctx.lineTo(finalX - 7, dotY - 6);
+        ctx.lineTo(finalX - 4, dotY - 1);
+        ctx.lineTo(finalX, dotY - 8);
+        ctx.lineTo(finalX + 4, dotY - 1);
+        ctx.lineTo(finalX + 7, dotY - 6);
+        ctx.lineTo(finalX + 9, dotY + 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.restore();
     }
 }
 
@@ -29709,7 +32374,10 @@ function drawFinaleHUD() {
     ctx.strokeRect(canvas.width - 300, 20, 280, 22);
     ctx.fillStyle = '#fff';
     ctx.textAlign = 'right';
-    const bossLabel = f.boss.life === 2 ? 'EARTHBREAKER · CORE FORM' : 'EARTHBREAKER';
+    const bossLabelBase = (f.boss && f.boss.themeName) ? f.boss.themeName : 'MECH KING';
+    const bossLabel = (f.gauntletIndex === GAUNTLET_FINAL_INDEX && f.boss.life === 2)
+        ? `${bossLabelBase} · CORE FORM`
+        : bossLabelBase;
     const phaseTag = f.boss.phase === 4 ? ' [PH4 DESPERATION]' :
         (f.boss.phase === 3 ? ' [PH3 RAGE]' : (f.boss.phase === 2 ? ' [PH2]' : ''));
     ctx.fillText(`${bossLabel}${phaseTag}  ${Math.round(f.boss.hp)} / ${f.boss.maxHp}`, canvas.width - 28, 35);
@@ -29732,14 +32400,18 @@ function drawFinaleHUD() {
         let col = '#ff4422';
         if (f.phase === 'intro') { txt = '⚡ TRANSFORM PROTOCOL ACTIVE ⚡'; col = '#88ffff'; }
         else if (f.phase === 'battle' && f.boss.life === 2) {
-            txt = '☠ EARTHBREAKER — ORBITAL SHOWDOWN ☠';
+            txt = `☠ ${f.boss.themeName || 'MECH KING'} — ORBITAL SHOWDOWN ☠`;
             col = '#ff44ff';
         }
         else if (f.phase === 'battle' && !f.boss.phase2Triggered) {
-            txt = '⚠ EARTHBREAKER — DEFEND THE WORLD ⚠';
+            const labelName = f.boss.themeName || 'MECH KING';
+            const isFinal = f.gauntletIndex === GAUNTLET_FINAL_INDEX;
+            txt = isFinal
+                ? `⚠ ${labelName} — DEFEND THE WORLD ⚠`
+                : `⚔ MECH KING SUMMONS — ${labelName} ⚔`;
             col = '#ff4422';
         } else if (f.phase === 'battle' && f.boss.phase2Triggered) {
-            txt = '☠ EARTHBREAKER — RAGE PROTOCOL ☠';
+            txt = `☠ ${f.boss.themeName || 'MECH KING'} — RAGE PROTOCOL ☠`;
             col = '#ff44ff';
         } else if (f.phase === 'victory') {
             txt = '★ THE WORLD IS SAVED ★';
@@ -30152,12 +32824,21 @@ function gameLoop(timestamp) {
             if (cutscene.idx >= cutscene.lines.length) {
                 // Cutscene done - resume play, or jump to space transition if flagged
                 const next = cutscene.nextState;
+                const bossRushNext = cutscene.bossRushNext;
                 cutscene = null;
                 if (next === 'space') {
                     // Drop straight into the space combat sequence. The space
                     // intro cinematic (warp-in, volley, cannons charge) plays
                     // automatically inside startSpaceTransition.
                     startSpaceTransition();
+                } else if (typeof bossRushNext === 'number') {
+                    // Boss rush taunt cutscene done — spawn the next boss
+                    // (this also handles transitioning back to 'playing' or
+                    // into the throne cinematic for MECH KING).
+                    gameState = 'playing';
+                    if (typeof spawnBossRushBoss === 'function') {
+                        spawnBossRushBoss(bossRushNext);
+                    }
                 } else {
                     gameState = 'playing';
                 }
@@ -30257,6 +32938,7 @@ function gameLoop(timestamp) {
     // Restart - back to character select
     if ((gameState === 'dead' || gameState === 'won') && keys['KeyR']) {
         currentStage = 0;
+        if (typeof bossRush !== 'undefined') bossRush = null;
         bullets = []; enemyBullets = []; particles = []; dashTrails = [];
         coinPickups = []; healthDrops = []; crates = []; activeWarning = null;
         cutscene = null;
@@ -30264,6 +32946,7 @@ function gameLoop(timestamp) {
         cages = []; allies = [];
         minecraftMobs = []; minecraftBlocks = []; minecraftSpawners = []; minecraftQueue = []; minecraftQueueCursor = 0;
         primusTitans = [];
+        dancingDragons = [];
         laserGrids = []; terminals = []; keyPickups = []; player.keysHeld = [];
         stageHazards = []; stageHazardTimer = 240;
         healingStations = []; activeHealingStation = null;
@@ -30320,6 +33003,7 @@ function gameLoop(timestamp) {
             updateAllies();
             updateMinecraftSummons();
             if (typeof updatePrimusTitans === 'function') updatePrimusTitans();
+            if (typeof updateDancingDragons === 'function') updateDancingDragons();
             updateCoins();
             updateHealthDrops();
             updateCrates();
@@ -30422,6 +33106,7 @@ function gameLoop(timestamp) {
     drawAllies();
     drawMinecraftSummons();
     if (typeof drawPrimusTitans === 'function') drawPrimusTitans();
+    if (typeof drawDancingDragons === 'function') drawDancingDragons();
     drawPlayer();
     drawBullets();
     if (typeof drawBandSpecialFx === 'function') drawBandSpecialFx();
@@ -30914,30 +33599,47 @@ function drawMinibossWarden(ex, ey, e) {
 }
 
 function updateBossTitan(e, playerAngle, slowMul) {
+    const isKing = e.subtype === 'mechking';
     // Trigger transformation at 50% HP
     if (!e.transformed && e.hp <= e.maxHp * 0.5) {
         e.transformed = true;
         e.transformTimer = 1;
-        e.phase = 2;
-        // Color shift to a cooler battleship hue
-        e.color = '#aaffff';
+        e.phase = isKing ? 4 : 2;   // King jumps straight to phase 4 (desperation)
+        // Color shift — battleship cyan for TITAN-LORD, deep crimson rage for MECH KING
+        e.color = isKing ? '#ff0044' : '#aaffff';
         // Cinematic feedback
-        screenShake = 26;
-        spawnShockwave(e.x + e.w/2, e.y + e.h/2, 260, '#66ffff');
-        spawnShockwave(e.x + e.w/2, e.y + e.h/2, 380, '#aaffff');
-        spawnParticles(e.x + e.w/2, e.y + e.h/2, '#66ffff', 80, 12);
-        spawnParticles(e.x + e.w/2, e.y + e.h/2, '#ffffff', 60, 9);
-        hitStop = 8;
+        screenShake = isKing ? 36 : 26;
+        spawnShockwave(e.x + e.w/2, e.y + e.h/2, isKing ? 320 : 260, isKing ? '#ff2244' : '#66ffff');
+        spawnShockwave(e.x + e.w/2, e.y + e.h/2, isKing ? 480 : 380, isKing ? '#ffd744' : '#aaffff');
+        spawnParticles(e.x + e.w/2, e.y + e.h/2, isKing ? '#ff2244' : '#66ffff', 100, 14);
+        spawnParticles(e.x + e.w/2, e.y + e.h/2, isKing ? '#ffd744' : '#ffffff', 80, 11);
+        spawnParticles(e.x + e.w/2, e.y + e.h/2, '#ffffff', 50, 10);
+        hitStop = isKing ? 14 : 8;
         if (typeof shopMessage !== 'undefined') {
-            shopMessage = { text: '⚠ TITAN-LORD: BATTLESHIP MODE ⚠', timer: 240, color: '#66ffff' };
+            shopMessage = isKing
+                ? { text: '☠ MECH KING — THRONE PROTOCOL UNLEASHED ☠', timer: 300, color: '#ff2244' }
+                : { text: '⚠ TITAN-LORD: BATTLESHIP MODE ⚠', timer: 240, color: '#66ffff' };
         }
-        // Re-shape the boss to battleship proportions (wider, shallower)
-        e.baseW = e.w; e.baseH = e.h;
-        e.w = 220; e.h = 110;
-        // Re-position so the new bounding box stays visually centered
-        e.x = e.baseX - 30;
-        e.y = e.baseY + 30;
-        e.baseY = e.y;
+        if (isKing) {
+            // King grows MORE imposing on transform — wider + taller (no
+            // battleship squashing). Stays vertically oriented.
+            e.baseW = e.w; e.baseH = e.h;
+            e.w = 240; e.h = 260;
+            e.x = e.baseX - 10;
+            e.y = e.baseY - 20;
+            e.baseY = e.y;
+            // Boost ALL stats — desperation phase
+            e.dmgMul = (e.dmgMul || 1) * 1.3;
+            e.shootTimer = Math.max(28, Math.round((e.shootTimer || 50) * 0.7));
+        } else {
+            // Re-shape the boss to battleship proportions (wider, shallower)
+            e.baseW = e.w; e.baseH = e.h;
+            e.w = 220; e.h = 110;
+            // Re-position so the new bounding box stays visually centered
+            e.x = e.baseX - 30;
+            e.y = e.baseY + 30;
+            e.baseY = e.y;
+        }
     }
     if (e.transformTimer > 0 && e.transformTimer < 120) {
         e.transformTimer++;
@@ -33993,6 +36695,19 @@ console.log('[SC] Style Combat module loaded. Press Y at full charge for OVERCLO
         burn: true, burnDmg: 22, burnDur: 130, flame: true,
         bounce: 3, bouncesLeft: 3,
         flavor: '🐉 Endless dragon-flame. Bounces 3×, burns hard. Mythic.'
+    });
+
+    // DRAGON DANCER (tier 40) — Chinese New Year style summon weapon.
+    // Each shot does NOT fire a bullet. Instead it summons a long sinuous
+    // red+gold serpent (see spawnDancingDragon) that flows through the
+    // arena damaging enemies, then bursts into fireworks. Flagged with
+    // dragonDanceWeapon:true so shootBullet can divert to the summoner.
+    WEAPONS.push({
+        name: 'DRAGON DANCER', tier: 40, cratesOnly: true, cost: 0,
+        damage: 70, speed: 0, cooldown: 180, bullets: 1, spread: 0,
+        color: '#ff2244', glow: '#ffd744', size: 14, life: 1,
+        dragonDanceWeapon: true,
+        flavor: '🧧 Summons a flowing dance-dragon. 12s sweep, fireworks finale.'
     });
 
     // The crate system needs to know how many tiers exist. Pad
