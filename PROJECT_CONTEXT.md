@@ -4,6 +4,160 @@ A 2D action platformer + space dogfighter built in vanilla HTML5 Canvas + JavaSc
 
 ---
 
+## ⚡ MOST RECENT SESSION (Jun 7, 2026 — MECH KING boss rush + VOID GOD secret boss + 7 polish features)
+
+Big multi-pass session ~7 commits, 5 of them after the initial squashed feature commit. File grew from ~35,000 → ~39,572 lines (+~4,500). The session arc: rebuild the post-stage-8 ending into a regular-stage **boss rush** chaining 8 prior bosses + a new **MECH KING** finale + a hidden **VOID GOD** secret boss. Layer in transformations, weaknesses, voice lines, arena interactives, and New Game+. Existing giant-mech `EARTHBREAKER` finale is preserved as a dev-only mode — no longer the main ending.
+
+### Big new systems
+
+**DRAGON DANCER weapon (tier 40, mythic crate-only)** — F summons a Chinese New Year dance dragon with 16 segments (scales, mane spikes, multi-prong horns, beard, whiskers, tail tassel, sparkle trail). 12s lifetime, 3s cooldown, 70 damage per hit with 28-frame per-enemy cooldown. Bursts into red/gold/yellow firework particles on death. New `dancingDragons[]` entity system with `spawnDancingDragon`, `updateDancingDragons`, `drawDancingDragons` near the Primus Titan code. Drawn with `ctx.translate + ctx.rotate` so the head's elongated silhouette + features (eyes, snout, mouth, horns, mane, whiskers, beard) attach correctly along the travel direction.
+
+**Cayleb added to DEV_NAMES** so `cayleb` gets dev panel + hotkeys (alongside `nicholas`, `micah`, `jax`).
+
+**Mythic dev-panel quick-give buttons** for the 5 crate-only weapons (PHOENIX CANNON, STORMCALLER, VOID SHARD, GALAXY GLAIVE, DRAGON'S BREATH) — unlocks + equips in one click for testing.
+
+**EARTHBREAKER → MECH KING rename** throughout intro/dialogue/HUD/banner strings. Internal field names kept as `finale.boss` etc. since they're not visible. The kid never sees the word EARTHBREAKER again.
+
+**Giant-mech FINALE GAUNTLET (kept as dev-only fight, no longer the main ending)** — full 9-phase implementation that runs INSIDE the existing finale rig:
+- `GAUNTLET_BOSSES` config with 8 reskinned MECH KING-rig opponents + `MECH_KING_FINAL` true form (gauntletIndex 0..7 = prior bosses, 8 = mech king)
+- `applyGauntletConfig(cfg)` — resets boss state with theme colour, name, attack-bias, HP
+- `handleBossDefeated()` helper centralizes the 3 boss-death sites (melee/sword/bullet kill paths)
+- New `'gauntletSpawn'` phase — 150-frame drop-from-sky cinematic between bosses (260f for the king's true-form descent)
+- `drawGauntletOverlay()` — Mech King BG silhouette with summoning arm, per-boss aura ring, name label, 8-progress-dots HUD
+- `updateFinaleGauntletSpawn()` — handles the cinematic timer, spawn FX, and transition back to `'battle'`
+- Infinite respawns during gauntlet via `finaleOnPlayerDeath` gate so mid-rush deaths don't kill the run
+- Routes through training mode safely (handleBossDefeated bails if `phase==='training'`)
+- Dev panel `⚡ FINALE — MECH KING` button still launches this for testing
+
+**REGULAR-STAGE BOSS RUSH (the new main ending after stage 8)** — bypasses `startFinale()` and instead chains 8 prior bosses + MECH KING + VOID GOD in normal-scale gameplay:
+- New `bossRush = { active, index, loop, bossesKilledThisLoop }` global
+- `spawnBossRushBoss(idx)` calls `buildLevel()` to populate `enemies[]` then deep-copies the boss out (since stage bosses are defined inline in `buildStage1()`/etc., NOT in `STAGES[i].enemies`) — this was the silent-failure bug from earlier in the session
+- `addBossRushArenaDecor(idx, isFinal)` — per-boss themed platform layouts so each arena feels unique (sky platforms for SKYHAMMER, ice columns for CRYO-LORD, throne dais for MECH KING, etc.)
+- Boss positioned at x=700 (or 850 for final bosses) so it's visible immediately — buildBossArena was placing them at x=1800 which meant ~1500px walk before the player saw the boss
+- Arena state wiped per spawn: bullets, enemies, particles, danger zones, arena gates, boss gates, healing stations, terminals, lasers, key pickups, exit portals, switches, doors, cages, stage hazards, minecraft mobs/blocks/spawners, primus titans, dancing dragons, **boss-rush interactives**
+- `advanceBossRush()` deferFrames(60-120f) to let kill FX play, then chains: 0..7 → next gauntlet boss, 8 → MECH KING, 9 → VOID GOD, 10 → victory
+- `BOSS_RUSH_TAUNTS[]` — per-boss inter-fight cutscene where MECH KING taunts before each summon ("GUARD-1! RISE! Gate the intruder!" → "SKYHAMMER! DROP HIM!" → ...)
+- `startBossRushCutscene(idx)` reuses the `'cutscene'` gameState; the cutscene-end handler hooks `bossRushNext` to advance the spawn after Enter
+- Per-stage `cutsceneShown` and `victoryCutsceneShown` pre-set to true so the regular per-stage boss cinematic doesn't freeze the rush
+
+**MECH KING — fully custom design (subtype `mechking`, NOT a recoloured titan):**
+- `drawBossMechKing()` — entirely new silhouette: dark-red royal armored body, throne back with gold-trimmed pillars, twin shoulder cannon pylons with pulsing red tips, gold gauntlets with knuckle spikes, scepter with red crystal orb in his right hand, helm with visor + gold grill mouth-mask
+- `drawMechKingCrown()` overlay drawn on top: 5-spike gold crown with red gem on tallest spike + 3 inset band gems, flowing red royal cape (sways with time), pulsing gold-and-red chest core, red floor halo, **3 counter-rotating energy rings with rune dots, lightning arcs from scepter to crown**
+- `bossOrigin` slots so attacks fire from his actual cannons / scepter / fists / chest core — not the boss center
+- `updateBossMechKingExtra()` — drone-summon ability scales with HP (2 → 3 → 4 drones, 240f → 80f cooldown). Below 33% HP unleashes a 12-bullet radial **desperation barrage** every ~120 frames
+- THRONE PROTOCOL transformation at 50% HP (subtype-aware split inside `updateBossTitan`) — red rage form, +30% damage, grows from 240×260 → 240×260 with 1.15x bossRush growth on top, jumps to phase 4 desperation, fire rate cooldown halved
+- HP **24,000** (was 5000 → 12000 → 18000 → 24000 across iterations), 1.9x damage, 40-frame fire rate, phase 3 from start
+- Custom flashy entrance: shockwaves, 180+ particles, 32-shake, banner "⚜ MECH KING — THE THRONE DESCENDS ⚜", 60-frame invincibility window. **No more omega throne cutscene** (which made him invisible due to misalignment).
+
+**ALL gauntlet bosses buffed for the rush:**
+- 100% of buildLevel's already-buffed HP for stages 0-3, 85% for stages 4-7 (was 50/35% — too weak)
+- **Phase 3 (rage) attacks unlocked from frame 1** — full attack pool active
+- 1.7x damage, 40% faster fire rate, `bossRush: true` flag
+- **Reinforcement summons at <33% HP** — every boss spawns 2 red drones flanking them every ~4s with banner "☠ [BOSSNAME] SUMMONS REINFORCEMENTS ☠"
+
+**FINAL TRANSFORMATIONS — 50% HP cinematic per boss:**
+
+| Subtype | Final Form | Ability | Cooldown |
+|---|---|---|---|
+| guard | RIOT KING | Summons 2 shielders flanking the player | 5s |
+| skyhammer | BOMBER PRIME | Drops 3 nuke meteors with telegraph rings | 3s |
+| inferno | INFERNO HEART | Erupts 3 lava columns from the ground | 3.3s |
+| ravager | ACID HORROR | Spawns 3 acid puddles + 1 acid drone enemy | 4s |
+| cryo | ICE EMPEROR | Drops 3 homing icicles + 1 ice slow patch | 1.5s |
+| nullifier | BLACK HOLE LORD | Spawns 1-2 void rifts that pull player | 4.7s |
+| omega | OMEGA WRAITH | Summons 2 mini omega drones | 4s |
+| titan | TITAN EMPEROR | 5-meteor debris storm | 3.3s |
+
+`triggerBossRushTransform(e)` fires once per boss when HP first crosses 50%. Sets `_rushTransformed`, `_rushTransformTimer=90`, `_rushFormName`, `_rushTransformColor`. The 90-frame cinematic freezes the boss + paints 3 layered shockwaves, 180+ particles in 3 colors, **counter-rotating energy rings, 16 radial speed lines converging on the boss, big form-name banner** (drawBossRushTransformOverlay). Boss grows 15% larger, color shifts to form's signature palette.
+
+`tickBossRushTransformAbility(e, slowMul)` runs per-frame after the cinematic, reading `BOSS_RUSH_ABILITIES[subtype]` to fire the form's ability with its own cooldown.
+
+`drawBossRageAura(ex, ey, e)` — pulsing crimson aura + 4 lightning arcs (zigzag bolts in random directions) + "☠ RAGE ☠" floating text whenever any boss-rush boss drops below 33% HP.
+
+### Polish features (5 quick rounds, all landed)
+
+**HP bar phase markers (round 1)** — vertical lines at 75%/50%/25% with a gold-highlighted line on the next-coming threshold so the kid can see when transformations / rage states will fire. HP bar also reads `boss.displayName || stage.bossName` so MECH KING and form-name tags ([RIOT KING] etc.) display properly.
+
+**Boss intro voice lines (round 1)** — `BOSS_RUSH_INTRO_LINE` table; each boss gets a one-liner ("YOU SHALL NOT PASS THE GATE!" for GUARD-1, "FROM THE SKIES, YOUR DOOM!" for SKYHAMMER, etc.). Rendered via `drawBossSpeechBubble(e, ex, ey)` — themed dark-red border bubble with a downward tail, fade in/out, 4s visible.
+
+**Boss weakness system (round 1)** — `BOSS_RUSH_WEAKNESS` table maps each boss to a bullet element flag. Hits with the matching element deal **2x damage**, with a gold-burst particle FX + crit damage number. Weakness icon + label drawn next to the boss HP bar:
+- guard → ⚡ LIGHTNING · skyhammer → ❄ ICE · inferno → 💧 WATER · ravager → 🔥 FIRE
+- cryo → 🔥 FIRE · nullifier → ⚡ LIGHTNING · omega → ☣ ACID · titan → 🔥 FIRE
+- mechking has no weakness (mastermind)
+
+**Boss arena interactives (round 2)** — `bossRushInteractives[]` array with `addBossRushInteractive(x, y, kind)`. Each rush arena spawns a themed destructible/usable prop the player can shoot for tactical advantage:
+- GUARD-1 barrel (80 dmg AOE) · SKYHAMMER flak gun (100 dmg) · INFERNO-X steam vent (100 dmg + pushback)
+- RAVAGER ammo cache (+30 HP / +20 RC) · CRYO-LORD ice spike (100 dmg + 2s slow)
+- NULLIFIER void anchor (60 dmg + 3s attack disable) · OMEGA-PRIME power crystal (+50 HP heal)
+- TITAN-LORD chandelier (200 dmg massive payload) · MECH KING twin braziers (100 dmg + 6s burn)
+
+`triggerBossRushInteractive(it)` handles the on-shoot effect. `drawBossRushInteractives()` renders themed bodies with emoji icons (💥🔥⚙💨⚡❄🕳💎✨) + "SHOOT" hint label. Wiped per-spawn so previous arena's props don't carry over.
+
+**VOID GOD secret boss (round 3)** — the cosmic horror behind MECH KING. After MECH KING falls in the rush, `advanceBossRush` chains into a 4-line revelation cutscene ("I am what whispered to your enemies. I am the thing BEFORE the throne.") then `spawnSecretBoss()` drops the void god into the arena. Stats: subtype `voidgod`, **32,000 HP**, 2.2x damage, 35-frame fire rate, phase 3 from start. Aliases to `updateBossTitan` for the attack pool (omega's update is inline in updateEnemies, no callable function), plus a custom `_vgShardTimer` that fires 3 spreading magenta void shards every 4s.
+
+`drawBossVoidGod(ex, ey, e)` — **completely new silhouette, NOT a recolour**:
+- Cosmic backdrop ring (radial purple gradient) with 6 spiraling streaks
+- 6 wavy tentacles trailing out from the body with player-tracking wave motion
+- Irregular black void blob (14-segment polygon, animates per-vertex with sine wave)
+- 5 glowing magenta eyes, **pupils track the player position**
+- Crackling white lightning from center to body edge
+- 12 floating shard halo orbiting the body
+- 8 phase-3 spike growths at <33% HP
+
+Custom void arena: 5 floating cosmic platforms for vertical combat, no walls. Speech bubble "WITNESS THE END." Dev panel `☠ SECRET BOSS — VOID GOD ☠` button for direct testing. Sets `save.voidGodUnlocked` on first spawn.
+
+**New Game+ loop system (round 4)** — `bossRush.loop` field. Each completed run (defeating MECH KING + VOID GOD) bumps `save.bossRushLoop` by 1. Subsequent runs apply a per-loop multiplier:
+- +50% HP per loop · +20% damage per loop
+- Banner on rush start: "⚜ NEW GAME+ — LOOP N ⚜"
+- Stacks linearly so loop 4 = 2.0x HP / 1.6x damage. Mech King + Void God scale too.
+
+**Bigger damage numbers in boss rush (round 4)** — `drawDamageNumbers` reads `bossRush.active` and applies a 1.5x size multiplier + heavier shadow blur during the rush. Reverts to normal outside.
+
+**Dev panel additions:**
+- `⚔ BOSS RUSH — 8 + KING` button to test from any state
+- `☠ SECRET BOSS — VOID GOD ☠` button to drop straight into the void god fight
+- Both close the dev panel after click for canvas access
+
+### Notable code pointers
+
+- `bossRush` global object — { active, index, loop, bossesKilledThisLoop }
+- `GAUNTLET_BOSSES`, `MECH_KING_FINAL`, `BOSS_RUSH_TAUNTS`, `BOSS_RUSH_INTRO_LINE`, `BOSS_RUSH_WEAKNESS`, `BOSS_RUSH_TRANSFORM_DEFS`, `BOSS_RUSH_ABILITIES` config tables
+- `startBossRush()` / `spawnBossRushBoss(idx)` / `addBossRushArenaDecor(idx)` / `advanceBossRush()`
+- `triggerBossRushTransform(e)` / `tickBossRushTransformAbility(e, slowMul)` / `drawBossRushTransformOverlay`
+- `drawBossRageAura(ex, ey, e)` / `drawBossSpeechBubble(e, ex, ey)`
+- `bossRushInteractives[]` + `addBossRushInteractive` + `triggerBossRushInteractive` + `drawBossRushInteractives`
+- `applyBossRushWeaknessMul(bullet, boss)` hook in the bullet damage path
+- `spawnSecretBoss()` / `startSecretBossCutscene()` / `drawBossVoidGod(ex, ey, e)`
+- `spawnDancingDragon` / `updateDancingDragons` / `drawDancingDragons` + `dancingDragons[]`
+- `drawBossMechKing(ex, ey, e)` / `drawMechKingCrown(ex, ey, e)` / `updateBossMechKingExtra(e, playerAngle, slowMul)`
+- `BOSS_RUSH_ABILITIES.skyhammer.fire(e)` etc. — per-subtype final-form abilities
+- Save fields added: `voidGodUnlocked`, `bossRushLoop`
+- Subtype dispatch added in `drawEnemies` switch: `mechking`, `voidgod`. AI dispatch: `mechking` → titan + extras, `voidgod` → titan-fallback + shard barrage
+- `bossOrigin` cases added for `mechking` (cannons, scepter, eye visor, gauntlets, chest core)
+
+### What's still on the wishlist (not done this session)
+
+- **Local co-op** — second player on WASD+QE. Biggest one. ~1-2 days.
+- **New mech transformer form** — Optimus Prime-style truck transformation with door wings.
+- **Cosmetic skins** — alt-color characters unlocked with RC.
+- **Weapon mods** — slot 1-2 mods per weapon for stacking effects (freeze on hit, ricochet, homing).
+- **New character (Mech King's son)** — playable unlock after beating Mech King.
+- **Mini-boss antechambers** — wave-based pacing breaks between gauntlet rounds.
+- **Random arena decorations** — purely visual variety.
+- **Death replay slow-mo** — would need to wire through ~10+ death sites.
+- **Leaderboard** — local-storage best-time / lowest-health.
+
+### Pending work / known gotchas
+
+1. **Old EARTHBREAKER references** still exist in README.md and code comments. Internal var names like `finale.boss` and the giant-mech rig stay as-is. The kid no longer sees the word "EARTHBREAKER" on screen.
+2. **VOID GOD reuses titan AI as a fallback** — there's no `updateBossOmega` function (omega's AI is inline in `updateEnemies`). The shard barrage ability is added on top so VOID GOD still feels distinct.
+3. **`bossOrigin` for `voidgod`** isn't customised — attacks fire from boss center via the default fallthrough. Cosmetic-only.
+4. **`drawThrone` still draws an OMEGA-themed throne backdrop** at the throneCutscene boss position — currently bypassed for MECH KING (we removed the throneCutscene call) but the function is still wired into the main draw path. Harmless when `throneCutscene` is null.
+5. **PROJECT_CONTEXT.md is now ~2900 lines.** Older session blocks (May 25 v3, etc.) describe systems that have moved on; could be pruned in a future cleanup pass.
+6. **`finale.boss.gauntletIndex` flow during cityToSpace** — when MECH KING true form's life 1 dies, handleBossDefeated routes to `'cityToSpace'`, which preserves `gauntletIndex=8` through life 2. Knockdown→revive → battle 2 still works for MECH KING (gauntletIndex stays 8 throughout).
+
+---
+
 ## ⚡ MOST RECENT SESSION (Jun 4, 2026 — Style Combat module + 5 mech forms + expanded arsenal + roll-back of the inventory mess)
 
 Big additive session, ~13 commits. Added a self-contained **Style Combat module** (`SC.*`) that bolts on top of the 30k-line game without touching the original update/render loop. Final commit on the branch is `8e4608c` (after a soft-reset rolled back 6 over-engineered commits — see "Roll-back" below). File grew from ~30,600 → ~35,000 lines.
