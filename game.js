@@ -11422,7 +11422,13 @@ function spawnBossRushBoss(idx) {
         //   - Higher damage (1.7x base)
         //   - Summons reinforcements when low HP (handled in updateEnemies)
         const rushScale = idx < 4 ? 1.0 : 0.85;
-        bossDef.hp = Math.max(1000, Math.round(bossDef.hp * rushScale));
+        // === NEW GAME+ MULTIPLIER ===
+        // Each completed run bumps a save flag; subsequent runs get
+        // tougher bosses. Stacks linearly so loop 4 = 2.0x HP / 1.6x damage.
+        const ngLoop = (bossRush && bossRush.loop) || 0;
+        const ngHpMul = 1 + ngLoop * 0.5;
+        const ngDmgMul = 1 + ngLoop * 0.2;
+        bossDef.hp = Math.max(1000, Math.round(bossDef.hp * rushScale * ngHpMul));
         bossDef.maxHp = bossDef.hp;
         // Phase 3 from the start — gives the player the FULL boss arsenal
         // immediately. All rage-mode attacks active.
@@ -11432,7 +11438,7 @@ function spawnBossRushBoss(idx) {
         // Faster fire rate
         bossDef.shootTimer = Math.max(30, Math.round((bossDef.shootTimer || 100) * 0.6));
         // Heavier hitting — extra damage multiplier baked into the def
-        bossDef.dmgMul = 1.7;
+        bossDef.dmgMul = 1.7 * ngDmgMul;
         // Boss-rush flag so drawEnemies + updateEnemies can apply rush-only
         // visuals (rage aura overlay) and behaviors (summon-on-low-hp).
         bossDef.bossRush = true;
@@ -11450,10 +11456,14 @@ function spawnBossRushBoss(idx) {
         // throne-king with crown, cape, scepter, and twin shoulder pylons.
         // Stats are stronger than every gauntlet boss combined: 24000 HP,
         // 90% damage boost, very fast fire rate, all phases unlocked.
+        const ngLoopK = (bossRush && bossRush.loop) || 0;
+        const ngHpMulK = 1 + ngLoopK * 0.5;
+        const ngDmgMulK = 1 + ngLoopK * 0.2;
         bossDef = {
             type: 'boss', subtype: 'mechking',
             x: 4700, y: 240, w: 240, h: 260,
-            hp: 24000, maxHp: 24000,
+            hp: Math.round(24000 * ngHpMulK),
+            maxHp: Math.round(24000 * ngHpMulK),
             phase: 3,                       // start in rage protocol
             phase2Triggered: true,
             phase3Triggered: true,
@@ -11462,7 +11472,7 @@ function spawnBossRushBoss(idx) {
             baseX: 4700, baseY: 240,
             color: '#ff2244',
             attackPattern: 0,
-            dmgMul: 1.9,
+            dmgMul: 1.9 * ngDmgMulK,
             displayName: 'MECH KING',
             isMechKing: true,
             bossRush: true,
@@ -11614,12 +11624,27 @@ function spawnBossRushBoss(idx) {
 // call after stage 8 in normal play. The giant-mech finale rig still
 // exists (dev panel button) for testing but is no longer the main ending.
 function startBossRush() {
+    // Read NG+ loop count from save — each completed run bumps it
+    let loop = 0;
+    if (typeof save !== 'undefined') {
+        const meta = save.getMeta();
+        loop = (meta.bossRushLoop || 0);
+    }
     bossRush = {
         active: true,
-        index: 0
+        index: 0,
+        loop: loop,
+        bossesKilledThisLoop: 0
     };
     spawnBossRushBoss(0);
     gameState = 'playing';
+    if (loop > 0 && typeof shopMessage !== 'undefined') {
+        shopMessage = {
+            text: '⚜  N E W   G A M E +   —   L O O P  ' + (loop + 1) + '  ⚜',
+            timer: 360,
+            color: '#ffd744'
+        };
+    }
 }
 
 // Mech King's taunts before each gauntlet boss spawn — short, evocative,
@@ -12053,6 +12078,13 @@ function advanceBossRush() {
     } else {
         // All defeated — true victory!
         bossRush.active = false;
+        // Bump NG+ loop counter for next playthrough
+        if (typeof save !== 'undefined') {
+            const meta = save.getMeta();
+            const newLoop = (meta.bossRushLoop || 0) + 1;
+            save.setStat('bossRushLoop', newLoop);
+            save.write();
+        }
         deferFrames(150, () => {
             gameState = 'won';
         });
@@ -23550,14 +23582,17 @@ function drawLightningBolts() {
 
 // Floating damage numbers above enemies. Call after particles so they sit on top.
 function drawDamageNumbers() {
+    // Boost damage-number size during boss rush so they're way more readable
+    // in the chaos. Also pump up shadow blur for impact.
+    const rushBoost = (typeof bossRush !== 'undefined' && bossRush && bossRush.active) ? 1.5 : 1;
     for (const d of damageNumbers) {
         const a = Math.max(0, d.life / d.maxLife);
         ctx.save();
         ctx.globalAlpha = a;
         ctx.fillStyle = d.color;
         ctx.shadowColor = d.color;
-        ctx.shadowBlur = 8;
-        ctx.font = `bold ${d.size}px Courier New`;
+        ctx.shadowBlur = rushBoost > 1 ? 14 : 8;
+        ctx.font = `bold ${Math.round(d.size * rushBoost)}px Courier New`;
         ctx.textAlign = 'center';
         ctx.fillText(d.text, d.x - camera.x, d.y - camera.y);
         ctx.restore();
