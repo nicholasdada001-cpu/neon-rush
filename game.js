@@ -11144,7 +11144,7 @@ function drawBossRushTransformOverlay(e, ex, ey) {
 // When index 8 falls, gameState='won'.
 let bossRush = null;
 
-// Add per-boss themed platforms to the rush arena so each fight room
+// Per-boss themed platforms to the rush arena so each fight room
 // feels distinct. Called from spawnBossRushBoss after buildBossArena.
 // All platforms here are lightweight 'platform' type so they don't get
 // stripped (buildBossArena ran already).
@@ -11161,52 +11161,238 @@ function addBossRushArenaDecor(idx, isFinal) {
         // Mid-air ledge to dodge ground-pound style attacks
         platforms.push({ x: 480,  y: 360, w: 110, h: 16, type: 'platform' });
         platforms.push({ x: 800,  y: 280, w: 110, h: 16, type: 'platform' });
+        // Throne braziers — destructible interactives flanking the king
+        addBossRushInteractive(1090, 410, 'brazier');     // left of throne
+        addBossRushInteractive(1190, 410, 'brazier');     // right of throne
         return;
     }
-    // Per-prior-boss layouts. Each arena gets 2-4 themed platforms.
+    // Per-prior-boss layouts. Each arena gets 2-4 themed platforms
+    // PLUS a destructible interactive themed to the boss.
     switch (idx) {
-        case 0:  // GUARD-1 — facility crates as cover
+        case 0:  // GUARD-1 — facility crates as cover + destructible barrel
             platforms.push({ x: 360, y: 540, w: 90,  h: 60, type: 'platform' });
             platforms.push({ x: 880, y: 540, w: 90,  h: 60, type: 'platform' });
+            addBossRushInteractive(620, 530, 'barrel');
             break;
-        case 1:  // SKYHAMMER — floating sky platforms (he flies)
+        case 1:  // SKYHAMMER — floating sky platforms (he flies) + flak gun
             platforms.push({ x: 320, y: 380, w: 110, h: 14, type: 'platform' });
             platforms.push({ x: 540, y: 290, w: 100, h: 14, type: 'platform' });
             platforms.push({ x: 800, y: 380, w: 110, h: 14, type: 'platform' });
+            addBossRushInteractive(560, 270, 'flak');
             break;
-        case 2:  // INFERNO-X — broken bridges over a lava floor
+        case 2:  // INFERNO-X — broken bridges over a lava floor + steam vent
             platforms.push({ x: 280, y: 460, w: 130, h: 16, type: 'platform' });
             platforms.push({ x: 520, y: 460, w: 130, h: 16, type: 'platform' });
             platforms.push({ x: 760, y: 460, w: 130, h: 16, type: 'platform' });
+            addBossRushInteractive(640, 540, 'vent');
             break;
-        case 3:  // RAVAGER — scattered barricades to break sightlines
+        case 3:  // RAVAGER — scattered barricades + ammo cache
             platforms.push({ x: 280, y: 540, w: 70,  h: 60, type: 'platform' });
             platforms.push({ x: 460, y: 510, w: 70,  h: 90, type: 'platform' });
             platforms.push({ x: 640, y: 530, w: 70,  h: 70, type: 'platform' });
             platforms.push({ x: 880, y: 520, w: 70,  h: 80, type: 'platform' });
+            addBossRushInteractive(560, 530, 'ammo');
             break;
-        case 4:  // CRYO-LORD — ice columns
+        case 4:  // CRYO-LORD — ice columns + ice spike trap
             platforms.push({ x: 320, y: 420, w: 36,  h: 180, type: 'platform' });
             platforms.push({ x: 580, y: 380, w: 36,  h: 220, type: 'platform' });
             platforms.push({ x: 880, y: 420, w: 36,  h: 180, type: 'platform' });
+            addBossRushInteractive(750, 540, 'icespike');
             break;
-        case 5:  // NULLIFIER — disconnected void chunks
+        case 5:  // NULLIFIER — disconnected void chunks + void anchor
             platforms.push({ x: 240, y: 380, w: 90,  h: 16, type: 'platform' });
             platforms.push({ x: 460, y: 320, w: 90,  h: 16, type: 'platform' });
             platforms.push({ x: 720, y: 380, w: 90,  h: 16, type: 'platform' });
             platforms.push({ x: 940, y: 320, w: 90,  h: 16, type: 'platform' });
+            addBossRushInteractive(630, 540, 'voidanchor');
             break;
-        case 6:  // OMEGA-PRIME — throne plateau
+        case 6:  // OMEGA-PRIME — throne plateau + power crystal
             platforms.push({ x: 800, y: 540, w: 180, h: 60, type: 'platform' });   // throne base
             platforms.push({ x: 840, y: 480, w: 100, h: 60, type: 'platform' });   // throne step
             platforms.push({ x: 380, y: 380, w: 110, h: 16, type: 'platform' });
+            addBossRushInteractive(440, 360, 'crystal');
             break;
-        case 7:  // TITAN-LORD — ruined city debris
+        case 7:  // TITAN-LORD — ruined city debris + chandelier
             platforms.push({ x: 240, y: 480, w: 80,  h: 120, type: 'platform' });
             platforms.push({ x: 420, y: 420, w: 100, h: 180, type: 'platform' });
             platforms.push({ x: 880, y: 460, w: 90,  h: 140, type: 'platform' });
             platforms.push({ x: 320, y: 320, w: 90,  h: 14,  type: 'platform' });
+            addBossRushInteractive(700, 200, 'chandelier');
             break;
+    }
+}
+
+// addBossRushInteractive — places a destructible/usable arena prop.
+// Stored in a `bossRushInteractives` array which is wiped on each spawn.
+// Each kind has a unique on-shoot effect:
+//   barrel       — explodes for 80 dmg + AOE around boss
+//   brazier      — burns boss for 6s on shoot
+//   flak         — fires anti-air bullets at boss every 2s
+//   vent         — releases steam wave that pushes boss back
+//   ammo         — give player +50 ammo / +20 RC pickup
+//   icespike     — freezes boss for 2s
+//   voidanchor   — disables boss attacks for 3s
+//   crystal      — instant heal +30 HP for player
+//   chandelier   — falls on boss for 200 dmg
+let bossRushInteractives = [];
+function addBossRushInteractive(x, y, kind) {
+    bossRushInteractives.push({
+        x, y,
+        w: 36, h: 36,
+        kind,
+        hp: 30,
+        used: false,
+        anim: 0
+    });
+}
+
+// Update interactives (animations + onShoot effect handling).
+function updateBossRushInteractives() {
+    if (!Array.isArray(bossRushInteractives)) return;
+    for (let i = bossRushInteractives.length - 1; i >= 0; i--) {
+        const it = bossRushInteractives[i];
+        it.anim += 0.06;
+        if (it.used) {
+            it._fadeTimer = (it._fadeTimer || 30) - 1;
+            if (it._fadeTimer <= 0) bossRushInteractives.splice(i, 1);
+            continue;
+        }
+        // Bullet collision → trigger
+        for (let bi = bullets.length - 1; bi >= 0; bi--) {
+            const b = bullets[bi];
+            if (b.x > it.x && b.x < it.x + it.w && b.y > it.y && b.y < it.y + it.h) {
+                triggerBossRushInteractive(it);
+                if (!b.pierce) bullets.splice(bi, 1);
+                break;
+            }
+        }
+    }
+}
+
+function triggerBossRushInteractive(it) {
+    it.used = true;
+    it._fadeTimer = 30;
+    const boss = enemies.find(e => e.type === 'boss');
+    spawnParticles(it.x + it.w/2, it.y + it.h/2, '#ffaa00', 24, 8);
+    spawnShockwave(it.x + it.w/2, it.y + it.h/2, 80, '#ffaa00');
+    screenShake = Math.max(screenShake, 12);
+    if (typeof audio !== 'undefined' && audio.play) audio.play('explosion', { throttle: 60 });
+    switch (it.kind) {
+        case 'barrel':
+            // Big explosion centred on the barrel — boss takes 80 if in range
+            if (boss) {
+                const dx = (boss.x + boss.w/2) - (it.x + it.w/2);
+                const dy = (boss.y + boss.h/2) - (it.y + it.h/2);
+                if (dx*dx + dy*dy < 200*200) {
+                    boss.hp -= 80;
+                    spawnDamageNumber(boss.x + boss.w/2, boss.y, 80, 'aoe');
+                }
+            }
+            break;
+        case 'brazier':
+        case 'flak':
+        case 'vent':
+        case 'icespike':
+        case 'voidanchor':
+        case 'chandelier':
+            // All elemental traps deal damage + apply a status effect via flags
+            if (boss) {
+                let dmg = 100;
+                if (it.kind === 'chandelier') dmg = 200;
+                if (it.kind === 'voidanchor') dmg = 60;
+                boss.hp -= dmg;
+                spawnDamageNumber(boss.x + boss.w/2, boss.y, dmg, 'crit');
+                // Status effects
+                if (it.kind === 'brazier') { boss.burnTimer = 360; boss.burnDamage = 6; }
+                if (it.kind === 'icespike') { boss.iceSlowTimer = 120; }
+                if (it.kind === 'voidanchor') { boss.attackTimer = Math.max(boss.attackTimer || 0, 180); }
+            }
+            break;
+        case 'ammo':
+            if (typeof player !== 'undefined') {
+                player.hp = Math.min(player.maxHp, player.hp + 30);
+                player.robotCoins = (player.robotCoins || 0) + 20;
+                spawnDamageNumber(player.x, player.y - 30, 30, 'heal');
+            }
+            break;
+        case 'crystal':
+            if (typeof player !== 'undefined') {
+                player.hp = Math.min(player.maxHp, player.hp + 50);
+                spawnDamageNumber(player.x, player.y - 30, 50, 'heal');
+            }
+            break;
+    }
+    if (typeof shopMessage !== 'undefined') {
+        shopMessage = {
+            text: '⚒ ' + it.kind.toUpperCase() + ' TRIGGERED ⚒',
+            timer: 90,
+            color: '#ffd744'
+        };
+    }
+}
+
+// Render the interactives — kid-readable icons with a shoot prompt.
+function drawBossRushInteractives() {
+    if (!Array.isArray(bossRushInteractives) || bossRushInteractives.length === 0) return;
+    for (const it of bossRushInteractives) {
+        if (it.used && it._fadeTimer < 30) continue;
+        const sx = Math.round(it.x - camera.x);
+        const sy = Math.round(it.y - camera.y);
+        const w = it.w;
+        const h = it.h;
+        const t = it.anim;
+        ctx.save();
+        // Color theme per kind
+        const colors = {
+            barrel:     ['#aa4400', '#ff8800'],
+            brazier:    ['#aa2200', '#ff4422'],
+            flak:       ['#444444', '#aaaaaa'],
+            vent:       ['#225555', '#88ddff'],
+            ammo:       ['#aa6600', '#ffd744'],
+            icespike:   ['#225588', '#aaeeff'],
+            voidanchor: ['#220044', '#aa00ff'],
+            crystal:    ['#aa0044', '#ff44ff'],
+            chandelier: ['#aa6600', '#ffd744']
+        }[it.kind] || ['#666', '#aaa'];
+        // Drop shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.beginPath();
+        ctx.ellipse(sx + w/2, sy + h + 4, w/2 + 2, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        // Body — pulsing
+        const pulse = 1 + Math.sin(t * 2) * 0.06;
+        ctx.shadowColor = colors[1];
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = colors[0];
+        ctx.fillRect(sx + (1 - pulse) * w / 2, sy + (1 - pulse) * h / 2,
+                     w * pulse, h * pulse);
+        ctx.fillStyle = colors[1];
+        ctx.fillRect(sx + 4 + (1 - pulse) * w / 2, sy + 4 + (1 - pulse) * h / 2,
+                     (w - 8) * pulse, (h - 8) * pulse);
+        ctx.shadowBlur = 0;
+        // Kind icon
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 20px Courier New';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const icons = {
+            barrel: '💥', brazier: '🔥', flak: '⚙', vent: '💨',
+            ammo: '⚡', icespike: '❄', voidanchor: '🕳', crystal: '💎',
+            chandelier: '✨'
+        };
+        ctx.fillText(icons[it.kind] || '?', sx + w/2, sy + h/2);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        // Hint label above
+        ctx.fillStyle = colors[1];
+        ctx.font = 'bold 9px Courier New';
+        ctx.textAlign = 'center';
+        ctx.shadowColor = colors[1];
+        ctx.shadowBlur = 6;
+        ctx.fillText('SHOOT', sx + w/2, sy - 4);
+        ctx.shadowBlur = 0;
+        ctx.textAlign = 'left';
+        ctx.restore();
     }
 }
 
@@ -11310,6 +11496,7 @@ function spawnBossRushBoss(idx) {
     if (typeof minecraftSpawners !== 'undefined') minecraftSpawners = [];
     if (typeof primusTitans !== 'undefined') primusTitans = [];
     if (typeof dancingDragons !== 'undefined') dancingDragons = [];
+    bossRushInteractives = [];   // wipe per-arena interactives
     // Also wipe stage props so leftover arena gates / danger zones / shops
     // / terminals / lasers / keys from buildLevel don't clutter the rush.
     if (typeof dangerZones !== 'undefined') dangerZones = [];
@@ -33190,6 +33377,7 @@ function gameLoop(timestamp) {
             updateMinecraftSummons();
             if (typeof updatePrimusTitans === 'function') updatePrimusTitans();
             if (typeof updateDancingDragons === 'function') updateDancingDragons();
+            if (typeof updateBossRushInteractives === 'function') updateBossRushInteractives();
             updateCoins();
             updateHealthDrops();
             updateCrates();
@@ -33293,6 +33481,7 @@ function gameLoop(timestamp) {
     drawMinecraftSummons();
     if (typeof drawPrimusTitans === 'function') drawPrimusTitans();
     if (typeof drawDancingDragons === 'function') drawDancingDragons();
+    if (typeof drawBossRushInteractives === 'function') drawBossRushInteractives();
     drawPlayer();
     drawBullets();
     if (typeof drawBandSpecialFx === 'function') drawBandSpecialFx();
