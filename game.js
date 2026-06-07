@@ -11664,6 +11664,344 @@ const BOSS_RUSH_TAUNTS = [
     ]
 ];
 
+// === SECRET BOSS — VOID GOD ===
+// The cosmic horror behind everything. Spawned after MECH KING falls.
+// Custom subtype 'voidgod' — uses omega's demon AI as the base for the
+// most aggressive attack pool, rendered as a dark void entity with
+// multiple glowing eyes, tentacles, and a swirling cosmic backdrop.
+const VOID_GOD_TAUNT = [
+    { speaker: '???',         text: 'You... shattered my throne. My pawns. My king.', color: '#aa00ff' },
+    { speaker: 'YOU',         text: 'I\'m not done. WHO ARE YOU?',                    color: '#88ffff' },
+    { speaker: 'VOID GOD',    text: 'I am what whispered to your enemies. I am the thing BEFORE the throne.', color: '#aa00ff' },
+    { speaker: 'VOID GOD',    text: 'Your world was always mine. Now LOOK upon the void.', color: '#aa00ff' }
+];
+
+function startSecretBossCutscene() {
+    cutscene = {
+        stage: -1,
+        lines: VOID_GOD_TAUNT,
+        idx: 0,
+        timer: 0,
+        bossRushNext: 'voidgod'   // sentinel handled in cutscene-end logic
+    };
+    gameState = 'cutscene';
+}
+
+function spawnSecretBoss() {
+    // Reset arena for the void god fight — different visual theme
+    bullets = [];
+    enemyBullets = [];
+    particles = [];
+    enemies = [];
+    coinPickups = [];
+    healthDrops = [];
+    crates = [];
+    bossRushInteractives = [];
+    if (typeof minecraftMobs !== 'undefined') minecraftMobs = [];
+    if (typeof primusTitans !== 'undefined') primusTitans = [];
+    if (typeof dancingDragons !== 'undefined') dancingDragons = [];
+    if (typeof dangerZones !== 'undefined') dangerZones = [];
+    if (typeof arenaGates !== 'undefined') arenaGates = [];
+    if (typeof bossGates !== 'undefined') bossGates = [];
+    if (typeof stageHazards !== 'undefined') stageHazards = [];
+
+    // Reset player at full HP — earned breather before the true final
+    player.x = 200;
+    player.y = 380;
+    player.vx = 0; player.vy = 0;
+    player.hp = player.maxHp;
+    player.invincible = 120;
+
+    // Void god arena — dark with floating platforms, no ground walls
+    platforms = [
+        { x: 0, y: 600, w: 4000, h: 100, type: 'ground' },
+        // Floating combat platforms — chaotic, cosmic
+        { x: 240, y: 460, w: 110, h: 16, type: 'platform' },
+        { x: 460, y: 360, w: 110, h: 16, type: 'platform' },
+        { x: 680, y: 460, w: 110, h: 16, type: 'platform' },
+        { x: 900, y: 360, w: 110, h: 16, type: 'platform' },
+        { x: 1120, y: 460, w: 110, h: 16, type: 'platform' }
+    ];
+
+    // Void god boss — uses omega AI as base (already has demon transform)
+    const bossDef = {
+        type: 'boss', subtype: 'voidgod',
+        x: 800, y: 220, w: 240, h: 240,
+        hp: 32000, maxHp: 32000,
+        phase: 3,
+        phase2Triggered: true, phase3Triggered: true,
+        shootTimer: 35, moveTimer: 0,
+        baseX: 800, baseY: 220,
+        color: '#aa00ff',
+        attackPattern: 0,
+        dmgMul: 2.2,
+        displayName: 'VOID GOD',
+        isVoidGod: true,
+        bossRush: true,
+        aiSubtype: 'omega'
+    };
+    enemies.push(bossDef);
+    camera.x = 0;
+
+    if (typeof shopMessage !== 'undefined') {
+        shopMessage = {
+            text: '☠☠☠   V O I D   G O D   —   T H E   T R U E   M A S T E R M I N D   ☠☠☠',
+            timer: 480,
+            color: '#aa00ff'
+        };
+    }
+    if (typeof audio !== 'undefined' && audio.play) {
+        audio.play('bossIntro');
+        audio.play('explosion', { throttle: 60 });
+    }
+    // Big spawn FX
+    if (typeof spawnShockwave === 'function') {
+        spawnShockwave(bossDef.x + bossDef.w/2, bossDef.y + bossDef.h/2, 360, '#aa00ff');
+        spawnShockwave(bossDef.x + bossDef.w/2, bossDef.y + bossDef.h/2, 540, '#000000');
+        spawnShockwave(bossDef.x + bossDef.w/2, bossDef.y + bossDef.h/2, 700, '#ffffff');
+    }
+    if (typeof spawnParticles === 'function') {
+        for (let i = 0; i < 100; i++) {
+            const ang = Math.random() * Math.PI * 2;
+            spawnParticles(
+                bossDef.x + bossDef.w/2 + Math.cos(ang) * 80,
+                bossDef.y + bossDef.h/2 + Math.sin(ang) * 80,
+                ['#aa00ff', '#000000', '#ffffff', '#ff44ff'][i % 4],
+                3, 10
+            );
+        }
+    }
+    screenShake = 50;
+    hitStop = 18;
+
+    // Set the speech bubble
+    bossDef.bossSpeechBubble = {
+        text: 'WITNESS THE END.',
+        timer: 300,
+        maxTimer: 300
+    };
+
+    // Save the unlock so future runs can do something special
+    if (typeof save !== 'undefined') {
+        save.setStat('voidGodUnlocked', 1);
+        save.write();
+    }
+}
+
+// drawBossVoidGod — custom render for the secret boss. NOT a recolour
+// of any prior boss. A swirling dark mass with 5 glowing purple eyes,
+// 6 tentacles, a lightning-arc inner core, and a cosmic backdrop.
+function drawBossVoidGod(ex, ey, e) {
+    const w = e.w;
+    const h = e.h;
+    const cx = ex + w / 2;
+    const cy = ey + h / 2;
+    const t = Date.now() * 0.003;
+    const phase = e.hp / e.maxHp;
+    const ragePulse = 0.7 + Math.sin(t * 4) * 0.3;
+
+    ctx.save();
+
+    // === Cosmic backdrop ring — swirling void portal behind the boss ===
+    const portalR = Math.max(w, h) * 1.1 + Math.sin(t) * 14;
+    const portalGrad = ctx.createRadialGradient(cx, cy, 30, cx, cy, portalR);
+    portalGrad.addColorStop(0, 'rgba(170, 0, 255, 0.4)');
+    portalGrad.addColorStop(0.5, 'rgba(60, 0, 100, 0.5)');
+    portalGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = portalGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, portalR, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 6 spiraling cosmic streaks
+    ctx.strokeStyle = '#cc88ff';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#aa00ff';
+    ctx.shadowBlur = 14;
+    ctx.globalAlpha = 0.6;
+    for (let s = 0; s < 6; s++) {
+        const startAng = (s / 6) * Math.PI * 2 + t;
+        ctx.beginPath();
+        for (let r = 30; r < portalR; r += 8) {
+            const ang = startAng + (r / portalR) * Math.PI * 0.8;
+            const sx = cx + Math.cos(ang) * r;
+            const sy = cy + Math.sin(ang) * r;
+            if (r === 30) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+        }
+        ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    // === 6 tentacles trailing out from the body ===
+    ctx.strokeStyle = '#220044';
+    ctx.lineWidth = 14;
+    ctx.shadowColor = '#aa00ff';
+    ctx.shadowBlur = 18;
+    for (let tc = 0; tc < 6; tc++) {
+        const tang = (tc / 6) * Math.PI * 2 + t * 0.3;
+        const baseX = cx + Math.cos(tang) * w * 0.35;
+        const baseY = cy + Math.sin(tang) * h * 0.35;
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        // Wavy tentacle path
+        for (let seg = 1; seg <= 6; seg++) {
+            const wob = Math.sin(t * 2 + tc + seg * 0.4) * 18;
+            const segLen = 40;
+            const a = tang + wob * 0.02;
+            const sx = baseX + Math.cos(a) * (seg * segLen);
+            const sy = baseY + Math.sin(a) * (seg * segLen);
+            ctx.lineTo(sx, sy);
+        }
+        ctx.stroke();
+    }
+    // Tentacle accent (lighter purple)
+    ctx.strokeStyle = '#aa00ff';
+    ctx.lineWidth = 6;
+    for (let tc = 0; tc < 6; tc++) {
+        const tang = (tc / 6) * Math.PI * 2 + t * 0.3;
+        const baseX = cx + Math.cos(tang) * w * 0.35;
+        const baseY = cy + Math.sin(tang) * h * 0.35;
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        for (let seg = 1; seg <= 4; seg++) {
+            const wob = Math.sin(t * 2 + tc + seg * 0.4) * 14;
+            const a = tang + wob * 0.02;
+            const segLen = 38;
+            const sx = baseX + Math.cos(a) * (seg * segLen);
+            const sy = baseY + Math.sin(a) * (seg * segLen);
+            ctx.lineTo(sx, sy);
+        }
+        ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // === Main body — irregular void blob ===
+    ctx.fillStyle = '#000000';
+    ctx.shadowColor = '#aa00ff';
+    ctx.shadowBlur = 26;
+    ctx.beginPath();
+    const blobSegs = 14;
+    for (let i = 0; i < blobSegs; i++) {
+        const ang = (i / blobSegs) * Math.PI * 2;
+        const r = w * 0.42 + Math.sin(t * 1.5 + i) * 12;
+        const px = cx + Math.cos(ang) * r;
+        const py = cy + Math.sin(ang) * r;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Inner mass — slightly smaller purple core
+    ctx.fillStyle = '#220033';
+    ctx.beginPath();
+    for (let i = 0; i < blobSegs; i++) {
+        const ang = (i / blobSegs) * Math.PI * 2;
+        const r = w * 0.32 + Math.sin(t * 2 + i) * 8;
+        const px = cx + Math.cos(ang) * r;
+        const py = cy + Math.sin(ang) * r;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // === 5 glowing eyes scattered across the body ===
+    ctx.shadowColor = '#aa00ff';
+    ctx.shadowBlur = 18;
+    const eyePositions = [
+        { x: -w * 0.18, y: -h * 0.15 },
+        { x:  w * 0.18, y: -h * 0.18 },
+        { x: -w * 0.22, y:  h * 0.05 },
+        { x:  w * 0.22, y:  h * 0.05 },
+        { x:        0,  y:  h * 0.18 }
+    ];
+    for (const ep of eyePositions) {
+        const eX = cx + ep.x;
+        const eY = cy + ep.y + Math.sin(t * 2 + ep.x) * 4;
+        // Outer eye glow
+        ctx.fillStyle = '#aa00ff';
+        ctx.beginPath();
+        ctx.arc(eX, eY, 12 * ragePulse, 0, Math.PI * 2);
+        ctx.fill();
+        // Inner pupil — bright magenta
+        ctx.fillStyle = '#ff44ff';
+        ctx.beginPath();
+        ctx.arc(eX, eY, 8 * ragePulse, 0, Math.PI * 2);
+        ctx.fill();
+        // Center black pupil — looks toward player
+        ctx.fillStyle = '#000';
+        let pupilDx = 0, pupilDy = 0;
+        if (typeof player !== 'undefined') {
+            pupilDx = ((player.x + player.w / 2) - eX) * 0.04;
+            pupilDy = ((player.y + player.h / 2) - eY) * 0.04;
+            const pd = Math.hypot(pupilDx, pupilDy);
+            if (pd > 4) { pupilDx *= 4 / pd; pupilDy *= 4 / pd; }
+        }
+        ctx.beginPath();
+        ctx.arc(eX + pupilDx, eY + pupilDy, 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+
+    // === Inner crackling core — bright lightning ===
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#ffffff';
+    ctx.shadowBlur = 16;
+    for (let arc = 0; arc < 5; arc++) {
+        const a = t * 3 + arc * (Math.PI * 2 / 5);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        const r = 30 + Math.sin(t * 6 + arc) * 14;
+        ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+        ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // === Halo of small floating shards ===
+    ctx.fillStyle = '#cc88ff';
+    ctx.shadowColor = '#aa00ff';
+    ctx.shadowBlur = 8;
+    for (let s = 0; s < 12; s++) {
+        const sa = t * 1.2 + (s / 12) * Math.PI * 2;
+        const sr = w * 0.6 + Math.sin(t * 2 + s) * 10;
+        const sx = cx + Math.cos(sa) * sr;
+        const sy = cy + Math.sin(sa) * sr;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 3, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+
+    // Phase indicator — when below 33% HP, body grows extra spikes
+    if (phase < 0.33) {
+        ctx.fillStyle = '#ff44ff';
+        ctx.shadowColor = '#ff44ff';
+        ctx.shadowBlur = 14;
+        for (let sp = 0; sp < 8; sp++) {
+            const ang = (sp / 8) * Math.PI * 2 + t * 2;
+            const sr = w * 0.45;
+            const tip = w * 0.55 + Math.sin(t * 4 + sp) * 6;
+            const x1 = cx + Math.cos(ang) * sr;
+            const y1 = cy + Math.sin(ang) * sr;
+            const x2 = cx + Math.cos(ang) * tip;
+            const y2 = cy + Math.sin(ang) * tip;
+            ctx.beginPath();
+            ctx.moveTo(x1 + Math.cos(ang + Math.PI / 2) * 6, y1 + Math.sin(ang + Math.PI / 2) * 6);
+            ctx.lineTo(x2, y2);
+            ctx.lineTo(x1 - Math.cos(ang + Math.PI / 2) * 6, y1 - Math.sin(ang + Math.PI / 2) * 6);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+}
+
 // Triggers a short dialogue cutscene before the next gauntlet boss
 // spawns. Reuses the existing 'cutscene' gameState system. When the
 // dialogue ends, the boss spawn fires automatically.
@@ -11704,8 +12042,16 @@ function advanceBossRush() {
         deferFrames(90, () => {
             if (bossRush && bossRush.active) startBossRushCutscene(next);
         });
+    } else if (bossRush.index === STAGES.length + 1) {
+        // === SECRET BOSS — VOID GOD ===
+        // After Mech King falls, the TRUE mastermind descends from beyond.
+        // First-time players unlock the secret boss; subsequent runs always
+        // get him as the actual final fight.
+        deferFrames(120, () => {
+            if (bossRush && bossRush.active) startSecretBossCutscene();
+        });
     } else {
-        // All defeated — victory!
+        // All defeated — true victory!
         bossRush.active = false;
         deferFrames(150, () => {
             gameState = 'won';
@@ -14440,6 +14786,42 @@ function updateEnemies() {
                 // pawns" mastermind feel.
                 updateBossTitan(e, playerAngle, slowMul);
                 updateBossMechKingExtra(e, playerAngle, slowMul);
+            } else if (e.subtype === 'voidgod') {
+                // VOID GOD — secret boss. AI is omega-prime's demon-form
+                // path (already the most aggressive boss in the game).
+                // We force-set the transform flags so it skips the windup
+                // and goes straight to demon-tier attacks.
+                if (!e.transformed) {
+                    e.transformed = true;
+                    e.transformTimer = 95;   // skip transform freeze
+                }
+                // Run omega's update directly (re-uses its phase-aware AI)
+                if (typeof updateBossOmega === 'function') {
+                    updateBossOmega(e, playerAngle, slowMul);
+                } else {
+                    updateBossTitan(e, playerAngle, slowMul);
+                }
+                // Extra summon — every 4s, spawn 2 small void shards
+                if (!e._vgShardTimer) e._vgShardTimer = 240;
+                e._vgShardTimer -= slowMul;
+                if (e._vgShardTimer <= 0) {
+                    e._vgShardTimer = 240 + Math.random() * 60;
+                    for (let s = 0; s < 3; s++) {
+                        const ang = Math.random() * Math.PI * 2;
+                        enemyBullets.push({
+                            x: e.x + e.w / 2,
+                            y: e.y + e.h / 2,
+                            vx: Math.cos(ang) * 5,
+                            vy: Math.sin(ang) * 5,
+                            life: 200,
+                            color: '#aa00ff',
+                            glow: '#ff44ff',
+                            damage: 14,
+                            big: true
+                        });
+                    }
+                    spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#aa00ff', 14, 6);
+                }
             } else if (e.subtype === 'warden') {
                 // WARDEN-K — sentinel-class mini-boss. Hovers, tracks player
                 // with its optic eye, fires triple beams, drops spike claws,
@@ -18648,6 +19030,7 @@ function drawBossBody(ex, ey, e) {
         case 'omega':     drawBossOmega(ex, ey, e); break;
         case 'titan':     drawBossTitan(ex, ey, e); break;
         case 'mechking':  drawBossMechKing(ex, ey, e); break;
+        case 'voidgod':   drawBossVoidGod(ex, ey, e); break;
         default:          drawBossGeneric(ex, ey, e); break;
     }
     // === MECH KING ROYAL OVERLAY ===
@@ -33212,6 +33595,10 @@ function gameLoop(timestamp) {
                     if (typeof spawnBossRushBoss === 'function') {
                         spawnBossRushBoss(bossRushNext);
                     }
+                } else if (bossRushNext === 'voidgod') {
+                    // Secret boss cutscene done — drop the VOID GOD into the arena
+                    gameState = 'playing';
+                    if (typeof spawnSecretBoss === 'function') spawnSecretBoss();
                 } else {
                     gameState = 'playing';
                 }

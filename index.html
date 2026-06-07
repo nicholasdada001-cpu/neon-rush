@@ -326,6 +326,7 @@
         <div class="row"><button class="stage-btn" data-boss="7">▶ STAGE 8 — TITAN-LORD</button></div>
         <div class="row"><button id="dev-finale-btn" style="background:#5a1010;border-color:#ff4422;color:#ffaa44;font-weight:bold">⚡ FINALE — MECH KING</button></div>
         <div class="row"><button id="dev-bossrush-btn" style="background:#3a1a5a;border-color:#aa44ff;color:#ddaaff;font-weight:bold">⚔ BOSS RUSH — 8 + KING</button></div>
+        <div class="row"><button id="dev-voidgod-btn" style="background:#1a0033;border-color:#aa00ff;color:#ff44ff;font-weight:bold">☠ SECRET BOSS — VOID GOD ☠</button></div>
         <div class="row"><button id="dev-training-btn" style="background:#103a5a;border-color:#4488ff;color:#88ddff;font-weight:bold">🎯 TRAINING MODE</button></div>
         <div class="row" style="margin-top:8px">
             <button class="util-btn" data-util="space">SPACE BATTLE</button>
@@ -859,6 +860,32 @@
                     if (typeof buildLevel === 'function') buildLevel();
                     if (typeof startBossRush === 'function') startBossRush();
                     // Close the dev panel so the kid can play immediately
+                    if (devPanel) devPanel.classList.add('hidden');
+                    if (devToggle) devToggle.textContent = '🛠 DEV';
+                });
+            }
+        }
+
+        // Bind VOID GOD button — drops the secret boss directly for testing.
+        {
+            const voidBtn = document.getElementById('dev-voidgod-btn');
+            if (voidBtn) {
+                voidBtn.addEventListener('click', () => {
+                    if (typeof gameState !== 'undefined' &&
+                        (gameState === 'intro' || gameState === 'charSelect' || gameState === 'midCharSelect')) {
+                        gameState = 'playing';
+                    }
+                    if (typeof applyCharacter === 'function' && typeof charSelectIndex !== 'undefined') {
+                        applyCharacter(charSelectIndex || 0);
+                    }
+                    if (typeof currentStage !== 'undefined') currentStage = 0;
+                    if (typeof buildLevel === 'function') buildLevel();
+                    // Bootstrap the bossRush state object so advance/death
+                    // routing works correctly during the void god fight.
+                    if (typeof bossRush !== 'undefined') {
+                        bossRush = { active: true, index: STAGES.length + 1 };
+                    }
+                    if (typeof spawnSecretBoss === 'function') spawnSecretBoss();
                     if (devPanel) devPanel.classList.add('hidden');
                     if (devToggle) devToggle.textContent = '🛠 DEV';
                 });
