@@ -10435,6 +10435,22 @@ function updateBullets() {
                         dmg = SC.weaponEffects.onBulletHit(b, e, dmg);
                     }
                 }
+                // === BOSS RUSH WEAKNESS — 2x damage if bullet element matches boss weakness ===
+                let weakBonus = 1;
+                if (e.bossRush) {
+                    weakBonus = applyBossRushWeaknessMul(b, e);
+                    if (weakBonus > 1) {
+                        dmg = Math.round(dmg * weakBonus);
+                        // Visual flair — gold burst at hit point
+                        if (typeof spawnParticles === 'function') {
+                            spawnParticles(b.x, b.y, '#ffd744', 8, 5);
+                            spawnParticles(b.x, b.y, '#ffffff', 4, 4);
+                        }
+                        if (typeof spawnDamageNumber === 'function') {
+                            spawnDamageNumber(e.x + e.w/2, e.y, dmg, 'crit');
+                        }
+                    }
+                }
                 e.hp -= dmg;
                 // Apply weapon special effects
                 if (b.burn) {
@@ -10687,6 +10703,50 @@ function updateBullets() {
         if (hit || b.life <= 0) bullets.splice(i, 1);
     }
 }
+
+// ============================================================================
+// BOSS RUSH WEAKNESSES + INTRO VOICE LINES
+// ============================================================================
+// Each gauntlet boss takes 2x damage from a specific element. Hit them
+// with the matching element (read from the bullet's flag) for crits.
+// Mech King has no weakness — he's the mastermind.
+const BOSS_RUSH_WEAKNESS = {
+    guard:     { flag: 'lightning', label: '⚡ LIGHTNING', color: '#ffff44' },
+    skyhammer: { flag: 'ice',       label: '❄ ICE',       color: '#aaeeff' },
+    inferno:   { flag: 'water',     label: '💧 WATER',     color: '#88ccff' },
+    ravager:   { flag: 'flame',     label: '🔥 FIRE',      color: '#ff4422' },
+    cryo:      { flag: 'flame',     label: '🔥 FIRE',      color: '#ff4422' },
+    nullifier: { flag: 'lightning', label: '⚡ LIGHTNING', color: '#ffff44' },
+    omega:     { flag: 'acid',      label: '☣ ACID',       color: '#88ff44' },
+    titan:     { flag: 'flame',     label: '🔥 FIRE',      color: '#ff4422' }
+};
+function bossRushWeakness(e) {
+    if (!e || !e.bossRush || e.subtype === 'mechking') return null;
+    return BOSS_RUSH_WEAKNESS[e.subtype] || null;
+}
+// Apply 2x damage if the bullet matches the boss's weakness element.
+// Called from the bullet hit code.
+function applyBossRushWeaknessMul(bullet, boss) {
+    if (!bullet || !boss) return 1;
+    const weak = bossRushWeakness(boss);
+    if (!weak) return 1;
+    if (bullet[weak.flag]) return 2.0;
+    return 1;
+}
+
+// Intro voice lines — one per boss, shown as a brief speech bubble when
+// the boss arena spawns. Stays for 180 frames then fades.
+const BOSS_RUSH_INTRO_LINE = {
+    guard:     'YOU SHALL NOT PASS THE GATE!',
+    skyhammer: 'FROM THE SKIES, YOUR DOOM!',
+    inferno:   'I AM THE HEART OF THE FORGE!',
+    ravager:   'TASTE MY BARRELS, MEAT!',
+    cryo:      'FREEZE WHERE YOU STAND!',
+    nullifier: 'YOU NEVER EXISTED.',
+    omega:     'CHILDREN, RISE TO MEET HIM!',
+    titan:     'THE TITAN WILL CRUSH YOU!',
+    mechking:  'KNEEL BEFORE THE THRONE.'
+};
 
 // ============================================================================
 // BOSS RUSH FINAL TRANSFORMATIONS
@@ -11319,6 +11379,18 @@ function spawnBossRushBoss(idx) {
         }
     }
     if (typeof audio !== 'undefined' && audio.play) audio.play('bossIntro');
+
+    // === Boss intro speech bubble — short voice line above the boss ===
+    // Sets a `bossSpeechBubble` field on the boss that the renderer reads.
+    const subkey = isFinal ? 'mechking' : (bossDef.subtype || '');
+    const introLine = BOSS_RUSH_INTRO_LINE[subkey];
+    if (introLine) {
+        bossDef.bossSpeechBubble = {
+            text: introLine,
+            timer: 240,        // visible duration
+            maxTimer: 240
+        };
+    }
 
     // === MECH KING grand entrance ===
     // Uses a custom flash + shockwave entrance instead of the omega-themed
@@ -18412,6 +18484,12 @@ function drawBossBody(ex, ey, e) {
     if (e.bossRush && e._rushTransformTimer && e._rushTransformTimer > 0) {
         drawBossRushTransformOverlay(e, ex, ey);
     }
+    // === BOSS INTRO SPEECH BUBBLE ===
+    // Brief voice line floating above the boss when they enter the arena.
+    if (e.bossSpeechBubble && e.bossSpeechBubble.timer > 0) {
+        drawBossSpeechBubble(e, ex, ey);
+        e.bossSpeechBubble.timer--;
+    }
     // === BOSS TRANSFORMATION OVERLAY ===
     // When the boss enters phase 2 it visibly "transforms" — extra armor and
     // body-mounted cannons appear on top of the existing silhouette. Phase 3
@@ -18637,6 +18715,63 @@ function drawMechKingCrown(ex, ey, e) {
     ctx.beginPath();
     ctx.ellipse(cx, ey + h - 4, w * 0.7, 8, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+}
+
+// drawBossSpeechBubble — short floating dialogue bubble above the boss.
+// Used for boss-rush intro voice lines. Fades in then out over its life.
+function drawBossSpeechBubble(e, ex, ey) {
+    const b = e.bossSpeechBubble;
+    if (!b || b.timer <= 0) return;
+    const w = e.w;
+    const cx = ex + w / 2;
+    const top = ey - 50;
+    // Fade in for first 30f, fade out for last 60f
+    let alpha = 1;
+    const elapsed = b.maxTimer - b.timer;
+    if (elapsed < 30) alpha = elapsed / 30;
+    else if (b.timer < 60) alpha = b.timer / 60;
+    const padding = 10;
+    ctx.save();
+    ctx.font = 'bold 14px Courier New';
+    const text = b.text;
+    const tw = ctx.measureText(text).width;
+    const bw = tw + padding * 2;
+    const bh = 28;
+    const bx = cx - bw / 2;
+    // Bubble body — dark with red border (matches king theme)
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = 'rgba(20, 8, 16, 0.92)';
+    ctx.fillRect(bx, top, bw, bh);
+    ctx.strokeStyle = '#ff2244';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#ff2244';
+    ctx.shadowBlur = 10;
+    ctx.strokeRect(bx, top, bw, bh);
+    ctx.shadowBlur = 0;
+    // Tail pointing down at the boss
+    ctx.fillStyle = 'rgba(20, 8, 16, 0.92)';
+    ctx.beginPath();
+    ctx.moveTo(cx - 8, top + bh);
+    ctx.lineTo(cx, top + bh + 10);
+    ctx.lineTo(cx + 8, top + bh);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#ff2244';
+    ctx.beginPath();
+    ctx.moveTo(cx - 8, top + bh);
+    ctx.lineTo(cx, top + bh + 10);
+    ctx.lineTo(cx + 8, top + bh);
+    ctx.stroke();
+    // Text
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#ff2244';
+    ctx.shadowBlur = 6;
+    ctx.textAlign = 'center';
+    ctx.fillText(text, cx, top + bh / 2 + 5);
+    ctx.shadowBlur = 0;
+    ctx.textAlign = 'left';
+    ctx.globalAlpha = 1;
     ctx.restore();
 }
 
@@ -24427,20 +24562,71 @@ function drawHUD() {
     // Boss health bar (if boss is alive and nearby)
     const boss = enemies.find(e => e.type === 'boss');
     if (boss && Math.abs(boss.x - player.x) < 700) {
+        const barX = canvas.width / 2 - 175;
+        const barY = canvas.height - 40;
+        const barW = 350;
+        const barH = 22;
+        const hpFrac = boss.hp / boss.maxHp;
         ctx.fillStyle = '#222';
-        ctx.fillRect(canvas.width / 2 - 175, canvas.height - 40, 350, 22);
+        ctx.fillRect(barX, barY, barW, barH);
         ctx.fillStyle = boss.phase === 2 ? '#ff0066' : (boss.color || '#ff00ff');
         ctx.shadowColor = boss.phase === 2 ? '#ff0066' : (boss.color || '#ff00ff');
         ctx.shadowBlur = 10;
-        ctx.fillRect(canvas.width / 2 - 175, canvas.height - 40, (boss.hp / boss.maxHp) * 350, 22);
+        ctx.fillRect(barX, barY, hpFrac * barW, barH);
         ctx.shadowBlur = 0;
         ctx.strokeStyle = boss.color || '#ff00ff';
-        ctx.strokeRect(canvas.width / 2 - 175, canvas.height - 40, 350, 22);
+        ctx.strokeRect(barX, barY, barW, barH);
+        // === Phase markers — vertical lines at 75%, 50%, 25% ===
+        // Lets the kid see when transformations / rage states will fire
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+        ctx.lineWidth = 1.5;
+        ctx.shadowColor = '#ffffff';
+        ctx.shadowBlur = 4;
+        for (const frac of [0.75, 0.5, 0.25]) {
+            const mx = barX + barW * frac;
+            ctx.beginPath();
+            ctx.moveTo(mx, barY - 2);
+            ctx.lineTo(mx, barY + barH + 2);
+            ctx.stroke();
+        }
+        // Highlight the next-coming threshold in gold
+        const nextThreshold = hpFrac > 0.75 ? 0.75 : (hpFrac > 0.5 ? 0.5 : (hpFrac > 0.25 ? 0.25 : null));
+        if (nextThreshold != null) {
+            ctx.strokeStyle = '#ffd744';
+            ctx.lineWidth = 2;
+            ctx.shadowColor = '#ffd744';
+            ctx.shadowBlur = 10;
+            const mx = barX + barW * nextThreshold;
+            ctx.beginPath();
+            ctx.moveTo(mx, barY - 4);
+            ctx.lineTo(mx, barY + barH + 4);
+            ctx.stroke();
+        }
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = 1;
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 13px Courier New';
         ctx.textAlign = 'center';
+        // Use boss.displayName when set (boss rush MECH KING) so the
+        // kid sees the right name on the HUD; fall back to stage's bossName.
         const stage = STAGES[currentStage];
-        ctx.fillText((stage ? stage.bossName : 'BOSS') + (boss.phase === 2 ? '  [ENRAGED]' : ''), canvas.width / 2, canvas.height - 25);
+        const baseName = boss.displayName || (stage ? stage.bossName : 'BOSS');
+        const formTag = boss._rushTransformed ? '  [' + (boss._rushFormName || 'FINAL FORM') + ']'
+                       : (boss.phase === 2 ? '  [ENRAGED]' : (boss.phase === 3 ? '  [RAGE]' : ''));
+        ctx.fillText(baseName + formTag, canvas.width / 2, canvas.height - 25);
+        // === Weakness icon — shown to the right of the bar ===
+        // Each gauntlet boss has an elemental weakness; player deals 2x dmg
+        // when hitting with that element. Read elsewhere; here we just show the icon.
+        const weak = bossRushWeakness(boss);
+        if (weak) {
+            ctx.font = 'bold 18px Courier New';
+            ctx.fillStyle = weak.color;
+            ctx.shadowColor = weak.color;
+            ctx.shadowBlur = 10;
+            ctx.textAlign = 'left';
+            ctx.fillText('WEAK: ' + weak.label, barX + barW + 14, canvas.height - 24);
+            ctx.shadowBlur = 0;
+        }
         ctx.textAlign = 'left';
     }
 }
