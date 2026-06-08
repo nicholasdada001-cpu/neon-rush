@@ -11748,22 +11748,33 @@ function spawnSecretBoss() {
         { x: 1120, y: 460, w: 110, h: 16, type: 'platform' }
     ];
 
-    // Void god boss — uses omega AI as base (already has demon transform)
+    // Void god boss — uses omega AI as base (already has demon transform).
+    // === BIG BUFF (Jun 7 2026 v2) ===
+    // The kid said "void god is too easy". Doubled HP (32k → 64k), bumped
+    // damage (2.2x → 3.6x), faster shoot cooldown (35 → 22), bigger size
+    // (240 → 280), enabled aggressive desperation phases via _vgBigBoss
+    // flag. The shard barrage AI also fires faster + more shards (see the
+    // updateEnemies path — _vgShardTimer baseline halved + count up).
     const bossDef = {
         type: 'boss', subtype: 'voidgod',
-        x: 800, y: 220, w: 240, h: 240,
-        hp: 32000, maxHp: 32000,
+        x: 800, y: 200, w: 280, h: 280,
+        hp: 64000, maxHp: 64000,
         phase: 3,
         phase2Triggered: true, phase3Triggered: true,
-        shootTimer: 35, moveTimer: 0,
-        baseX: 800, baseY: 220,
+        shootTimer: 22, moveTimer: 0,
+        baseX: 800, baseY: 200,
         color: '#aa00ff',
         attackPattern: 0,
-        dmgMul: 2.2,
+        dmgMul: 3.6,
         displayName: 'VOID GOD',
         isVoidGod: true,
         bossRush: true,
-        aiSubtype: 'omega'
+        aiSubtype: 'omega',
+        // Tells updateEnemies to fire shards twice as often + spawn extra
+        // void minions every 8 seconds. New attack flags handled below.
+        _vgBigBoss: true,
+        _vgMinionTimer: 480,
+        _vgRageBarrageTimer: 360
     };
     enemies.push(bossDef);
     camera.x = 0;
@@ -14833,26 +14844,89 @@ function updateEnemies() {
                 } else {
                     updateBossTitan(e, playerAngle, slowMul);
                 }
-                // Extra summon — every 4s, spawn 2 small void shards
-                if (!e._vgShardTimer) e._vgShardTimer = 240;
+                // === BIG BOSS BUFF — VOID GOD desperation arsenal ===
+                // 1) Faster shard barrage (every ~120 frames vs 240).
+                //    Spawn 6 shards instead of 3 with full radial coverage.
+                if (!e._vgShardTimer) e._vgShardTimer = 120;
                 e._vgShardTimer -= slowMul;
                 if (e._vgShardTimer <= 0) {
-                    e._vgShardTimer = 240 + Math.random() * 60;
-                    for (let s = 0; s < 3; s++) {
-                        const ang = Math.random() * Math.PI * 2;
+                    e._vgShardTimer = 120 + Math.random() * 40;
+                    const shardCount = e._vgBigBoss ? 8 : 3;
+                    for (let s = 0; s < shardCount; s++) {
+                        const ang = (Math.PI * 2 / shardCount) * s + Math.random() * 0.3;
                         enemyBullets.push({
                             x: e.x + e.w / 2,
                             y: e.y + e.h / 2,
-                            vx: Math.cos(ang) * 5,
-                            vy: Math.sin(ang) * 5,
-                            life: 200,
+                            vx: Math.cos(ang) * 6,
+                            vy: Math.sin(ang) * 6,
+                            life: 240,
                             color: '#aa00ff',
                             glow: '#ff44ff',
-                            damage: 14,
+                            damage: 18,
                             big: true
                         });
                     }
-                    spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#aa00ff', 14, 6);
+                    spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#aa00ff', 18, 7);
+                }
+                // 2) Void minion summon — every 8 seconds spawn 2 small
+                //    omega-style helper drones flanking the player.
+                if (e._vgBigBoss) {
+                    if (typeof e._vgMinionTimer !== 'number') e._vgMinionTimer = 480;
+                    e._vgMinionTimer -= slowMul;
+                    if (e._vgMinionTimer <= 0 && enemies.length < 30) {
+                        e._vgMinionTimer = 540;
+                        for (let m = 0; m < 2; m++) {
+                            const px = player.x + (m === 0 ? -180 : 180);
+                            enemies.push({
+                                type: 'mech',
+                                x: Math.max(50, Math.min(4500, px)), y: 200,
+                                w: 60, h: 60,
+                                hp: 280, maxHp: 280,
+                                shootTimer: 90 + m * 30,
+                                attackPhase: 0, walkPhase: 0,
+                                vx: 0, vy: 0, facing: m === 0 ? 1 : -1,
+                                onGround: false, baseY: 200,
+                                color: '#aa00ff',
+                                voidMinion: true
+                            });
+                            spawnParticles(px, 220, '#aa00ff', 12, 6);
+                        }
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '☠ VOID GOD SUMMONS THE FORGOTTEN ☠', timer: 90, color: '#aa00ff' };
+                        }
+                    }
+                }
+                // 3) Phase-3 rage barrage — when HP < 33%, periodically
+                //    fire a 24-bullet wall toward the player every 6s.
+                if (e._vgBigBoss && e.hp < e.maxHp * 0.33) {
+                    if (typeof e._vgRageBarrageTimer !== 'number') e._vgRageBarrageTimer = 360;
+                    e._vgRageBarrageTimer -= slowMul;
+                    if (e._vgRageBarrageTimer <= 0) {
+                        e._vgRageBarrageTimer = 360;
+                        const baseAng = Math.atan2(
+                            (player.y + player.h / 2) - (e.y + e.h / 2),
+                            (player.x + player.w / 2) - (e.x + e.w / 2)
+                        );
+                        // 24 bullets in a wide cone toward the player
+                        for (let b = -12; b < 12; b++) {
+                            const ang = baseAng + b * 0.06;
+                            enemyBullets.push({
+                                x: e.x + e.w / 2,
+                                y: e.y + e.h / 2,
+                                vx: Math.cos(ang) * 7,
+                                vy: Math.sin(ang) * 7,
+                                life: 200,
+                                color: '#ff00ff',
+                                glow: '#ffffff',
+                                damage: 16,
+                                big: false
+                            });
+                        }
+                        screenShake = 14;
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '☠ RAGE BARRAGE ☠', timer: 60, color: '#ff00ff' };
+                        }
+                    }
                 }
             } else if (e.subtype === 'warden') {
                 // WARDEN-K — sentinel-class mini-boss. Hovers, tracks player
@@ -39570,3 +39644,2274 @@ SC.mechs.tick = function() {
 };
 
 console.log('[SC] Mech rebalance hooks loaded.');
+
+
+// ============================================================================
+// ===== WISHLIST FEATURE PACK (Jun 7 2026 v2) =====
+// Self-contained module that bolts on the 9 features the kid wanted:
+//   1. Leaderboard (per-stage best time / HP)
+//   2. Random arena decorations (per-stage props, low risk)
+//   3. Mini-boss antechambers (wave breaks between rush rounds)
+//   4. Cosmetic skins (alt-color characters, RC-priced)
+//   5. New character — PRINCE (Mech King's son)
+//   6. Weapon mods (slot 1-2 mods per weapon)
+//   7. New mech form — CONVOY TRUCK (Optimus-style transform)
+//   8. Death replay slow-mo
+//   9. Local co-op (P2 companion with WASD+QE)
+//
+// Plus 3 new boss transformation FORMS — DRAGON, KAIJU, MONSTER —
+// available as alt rush-transformations in NG+ loop 2+.
+//
+// Wired via wrapping (same pattern as SC.*) so the original game loop
+// is unmodified. Each subsystem can be toggled via WL.flags.
+// ============================================================================
+const WL = (function() {
+
+    // ====== FEATURE FLAGS ======
+    const flags = {
+        leaderboard: true,
+        decor: true,
+        miniBoss: true,
+        skins: true,
+        newChar: true,
+        mods: true,
+        convoyMech: true,
+        deathReplay: true,
+        coop: true,
+        bossForms: true
+    };
+
+    // ============================================================
+    // 1. LEADERBOARD — per-stage best time/HP, persisted localStorage
+    // ============================================================
+    const leaderboard = {
+        STORAGE_KEY: 'neonRush.leaderboard.v1',
+        // Slots: 0..7 stages, 8 = boss rush, 9 = void god
+        bestTimes: new Array(10).fill(null),  // ms or null
+        bestHpPct: new Array(10).fill(null),  // 0..1 fraction of maxHp at clear
+        runStart: 0,
+        currentStageStart: 0,
+        bossRushStart: 0,
+
+        init() {
+            try {
+                const raw = localStorage.getItem(this.STORAGE_KEY);
+                if (!raw) return;
+                const obj = JSON.parse(raw);
+                if (Array.isArray(obj.times)) {
+                    for (let i = 0; i < Math.min(10, obj.times.length); i++) {
+                        if (typeof obj.times[i] === 'number') this.bestTimes[i] = obj.times[i];
+                    }
+                }
+                if (Array.isArray(obj.hp)) {
+                    for (let i = 0; i < Math.min(10, obj.hp.length); i++) {
+                        if (typeof obj.hp[i] === 'number') this.bestHpPct[i] = obj.hp[i];
+                    }
+                }
+            } catch (e) {}
+        },
+        save() {
+            try {
+                localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
+                    times: this.bestTimes,
+                    hp: this.bestHpPct
+                }));
+            } catch (e) {}
+        },
+        startStage() {
+            this.currentStageStart = performance.now();
+        },
+        onStageClear(stageIdx) {
+            if (!flags.leaderboard) return;
+            const elapsed = performance.now() - this.currentStageStart;
+            const hpPct = (typeof player !== 'undefined' && player.maxHp)
+                ? Math.max(0, player.hp) / player.maxHp
+                : 1;
+            if (this.bestTimes[stageIdx] === null || elapsed < this.bestTimes[stageIdx]) {
+                this.bestTimes[stageIdx] = elapsed;
+            }
+            if (this.bestHpPct[stageIdx] === null || hpPct > this.bestHpPct[stageIdx]) {
+                this.bestHpPct[stageIdx] = hpPct;
+            }
+            this.save();
+        },
+        startBossRush() {
+            this.bossRushStart = performance.now();
+        },
+        onBossRushClear() {
+            if (!flags.leaderboard) return;
+            const elapsed = performance.now() - this.bossRushStart;
+            const hpPct = (typeof player !== 'undefined' && player.maxHp)
+                ? Math.max(0, player.hp) / player.maxHp
+                : 1;
+            if (this.bestTimes[8] === null || elapsed < this.bestTimes[8]) {
+                this.bestTimes[8] = elapsed;
+            }
+            if (this.bestHpPct[8] === null || hpPct > this.bestHpPct[8]) {
+                this.bestHpPct[8] = hpPct;
+            }
+            this.save();
+        },
+        formatTime(ms) {
+            if (ms === null || ms === undefined) return '—:——';
+            const totalSec = ms / 1000;
+            const m = Math.floor(totalSec / 60);
+            const s = Math.floor(totalSec % 60);
+            const cs = Math.floor((totalSec * 100) % 100);
+            return `${m}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
+        },
+        // Draw best-time/HP banner on stage clear screen.
+        drawForStage(stageIdx) {
+            if (!flags.leaderboard) return;
+            if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
+            const t = this.bestTimes[stageIdx];
+            const h = this.bestHpPct[stageIdx];
+            const cx = canvas.width / 2;
+            const yBase = canvas.height / 2 + 175;
+            ctx.save();
+            ctx.fillStyle = '#ffd744';
+            ctx.shadowColor = '#ff8800';
+            ctx.shadowBlur = 8;
+            ctx.font = 'bold 14px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('━━ LEADERBOARD ━━', cx, yBase);
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#aaeeff';
+            ctx.font = '12px Courier New';
+            ctx.fillText(`BEST TIME: ${this.formatTime(t)}`, cx - 90, yBase + 22);
+            ctx.fillText(`BEST HP%: ${h !== null ? Math.floor(h * 100) + '%' : '—'}`, cx + 90, yBase + 22);
+            ctx.restore();
+        },
+        // Full leaderboard panel — drawn on game over screen
+        drawFullPanel() {
+            if (!flags.leaderboard) return;
+            if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
+            const cx = canvas.width / 2;
+            const yBase = canvas.height / 2 + 140;
+            ctx.save();
+            ctx.fillStyle = 'rgba(20, 10, 30, 0.85)';
+            ctx.fillRect(cx - 240, yBase - 20, 480, 200);
+            ctx.strokeStyle = '#ffd744';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(cx - 240, yBase - 20, 480, 200);
+            ctx.fillStyle = '#ffd744';
+            ctx.shadowColor = '#ff8800';
+            ctx.shadowBlur = 12;
+            ctx.font = 'bold 16px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('━━ LEADERBOARD ━━', cx, yBase);
+            ctx.shadowBlur = 0;
+            const stageNames = [
+                'GUARD-1', 'SKYHAMMER', 'INFERNO-X', 'RAVAGER',
+                'CRYO-LORD', 'NULLIFIER', 'OMEGA-PRIME', 'TITAN-LORD',
+                'BOSS RUSH'
+            ];
+            ctx.font = '11px Courier New';
+            ctx.textAlign = 'left';
+            for (let i = 0; i < 9; i++) {
+                const t = this.bestTimes[i];
+                const h = this.bestHpPct[i];
+                const yLine = yBase + 22 + i * 16;
+                ctx.fillStyle = (t !== null) ? '#aaeeff' : '#555';
+                ctx.fillText(`${(i + 1)}.${stageNames[i].padEnd(13)} ${this.formatTime(t)}  HP:${h !== null ? Math.floor(h * 100) + '%' : '—'}`, cx - 220, yLine);
+            }
+            ctx.restore();
+        }
+    };
+
+    // ============================================================
+    // 2. RANDOM ARENA DECORATIONS — purely visual props per stage
+    // ============================================================
+    const decor = {
+        items: [],           // { x, y, kind, color, t }
+        lastStageBuilt: -1,
+        // Each stage gets a different palette of decorative props
+        themes: {
+            0: { kinds: ['crate', 'pipe', 'panel'],   colors: ['#88ff88', '#44aa44', '#226622'] },
+            1: { kinds: ['cloud', 'antenna', 'beacon'], colors: ['#88ccff', '#aaeeff', '#ddeeff'] },
+            2: { kinds: ['ember', 'pipe', 'fire-pod'], colors: ['#ff6622', '#ffaa44', '#ffdd66'] },
+            3: { kinds: ['crate', 'workbench', 'panel'], colors: ['#22ff44', '#88ff88', '#44dd66'] },
+            4: { kinds: ['crystal', 'icicle', 'shard'], colors: ['#88ccff', '#aaeeff', '#ffffff'] },
+            5: { kinds: ['rune', 'sigil', 'orb'], colors: ['#aa00ff', '#ff66ff', '#ffaaff'] },
+            6: { kinds: ['banner', 'crown', 'orb'], colors: ['#ffaa00', '#ffd744', '#ffffff'] },
+            7: { kinds: ['satellite', 'beacon', 'panel'], colors: ['#66ffff', '#aaffff', '#ffffff'] }
+        },
+        spawn(stageIdx) {
+            if (!flags.decor) return;
+            this.items = [];
+            const theme = this.themes[stageIdx] || this.themes[0];
+            const count = 8 + Math.floor(Math.random() * 6);   // 8-13 props
+            for (let i = 0; i < count; i++) {
+                const x = 200 + Math.random() * 4000;
+                const y = 460 + Math.random() * 80;            // ground level
+                const kind = theme.kinds[Math.floor(Math.random() * theme.kinds.length)];
+                const color = theme.colors[Math.floor(Math.random() * theme.colors.length)];
+                this.items.push({
+                    x, y, kind, color,
+                    seed: Math.random() * Math.PI * 2,
+                    size: 20 + Math.random() * 20
+                });
+            }
+            this.lastStageBuilt = stageIdx;
+        },
+        ensure() {
+            // Re-spawn if stage changed since last build
+            if (typeof currentStage !== 'undefined' && currentStage !== this.lastStageBuilt) {
+                this.spawn(currentStage);
+            }
+        },
+        draw() {
+            if (!flags.decor) return;
+            if (typeof ctx === 'undefined' || typeof camera === 'undefined') return;
+            this.ensure();
+            const t = performance.now() * 0.002;
+            for (const it of this.items) {
+                const sx = it.x - camera.x;
+                if (sx < -100 || sx > 1100) continue;
+                const sy = it.y - camera.y;
+                ctx.save();
+                ctx.globalAlpha = 0.85;
+                this.drawProp(it, sx, sy, t);
+                ctx.restore();
+            }
+        },
+        drawProp(it, sx, sy, t) {
+            ctx.fillStyle = it.color;
+            ctx.shadowColor = it.color;
+            ctx.shadowBlur = 6;
+            switch (it.kind) {
+                case 'crate':
+                    ctx.fillRect(sx - 12, sy + 70 - it.size, 24, it.size);
+                    ctx.strokeStyle = '#000'; ctx.lineWidth = 2;
+                    ctx.strokeRect(sx - 12, sy + 70 - it.size, 24, it.size);
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(sx - 8, sy + 70 - it.size + 6, 16, 4);
+                    break;
+                case 'pipe':
+                    ctx.fillRect(sx - 6, sy + 70 - it.size * 1.4, 12, it.size * 1.4);
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(sx - 7, sy + 70 - it.size * 1.4, 14, 4);
+                    break;
+                case 'panel':
+                    ctx.fillRect(sx - 18, sy + 60 - it.size * 0.8, 36, it.size * 0.8);
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(sx - 4, sy + 60 - it.size * 0.4, 8, 4);
+                    break;
+                case 'cloud':
+                    ctx.globalAlpha = 0.4;
+                    ctx.beginPath();
+                    ctx.arc(sx, sy - 80 + Math.sin(t + it.seed) * 6, it.size, 0, Math.PI * 2);
+                    ctx.arc(sx + 18, sy - 80, it.size * 0.7, 0, Math.PI * 2);
+                    ctx.arc(sx - 18, sy - 80, it.size * 0.7, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+                case 'antenna':
+                    ctx.fillRect(sx - 1, sy + 70 - it.size * 1.6, 2, it.size * 1.6);
+                    ctx.beginPath();
+                    ctx.arc(sx, sy + 70 - it.size * 1.6, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+                case 'beacon':
+                    ctx.fillRect(sx - 4, sy + 70 - it.size, 8, it.size);
+                    const pulse = 0.4 + Math.sin(t * 3 + it.seed) * 0.4;
+                    ctx.globalAlpha = 0.3 + pulse * 0.4;
+                    ctx.beginPath();
+                    ctx.arc(sx, sy + 70 - it.size, 12, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+                case 'ember':
+                    ctx.beginPath();
+                    ctx.arc(sx, sy + 60, 6 + Math.sin(t + it.seed) * 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#ffaa44';
+                    ctx.beginPath();
+                    ctx.arc(sx, sy + 60, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+                case 'fire-pod':
+                    ctx.fillRect(sx - 8, sy + 70 - it.size, 16, it.size);
+                    ctx.fillStyle = '#ffaa00';
+                    const flame = Math.sin(t * 5 + it.seed);
+                    ctx.beginPath();
+                    ctx.moveTo(sx - 4, sy + 70 - it.size);
+                    ctx.lineTo(sx, sy + 70 - it.size - 14 - flame * 3);
+                    ctx.lineTo(sx + 4, sy + 70 - it.size);
+                    ctx.fill();
+                    break;
+                case 'workbench':
+                    ctx.fillRect(sx - 16, sy + 60, 32, 14);
+                    ctx.fillRect(sx - 14, sy + 60, 4, 14);
+                    ctx.fillRect(sx + 10, sy + 60, 4, 14);
+                    break;
+                case 'crystal':
+                    ctx.beginPath();
+                    ctx.moveTo(sx, sy + 70 - it.size);
+                    ctx.lineTo(sx + 8, sy + 60);
+                    ctx.lineTo(sx, sy + 70);
+                    ctx.lineTo(sx - 8, sy + 60);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+                case 'icicle':
+                    ctx.beginPath();
+                    ctx.moveTo(sx - 6, sy - 100);
+                    ctx.lineTo(sx + 6, sy - 100);
+                    ctx.lineTo(sx, sy - 100 + it.size);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+                case 'shard':
+                    ctx.save();
+                    ctx.translate(sx, sy + 60);
+                    ctx.rotate(it.seed);
+                    ctx.fillRect(-3, -it.size / 2, 6, it.size);
+                    ctx.restore();
+                    break;
+                case 'rune':
+                    ctx.beginPath();
+                    ctx.arc(sx, sy + 60, it.size * 0.4, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.font = `${it.size * 0.6}px Courier New`;
+                    ctx.fillText('ᚱ', sx - 6, sy + 65);
+                    break;
+                case 'sigil':
+                    ctx.strokeStyle = it.color; ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    for (let s = 0; s < 5; s++) {
+                        const ang = (Math.PI * 2 / 5) * s - Math.PI / 2;
+                        const px = sx + Math.cos(ang) * (it.size * 0.4);
+                        const py = sy + 50 + Math.sin(ang) * (it.size * 0.4);
+                        if (s === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }
+                    ctx.closePath();
+                    ctx.stroke();
+                    break;
+                case 'orb':
+                    const orbPulse = 0.6 + Math.sin(t * 2 + it.seed) * 0.3;
+                    ctx.globalAlpha = orbPulse;
+                    ctx.beginPath();
+                    ctx.arc(sx, sy + 50 + Math.sin(t + it.seed) * 6, it.size * 0.3, 0, Math.PI * 2);
+                    ctx.fill();
+                    break;
+                case 'banner':
+                    ctx.fillRect(sx - 1, sy - 100, 2, 100);
+                    ctx.fillStyle = it.color;
+                    const wave = Math.sin(t * 2 + it.seed) * 2;
+                    ctx.beginPath();
+                    ctx.moveTo(sx, sy - 100);
+                    ctx.lineTo(sx + 24 + wave, sy - 90);
+                    ctx.lineTo(sx + 22 + wave, sy - 70);
+                    ctx.lineTo(sx, sy - 70);
+                    ctx.closePath();
+                    ctx.fill();
+                    break;
+                case 'crown':
+                    ctx.fillRect(sx - 10, sy + 64, 20, 6);
+                    for (let s = 0; s < 5; s++) {
+                        ctx.beginPath();
+                        ctx.moveTo(sx - 10 + s * 5, sy + 64);
+                        ctx.lineTo(sx - 10 + s * 5 + 2.5, sy + 56);
+                        ctx.lineTo(sx - 10 + s * 5 + 5, sy + 64);
+                        ctx.fill();
+                    }
+                    break;
+                case 'satellite':
+                    ctx.fillRect(sx - 6, sy - 80, 12, 8);
+                    ctx.fillRect(sx - 14, sy - 78, 6, 4);
+                    ctx.fillRect(sx + 8, sy - 78, 6, 4);
+                    break;
+            }
+            ctx.shadowBlur = 0;
+        }
+    };
+
+    // ============================================================
+    // 3. MINI-BOSS ANTECHAMBERS (rush mode wave breaks)
+    // ============================================================
+    const miniBoss = {
+        active: false,
+        waveIdx: 0,
+        spawnedThisWave: 0,
+        nextRushIdx: 0,
+        // Wave compositions for between-rush pacing breaks
+        WAVES: [
+            { count: 4, type: 'mech', name: 'TURRET WAVE' },
+            { count: 5, type: 'sniper', name: 'SNIPER WAVE' },
+            { count: 6, type: 'heavy', name: 'HEAVY WAVE' }
+        ],
+        // Trigger between rush bosses (called from advanceBossRush). Spawns
+        // a wave of 4-6 mid-tier enemies to fight before the next boss.
+        trigger(nextRushIdx) {
+            if (!flags.miniBoss) return false;
+            if (this.active) return false;
+            // Only trigger every other rush round (idx 1, 3, 5, 7) to keep pacing
+            if (nextRushIdx % 2 !== 1) return false;
+            this.active = true;
+            this.nextRushIdx = nextRushIdx;
+            this.waveIdx = Math.floor(Math.random() * this.WAVES.length);
+            const wave = this.WAVES[this.waveIdx];
+            this.spawnedThisWave = wave.count;
+            // Spawn the wave
+            for (let i = 0; i < wave.count; i++) {
+                const px = 600 + i * 220;
+                const py = 380;
+                const enemy = this.makeEnemy(wave.type, px, py);
+                if (enemy && typeof enemies !== 'undefined') {
+                    enemies.push(enemy);
+                }
+            }
+            // Banner
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = {
+                    text: `⚠ ${wave.name} — clear before the next boss ⚠`,
+                    timer: 200,
+                    color: '#ffaa44'
+                };
+            }
+            if (typeof screenShake !== 'undefined') screenShake = 12;
+            if (typeof audio !== 'undefined' && audio.play) audio.play('warning');
+            return true;
+        },
+        makeEnemy(type, x, y) {
+            switch (type) {
+                case 'mech':
+                    return {
+                        type: 'mech', x, y, w: 60, h: 60,
+                        hp: 350, maxHp: 350, shootTimer: 90,
+                        attackPhase: 0, walkPhase: 0,
+                        vx: 0, vy: 0, facing: -1, onGround: false,
+                        baseY: y, color: '#ff6644'
+                    };
+                case 'sniper':
+                    return {
+                        type: 'sniper', x, y, w: 38, h: 50,
+                        hp: 90, maxHp: 90, shootTimer: 120,
+                        chargeTimer: 0, charging: false,
+                        vx: 0, vy: 0, facing: -1, onGround: false,
+                        baseY: y, color: '#aa00ff'
+                    };
+                case 'heavy':
+                    return {
+                        type: 'heavy', x, y, w: 50, h: 56,
+                        hp: 200, maxHp: 200, shootTimer: 90,
+                        vx: 1.5, vy: 0, dir: -1,
+                        patrolStart: x - 200, patrolEnd: x + 200,
+                        color: '#ff3300', onGround: false, baseY: y
+                    };
+                default: return null;
+            }
+        },
+        // Called every frame during rush mode to detect wave clear
+        update() {
+            if (!this.active) return;
+            if (typeof enemies === 'undefined') return;
+            // Wave is clear when no non-boss enemies remain
+            const nonBossLeft = enemies.filter(e => e && e.type !== 'boss' && e.hp > 0).length;
+            if (nonBossLeft === 0) {
+                // Wave done — advance to next boss
+                this.active = false;
+                if (typeof shopMessage !== 'undefined') {
+                    shopMessage = {
+                        text: '✓ WAVE CLEAR — NEXT BOSS INCOMING',
+                        timer: 100,
+                        color: '#88ff88'
+                    };
+                }
+                if (typeof deferFrames === 'function' && typeof spawnBossRushBoss === 'function') {
+                    const idx = this.nextRushIdx;
+                    deferFrames(60, () => {
+                        if (typeof bossRush !== 'undefined' && bossRush && bossRush.active) {
+                            if (typeof startBossRushCutscene === 'function') {
+                                startBossRushCutscene(idx);
+                            } else {
+                                spawnBossRushBoss(idx);
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    };
+
+    // ============================================================
+    // 4. COSMETIC SKINS — alt-color characters, RC-priced
+    // ============================================================
+    const skins = {
+        STORAGE_KEY: 'neonRush.skins.v1',
+        list: [
+            { id: 'gold',     name: 'NEON GOLD',    rcCost: 5,  color: '#ffd744', accent: '#ffaa00' },
+            { id: 'crimson',  name: 'CRIMSON',      rcCost: 8,  color: '#ff2244', accent: '#ff8866' },
+            { id: 'emerald',  name: 'EMERALD',      rcCost: 10, color: '#22ff88', accent: '#88ffaa' },
+            { id: 'void',     name: 'VOID PURPLE',  rcCost: 15, color: '#aa00ff', accent: '#ff44ff' },
+            { id: 'ghost',    name: 'GHOST WHITE',  rcCost: 20, color: '#ffffff', accent: '#88ddff' },
+            { id: 'rainbow',  name: 'RAINBOW',      rcCost: 30, color: '#rainbow', accent: '#rainbow' }
+        ],
+        unlocked: {},        // { skinId: true }
+        selected: null,      // skin id or null = default character color
+        menuOpen: false,
+        cursorIdx: 0,
+        init() {
+            try {
+                const raw = localStorage.getItem(this.STORAGE_KEY);
+                if (!raw) return;
+                const obj = JSON.parse(raw);
+                if (obj.unlocked) this.unlocked = obj.unlocked;
+                if (typeof obj.selected === 'string' || obj.selected === null) {
+                    this.selected = obj.selected;
+                }
+            } catch (e) {}
+        },
+        save() {
+            try {
+                localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
+                    unlocked: this.unlocked,
+                    selected: this.selected
+                }));
+            } catch (e) {}
+        },
+        // Return the active skin override, or null if no skin selected
+        active() {
+            if (!flags.skins || !this.selected) return null;
+            const s = this.list.find(x => x.id === this.selected);
+            if (!s || !this.unlocked[s.id]) return null;
+            return s;
+        },
+        // Apply skin colors to player (called after applyCharacter)
+        apply() {
+            const s = this.active();
+            if (!s) return;
+            if (typeof player === 'undefined') return;
+            // Special: rainbow cycles through colors
+            if (s.color === '#rainbow') {
+                const t = performance.now() * 0.002;
+                const hue = (Math.sin(t) * 0.5 + 0.5) * 360;
+                player.charColor = `hsl(${hue}, 100%, 60%)`;
+                player.charAccent = `hsl(${(hue + 120) % 360}, 100%, 75%)`;
+            } else {
+                player.charColor = s.color;
+                player.charAccent = s.accent;
+            }
+        },
+        toggleMenu() {
+            this.menuOpen = !this.menuOpen;
+        },
+        // Process input for the menu (called from main keydown when menu open)
+        handleKey(code) {
+            if (!this.menuOpen) return false;
+            if (code === 'Escape' || code === 'KeyK') {
+                this.menuOpen = false;
+                return true;
+            }
+            if (code === 'ArrowUp' || code === 'KeyW') {
+                this.cursorIdx = (this.cursorIdx - 1 + this.list.length + 1) % (this.list.length + 1);
+                return true;
+            }
+            if (code === 'ArrowDown' || code === 'KeyS') {
+                this.cursorIdx = (this.cursorIdx + 1) % (this.list.length + 1);
+                return true;
+            }
+            if (code === 'Enter' || code === 'Space' || code === 'KeyE') {
+                this.activate();
+                return true;
+            }
+            return false;
+        },
+        activate() {
+            // Cursor 0 = "DEFAULT" (clear skin), 1..N = skins
+            if (this.cursorIdx === 0) {
+                this.selected = null;
+                this.save();
+                if (typeof shopMessage !== 'undefined') {
+                    shopMessage = { text: 'Skin reset to default', timer: 80, color: '#88ddff' };
+                }
+                return;
+            }
+            const skin = this.list[this.cursorIdx - 1];
+            if (!skin) return;
+            if (!this.unlocked[skin.id]) {
+                // Try to buy with RC
+                if (typeof player === 'undefined') return;
+                if (player.robotCoins < skin.rcCost) {
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: `Need ${skin.rcCost} RC (have ${player.robotCoins})`, timer: 90, color: '#ff6644' };
+                    }
+                    return;
+                }
+                player.robotCoins -= skin.rcCost;
+                this.unlocked[skin.id] = true;
+                if (typeof shopMessage !== 'undefined') {
+                    shopMessage = { text: `★ SKIN UNLOCKED: ${skin.name} ★`, timer: 180, color: skin.color === '#rainbow' ? '#ff44dd' : skin.color };
+                }
+                if (typeof spawnParticles === 'function' && typeof player !== 'undefined') {
+                    spawnParticles(player.x + player.w/2, player.y, skin.color === '#rainbow' ? '#ff44dd' : skin.color, 30, 5);
+                }
+                if (typeof audio !== 'undefined' && audio.play) audio.play('coin');
+            }
+            this.selected = skin.id;
+            this.save();
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: `★ SKIN EQUIPPED: ${skin.name} ★`, timer: 120, color: skin.color === '#rainbow' ? '#ff44dd' : skin.color };
+            }
+        },
+        draw() {
+            if (!this.menuOpen) return;
+            if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
+            const cw = canvas.width, ch = canvas.height;
+            ctx.save();
+            // Backdrop
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+            ctx.fillRect(0, 0, cw, ch);
+            // Panel
+            const pw = 480, ph = 380;
+            const px = (cw - pw) / 2, py = (ch - ph) / 2;
+            ctx.fillStyle = '#0a0a14';
+            ctx.fillRect(px, py, pw, ph);
+            ctx.strokeStyle = '#ff44dd';
+            ctx.lineWidth = 3;
+            ctx.shadowColor = '#ff44dd';
+            ctx.shadowBlur = 16;
+            ctx.strokeRect(px, py, pw, ph);
+            ctx.shadowBlur = 0;
+            // Title
+            ctx.fillStyle = '#ffd744';
+            ctx.font = 'bold 22px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('★ COSMETIC SKINS ★', cw / 2, py + 30);
+            ctx.font = '11px Courier New';
+            ctx.fillStyle = '#aaa';
+            const rc = (typeof player !== 'undefined' && player.robotCoins) || 0;
+            ctx.fillText(`Robot Coins: ${rc}  •  Up/Down: navigate  •  Enter: select  •  K: close`, cw / 2, py + 50);
+            // List entries (Default first, then skins)
+            ctx.textAlign = 'left';
+            const entries = [{ id: null, name: 'DEFAULT (character color)', rcCost: 0, owned: true }]
+                .concat(this.list.map(s => ({
+                    ...s,
+                    owned: !!this.unlocked[s.id]
+                })));
+            for (let i = 0; i < entries.length; i++) {
+                const e = entries[i];
+                const yLine = py + 80 + i * 36;
+                const isSel = (i === this.cursorIdx);
+                const isActive = (e.id === this.selected) || (e.id === null && this.selected === null);
+                if (isSel) {
+                    ctx.fillStyle = 'rgba(255, 215, 68, 0.15)';
+                    ctx.fillRect(px + 16, yLine - 4, pw - 32, 32);
+                    ctx.strokeStyle = '#ffd744';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(px + 16, yLine - 4, pw - 32, 32);
+                }
+                // Color swatch
+                if (e.id !== null) {
+                    const c = e.color === '#rainbow'
+                        ? `hsl(${(performance.now() * 0.2) % 360}, 100%, 60%)`
+                        : e.color;
+                    ctx.fillStyle = c;
+                    ctx.fillRect(px + 24, yLine + 4, 22, 22);
+                    ctx.strokeStyle = '#000';
+                    ctx.strokeRect(px + 24, yLine + 4, 22, 22);
+                }
+                // Name + status
+                ctx.fillStyle = e.owned ? '#fff' : '#666';
+                ctx.font = 'bold 14px Courier New';
+                ctx.fillText(e.name, px + 56, yLine + 18);
+                ctx.font = '11px Courier New';
+                if (isActive) {
+                    ctx.fillStyle = '#88ff88';
+                    ctx.fillText('[EQUIPPED]', px + pw - 130, yLine + 18);
+                } else if (e.owned) {
+                    ctx.fillStyle = '#88ddff';
+                    ctx.fillText('[OWNED]', px + pw - 130, yLine + 18);
+                } else if (e.id !== null) {
+                    ctx.fillStyle = (rc >= e.rcCost) ? '#ffd744' : '#ff6644';
+                    ctx.fillText(`${e.rcCost} RC`, px + pw - 130, yLine + 18);
+                }
+            }
+            ctx.restore();
+        }
+    };
+
+    return { flags, leaderboard, decor, miniBoss, skins };
+})();
+
+
+// ============================================================================
+// ===== WISHLIST PART 2 — characters, mods, mech, replay, co-op, boss forms ==
+// ============================================================================
+Object.assign(WL, (function() {
+
+    // ============================================================
+    // 5. NEW CHARACTER — PRINCE (Mech King's Son)
+    // ============================================================
+    const newChar = {
+        spec: {
+            name: 'PRINCE',
+            desc: "Mech King's son. Q: ROYAL DECREE (4 gold drones)",
+            speed: 3.6, jumpForce: -10.6, gravity: 0.43,
+            maxHp: 280, dashRange: 12, fireRateMul: 0.85, dmgMul: 1.2,
+            color: '#ffd744', accent: '#ff2244',
+            extraJumps: 1,
+            ability: 'royalDecree', abilityCooldown: 540,
+            unlocked: false, unlockedBy: 'mechking'
+        },
+        added: false,
+        init() {
+            if (this.added) return;
+            if (typeof CHARACTERS === 'undefined') return;
+            if (CHARACTERS.find(c => c.name === 'PRINCE')) { this.added = true; return; }
+            CHARACTERS.push(this.spec);
+            this.added = true;
+            // If save already records mechking defeated, unlock automatically
+            if (typeof save !== 'undefined') {
+                const meta = save.getMeta();
+                if (meta && meta.bossesDefeated >= 9) {
+                    this.spec.unlocked = true;
+                }
+            }
+        },
+        // Called when MECH KING dies — unlock PRINCE on first kill
+        onMechKingDefeated() {
+            if (!this.added) return;
+            if (this.spec.unlocked) return;
+            this.spec.unlocked = true;
+            if (typeof save !== 'undefined') save.markDirty();
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = {
+                    text: '⚜ NEW CHARACTER UNLOCKED: PRINCE — Mech King\'s son ⚜',
+                    timer: 360,
+                    color: '#ffd744'
+                };
+            }
+            if (typeof spawnParticles === 'function' && typeof player !== 'undefined') {
+                for (let i = 0; i < 50; i++) {
+                    const ang = Math.random() * Math.PI * 2;
+                    spawnParticles(
+                        player.x + player.w / 2 + Math.cos(ang) * 80,
+                        player.y + player.h / 2 + Math.sin(ang) * 80,
+                        '#ffd744', 3, 6
+                    );
+                }
+            }
+        },
+        // Royal Decree ability — runs alongside the main ability dispatcher.
+        // Spawns 4 gold homing drones that orbit the player and attack.
+        royalDecree() {
+            if (typeof player === 'undefined') return;
+            if (typeof bullets === 'undefined') return;
+            const cx = player.x + player.w / 2;
+            const cy = player.y + player.h / 2;
+            for (let d = 0; d < 4; d++) {
+                const ang = (Math.PI * 2 / 4) * d;
+                bullets.push({
+                    x: cx + Math.cos(ang) * 40,
+                    y: cy + Math.sin(ang) * 40,
+                    vx: Math.cos(ang) * 6,
+                    vy: Math.sin(ang) * 6,
+                    life: 360,
+                    damage: Math.max(60, Math.round(80 * (player.dmgMul || 1))),
+                    color: '#ffd744', glow: '#ffaa00', size: 8,
+                    pierce: false, hitEnemies: new Set(),
+                    drone: true,
+                    royalDrone: true
+                });
+            }
+            if (typeof spawnParticles === 'function') {
+                spawnParticles(cx, cy, '#ffd744', 30, 6);
+            }
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: '⚜ ROYAL DECREE ⚜', timer: 80, color: '#ffd744' };
+            }
+            if (typeof audio !== 'undefined' && audio.play) audio.play('shoot');
+        }
+    };
+
+    // ============================================================
+    // 6. WEAPON MODS — slot 1-2 mods per weapon for stacking effects
+    // ============================================================
+    const mods = {
+        STORAGE_KEY: 'neonRush.weaponMods.v1',
+        defs: [
+            { id: 'cryo',     name: 'CRYO ROUND',    color: '#88ccff', desc: 'Freezes enemy 90f',     scrapCost: 60 },
+            { id: 'ricochet', name: 'BOUNCY ROUND',  color: '#ffaa00', desc: 'Bullets ricochet 1x',   scrapCost: 80 },
+            { id: 'homing',   name: 'TRACER ROUND',  color: '#ff44dd', desc: 'Bullets gently home',   scrapCost: 100 },
+            { id: 'shock',    name: 'SHOCK ROUND',   color: '#aaeeff', desc: 'Chain to nearest enemy',scrapCost: 120 },
+            { id: 'poison',   name: 'TOXIC ROUND',   color: '#22ff44', desc: 'DoT 4s @ 8/tick',       scrapCost: 90 },
+            { id: 'fire',     name: 'INCENDIARY',    color: '#ff4422', desc: 'Burn 2.5s @ 6/tick',    scrapCost: 70 }
+        ],
+        slots: {},                  // { weaponTier: [modId1, modId2] }
+        unlocked: {},               // { modId: true } — bought from shop
+        menuOpen: false,
+        cursorRow: 0,               // 0=mod list, 1=apply slot
+        cursorIdx: 0,
+        applySlot: 0,               // 0 or 1 — which slot to fill
+        init() {
+            try {
+                const raw = localStorage.getItem(this.STORAGE_KEY);
+                if (!raw) return;
+                const obj = JSON.parse(raw);
+                if (obj.slots && typeof obj.slots === 'object') this.slots = obj.slots;
+                if (obj.unlocked && typeof obj.unlocked === 'object') this.unlocked = obj.unlocked;
+            } catch (e) {}
+        },
+        save() {
+            try {
+                localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
+                    slots: this.slots,
+                    unlocked: this.unlocked
+                }));
+            } catch (e) {}
+        },
+        getModsForWeapon(tier) {
+            return this.slots[tier] || [];
+        },
+        // Apply mods to a freshly-fired bullet. Called from a hook below.
+        applyToBullet(bullet, weaponTier) {
+            if (!flags.mods) return;
+            const ml = this.getModsForWeapon(weaponTier);
+            if (!ml || ml.length === 0) return;
+            bullet._wlMods = ml.slice();
+            // Visual: tint trail color from first mod
+            const firstDef = this.defs.find(d => d.id === ml[0]);
+            if (firstDef) {
+                bullet._wlModColor = firstDef.color;
+            }
+            for (const m of ml) {
+                if (m === 'ricochet') {
+                    bullet.bouncesLeft = (bullet.bouncesLeft || 0) + 1;
+                    bullet._wlBouncy = true;
+                } else if (m === 'homing') {
+                    bullet._wlHoming = true;
+                } else if (m === 'cryo') {
+                    bullet._wlCryo = true;
+                } else if (m === 'shock') {
+                    bullet._wlShock = true;
+                } else if (m === 'poison') {
+                    bullet._wlPoison = true;
+                } else if (m === 'fire') {
+                    bullet._wlFire = true;
+                }
+            }
+        },
+        // Tick homing/ricochet/glow on bullets each frame
+        tickBullets() {
+            if (!flags.mods) return;
+            if (typeof bullets === 'undefined') return;
+            for (const b of bullets) {
+                if (!b._wlMods) continue;
+                // Homing — gentle pull toward nearest enemy
+                if (b._wlHoming && typeof enemies !== 'undefined') {
+                    let nearest = null, ndist = 360 * 360;
+                    for (const e of enemies) {
+                        if (!e || e.hp <= 0) continue;
+                        const dx = (e.x + e.w / 2) - b.x;
+                        const dy = (e.y + e.h / 2) - b.y;
+                        const d = dx * dx + dy * dy;
+                        if (d < ndist) { ndist = d; nearest = e; }
+                    }
+                    if (nearest) {
+                        const dx = (nearest.x + nearest.w / 2) - b.x;
+                        const dy = (nearest.y + nearest.h / 2) - b.y;
+                        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                        const speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+                        b.vx += (dx / d) * 0.4;
+                        b.vy += (dy / d) * 0.4;
+                        // Renormalize so bullet doesn't keep accelerating
+                        const newSpeed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+                        if (newSpeed > 0) {
+                            b.vx = (b.vx / newSpeed) * speed;
+                            b.vy = (b.vy / newSpeed) * speed;
+                        }
+                    }
+                }
+                // Glow trail
+                if (b._wlModColor) {
+                    if (typeof spawnParticles === 'function' && Math.random() < 0.4) {
+                        spawnParticles(b.x, b.y, b._wlModColor, 1, 1);
+                    }
+                }
+            }
+        },
+        // Apply mod-specific effects on enemy hit. Called from hook.
+        onBulletHitEnemy(bullet, enemy) {
+            if (!flags.mods) return;
+            if (!bullet._wlMods) return;
+            for (const m of bullet._wlMods) {
+                if (m === 'cryo') {
+                    enemy._wlFrozen = (enemy._wlFrozen || 0) + 90;
+                    if (typeof spawnParticles === 'function') {
+                        spawnParticles(enemy.x + enemy.w / 2, enemy.y + enemy.h / 2, '#88ccff', 8, 3);
+                    }
+                } else if (m === 'shock') {
+                    // Find a second enemy near the hit and zap it for 50% damage
+                    if (typeof enemies !== 'undefined') {
+                        let chainTarget = null, cd = 220 * 220;
+                        for (const e of enemies) {
+                            if (e === enemy || !e || e.hp <= 0) continue;
+                            const dx = (e.x + e.w / 2) - (enemy.x + enemy.w / 2);
+                            const dy = (e.y + e.h / 2) - (enemy.y + enemy.h / 2);
+                            const d = dx * dx + dy * dy;
+                            if (d < cd) { cd = d; chainTarget = e; }
+                        }
+                        if (chainTarget) {
+                            chainTarget.hp -= Math.round((bullet.damage || 30) * 0.5);
+                            if (typeof spawnParticles === 'function') {
+                                spawnParticles(chainTarget.x + chainTarget.w / 2, chainTarget.y + chainTarget.h / 2, '#aaeeff', 10, 4);
+                            }
+                            // Zigzag lightning trail (visual only)
+                            if (typeof shockwaves !== 'undefined') {
+                                shockwaves.push({
+                                    x: (enemy.x + chainTarget.x) / 2 + enemy.w / 2,
+                                    y: (enemy.y + chainTarget.y) / 2 + enemy.h / 2,
+                                    radius: 4, maxRadius: 30, life: 16,
+                                    color: '#aaeeff'
+                                });
+                            }
+                        }
+                    }
+                } else if (m === 'poison') {
+                    enemy._wlPoison = { duration: 240, dps: 8, lastTick: 0 };
+                } else if (m === 'fire') {
+                    enemy._wlBurn = { duration: 150, dps: 6, lastTick: 0 };
+                }
+            }
+        },
+        // Per-frame tick on enemies for DoT / freeze
+        tickEnemies() {
+            if (!flags.mods) return;
+            if (typeof enemies === 'undefined') return;
+            for (const e of enemies) {
+                if (!e || e.hp <= 0) continue;
+                if (e._wlFrozen && e._wlFrozen > 0) {
+                    e._wlFrozen--;
+                    // Slow movement to ~25%
+                    if (typeof e.vx === 'number') e.vx *= 0.4;
+                }
+                if (e._wlPoison && e._wlPoison.duration > 0) {
+                    e._wlPoison.duration--;
+                    e._wlPoison.lastTick++;
+                    if (e._wlPoison.lastTick >= 12) {
+                        e._wlPoison.lastTick = 0;
+                        e.hp -= e._wlPoison.dps;
+                        if (typeof spawnParticles === 'function') {
+                            spawnParticles(e.x + e.w / 2, e.y, '#22ff44', 2, 2);
+                        }
+                    }
+                }
+                if (e._wlBurn && e._wlBurn.duration > 0) {
+                    e._wlBurn.duration--;
+                    e._wlBurn.lastTick++;
+                    if (e._wlBurn.lastTick >= 8) {
+                        e._wlBurn.lastTick = 0;
+                        e.hp -= e._wlBurn.dps;
+                        if (typeof spawnParticles === 'function') {
+                            spawnParticles(e.x + Math.random() * e.w, e.y, '#ff4422', 2, 3);
+                        }
+                    }
+                }
+            }
+        },
+        // === MENU ===
+        toggleMenu() {
+            this.menuOpen = !this.menuOpen;
+            this.cursorIdx = 0;
+            this.cursorRow = 0;
+        },
+        handleKey(code) {
+            if (!this.menuOpen) return false;
+            if (code === 'Escape' || code === 'KeyO') {
+                this.menuOpen = false;
+                return true;
+            }
+            if (code === 'ArrowUp' || code === 'KeyW') {
+                this.cursorIdx = Math.max(0, this.cursorIdx - 1);
+                return true;
+            }
+            if (code === 'ArrowDown' || code === 'KeyS') {
+                this.cursorIdx = Math.min(this.defs.length - 1, this.cursorIdx + 1);
+                return true;
+            }
+            if (code === 'KeyB' || code === 'BracketLeft') {
+                // Buy mod with scrap
+                this.buyMod();
+                return true;
+            }
+            if (code === 'Digit1' || code === 'Numpad1') {
+                this.applySlot = 0;
+                this.assignToCurrentWeapon();
+                return true;
+            }
+            if (code === 'Digit2' || code === 'Numpad2') {
+                this.applySlot = 1;
+                this.assignToCurrentWeapon();
+                return true;
+            }
+            if (code === 'KeyX' || code === 'Backspace') {
+                this.clearCurrentWeaponMods();
+                return true;
+            }
+            return false;
+        },
+        buyMod() {
+            const m = this.defs[this.cursorIdx];
+            if (!m) return;
+            if (this.unlocked[m.id]) {
+                if (typeof shopMessage !== 'undefined') {
+                    shopMessage = { text: 'Already unlocked', timer: 60, color: '#aaa' };
+                }
+                return;
+            }
+            if (typeof player === 'undefined') return;
+            if ((player.scrap || 0) < m.scrapCost) {
+                if (typeof shopMessage !== 'undefined') {
+                    shopMessage = { text: `Need ${m.scrapCost} scrap`, timer: 90, color: '#ff6644' };
+                }
+                return;
+            }
+            player.scrap -= m.scrapCost;
+            this.unlocked[m.id] = true;
+            this.save();
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: `★ MOD UNLOCKED: ${m.name} ★`, timer: 180, color: m.color };
+            }
+            if (typeof audio !== 'undefined' && audio.play) audio.play('coin');
+        },
+        assignToCurrentWeapon() {
+            const m = this.defs[this.cursorIdx];
+            if (!m || !this.unlocked[m.id]) {
+                if (typeof shopMessage !== 'undefined') {
+                    shopMessage = { text: 'Buy this mod first (B)', timer: 80, color: '#ff6644' };
+                }
+                return;
+            }
+            const tier = (typeof player !== 'undefined') ? player.weaponTier : 0;
+            if (!this.slots[tier]) this.slots[tier] = [];
+            this.slots[tier][this.applySlot] = m.id;
+            this.save();
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = {
+                    text: `${m.name} → SLOT ${this.applySlot + 1} (weapon tier ${tier})`,
+                    timer: 120, color: m.color
+                };
+            }
+        },
+        clearCurrentWeaponMods() {
+            const tier = (typeof player !== 'undefined') ? player.weaponTier : 0;
+            this.slots[tier] = [];
+            this.save();
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: 'Mods cleared from current weapon', timer: 90, color: '#aaa' };
+            }
+        },
+        draw() {
+            if (!this.menuOpen) return;
+            if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
+            const cw = canvas.width, ch = canvas.height;
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+            ctx.fillRect(0, 0, cw, ch);
+            const pw = 540, ph = 440;
+            const px = (cw - pw) / 2, py = (ch - ph) / 2;
+            ctx.fillStyle = '#0a0a14';
+            ctx.fillRect(px, py, pw, ph);
+            ctx.strokeStyle = '#ff8844';
+            ctx.lineWidth = 3;
+            ctx.shadowColor = '#ff8844';
+            ctx.shadowBlur = 16;
+            ctx.strokeRect(px, py, pw, ph);
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ffaa44';
+            ctx.font = 'bold 22px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('★ WEAPON MODS ★', cw / 2, py + 30);
+            // Current weapon info
+            const tier = (typeof player !== 'undefined') ? player.weaponTier : 0;
+            const w = (typeof WEAPONS !== 'undefined') ? WEAPONS[tier] : null;
+            const wname = w ? w.name : '?';
+            const slots = this.getModsForWeapon(tier);
+            ctx.fillStyle = '#aaa';
+            ctx.font = '11px Courier New';
+            ctx.fillText(`Current weapon: ${wname} (tier ${tier})`, cw / 2, py + 50);
+            ctx.fillText(`Slot 1: ${slots[0] ? this.defs.find(d => d.id === slots[0])?.name || '—' : 'EMPTY'}   Slot 2: ${slots[1] ? this.defs.find(d => d.id === slots[1])?.name || '—' : 'EMPTY'}`, cw / 2, py + 66);
+            const sc = (typeof player !== 'undefined') ? player.scrap : 0;
+            ctx.fillText(`Scrap: ${sc}  •  Up/Down: select  •  B: buy  •  1: assign slot 1  •  2: assign slot 2  •  X: clear`, cw / 2, py + 82);
+            // Mod list
+            ctx.textAlign = 'left';
+            for (let i = 0; i < this.defs.length; i++) {
+                const m = this.defs[i];
+                const yLine = py + 110 + i * 40;
+                const isSel = (i === this.cursorIdx);
+                if (isSel) {
+                    ctx.fillStyle = 'rgba(255, 215, 68, 0.15)';
+                    ctx.fillRect(px + 16, yLine - 4, pw - 32, 38);
+                    ctx.strokeStyle = '#ffd744';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(px + 16, yLine - 4, pw - 32, 38);
+                }
+                // Mod swatch
+                ctx.fillStyle = m.color;
+                ctx.fillRect(px + 24, yLine + 4, 22, 22);
+                ctx.strokeStyle = '#000';
+                ctx.strokeRect(px + 24, yLine + 4, 22, 22);
+                // Name
+                const owned = !!this.unlocked[m.id];
+                ctx.fillStyle = owned ? '#fff' : '#666';
+                ctx.font = 'bold 14px Courier New';
+                ctx.fillText(m.name, px + 56, yLine + 14);
+                ctx.font = '10px Courier New';
+                ctx.fillStyle = '#aaa';
+                ctx.fillText(m.desc, px + 56, yLine + 28);
+                // Status
+                ctx.font = 'bold 11px Courier New';
+                if (owned) {
+                    ctx.fillStyle = '#88ff88';
+                    ctx.fillText('[OWNED]', px + pw - 130, yLine + 18);
+                } else {
+                    const can = (typeof player !== 'undefined' && (player.scrap || 0) >= m.scrapCost);
+                    ctx.fillStyle = can ? '#ffd744' : '#ff6644';
+                    ctx.fillText(`${m.scrapCost} scrap`, px + pw - 130, yLine + 18);
+                }
+                // Slot indicator
+                const inSlot = slots.indexOf(m.id);
+                if (inSlot !== -1) {
+                    ctx.fillStyle = '#ff44dd';
+                    ctx.fillText(`S${inSlot + 1}`, px + pw - 60, yLine + 18);
+                }
+            }
+            ctx.restore();
+        }
+    };
+
+    return { newChar, mods };
+})());
+
+
+// ============================================================================
+// ===== WISHLIST PART 3 — convoy mech, death replay, co-op, boss forms =======
+// ============================================================================
+Object.assign(WL, (function() {
+
+    // ============================================================
+    // 7. NEW MECH FORM — CONVOY TRUCK (Optimus-style transformer)
+    // ============================================================
+    const convoyMech = {
+        added: false,
+        init() {
+            if (this.added) return;
+            if (typeof SC === 'undefined' || !SC.mechs || !SC.mechs.defs) return;
+            if (SC.mechs.defs.convoy) { this.added = true; return; }
+            const self = this;
+            SC.mechs.defs.convoy = {
+                name: 'CONVOY MECH',
+                color: '#ff2244', accent: '#4488ff',
+                speedMul: 1.4,
+                jumpMul: 0.95,
+                gravityMul: 1.0,
+                extraJumps: 1,
+                dmgMul: 1.5,
+                spriteScale: 4.5,
+                truckMode: true,
+                ramDamage: 80,
+                tagline: '🚛 CONVOY — Optimus-style truck transformer.',
+                abilities: [
+                    { keys: 'X (hold)', what: 'Truck mode: ram for 80 dmg' },
+                    { keys: 'F',        what: 'Twin Matrix beams +50% dmg' },
+                    { keys: 'WINGS',    what: 'Door-wings glide while falling' },
+                    { keys: 'SPACE×3',  what: 'Triple jump' },
+                    { keys: 'WEAK',     what: 'Slower jump, big silhouette' }
+                ],
+                renderSprite: (px, py, scale, t) => self.render(px, py, scale, t)
+            };
+            this.added = true;
+        },
+        render(px, py, scale, t) {
+            // px, py = top-left of sprite (already scaled by spriteScale)
+            // Drawn relative to that origin. Hitbox feet anchor handled by caller.
+            if (typeof ctx === 'undefined') return;
+            const W = 28 * scale, H = 40 * scale;
+            const cx = px + W / 2;
+            const cy = py + H / 2;
+            ctx.save();
+            // Body — red and blue Optimus colors
+            // Torso
+            ctx.fillStyle = '#aa1133';
+            ctx.shadowColor = '#ff2244';
+            ctx.shadowBlur = 12;
+            ctx.fillRect(px + W * 0.18, py + H * 0.28, W * 0.64, H * 0.42);
+            ctx.shadowBlur = 0;
+            // Blue chest plate
+            ctx.fillStyle = '#3366cc';
+            ctx.fillRect(px + W * 0.32, py + H * 0.30, W * 0.36, H * 0.20);
+            // Yellow window strip across chest (Optimus signature)
+            ctx.fillStyle = '#ffd744';
+            ctx.fillRect(px + W * 0.32, py + H * 0.36, W * 0.36, 4);
+            // Head — blue helmet, red face
+            ctx.fillStyle = '#3366cc';
+            ctx.fillRect(px + W * 0.34, py + H * 0.04, W * 0.32, H * 0.18);
+            // Ear pieces
+            ctx.fillRect(px + W * 0.30, py + H * 0.10, W * 0.06, H * 0.10);
+            ctx.fillRect(px + W * 0.64, py + H * 0.10, W * 0.06, H * 0.10);
+            // Visor + face — silver mouth-plate
+            ctx.fillStyle = '#ddddee';
+            ctx.fillRect(px + W * 0.36, py + H * 0.16, W * 0.28, H * 0.05);
+            // Glowing eyes
+            ctx.fillStyle = '#88ddff';
+            ctx.shadowColor = '#88ddff';
+            ctx.shadowBlur = 8;
+            ctx.fillRect(px + W * 0.38, py + H * 0.10, W * 0.08, H * 0.04);
+            ctx.fillRect(px + W * 0.54, py + H * 0.10, W * 0.08, H * 0.04);
+            ctx.shadowBlur = 0;
+            // Shoulders — red pads with smokestacks (truck-like)
+            ctx.fillStyle = '#882233';
+            ctx.fillRect(px + W * 0.04, py + H * 0.22, W * 0.18, H * 0.18);
+            ctx.fillRect(px + W * 0.78, py + H * 0.22, W * 0.18, H * 0.18);
+            // Smokestack pipes
+            ctx.fillStyle = '#888888';
+            ctx.fillRect(px + W * 0.06, py + H * 0.16, W * 0.05, H * 0.10);
+            ctx.fillRect(px + W * 0.89, py + H * 0.16, W * 0.05, H * 0.10);
+            // Door-wings folded back when falling — small extension behind shoulders
+            const wingFlap = Math.sin(t * 0.005) * 4;
+            ctx.fillStyle = '#cc2244';
+            ctx.beginPath();
+            ctx.moveTo(px + W * 0.04, py + H * 0.30);
+            ctx.lineTo(px - W * 0.06, py + H * 0.34 + wingFlap);
+            ctx.lineTo(px + W * 0.04, py + H * 0.46);
+            ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(px + W * 0.96, py + H * 0.30);
+            ctx.lineTo(px + W * 1.06, py + H * 0.34 - wingFlap);
+            ctx.lineTo(px + W * 0.96, py + H * 0.46);
+            ctx.closePath();
+            ctx.fill();
+            // Arms
+            ctx.fillStyle = '#3366cc';
+            ctx.fillRect(px + W * 0.04, py + H * 0.40, W * 0.16, H * 0.24);
+            ctx.fillRect(px + W * 0.80, py + H * 0.40, W * 0.16, H * 0.24);
+            // Fists
+            ctx.fillStyle = '#ddddee';
+            ctx.fillRect(px + W * 0.02, py + H * 0.62, W * 0.18, H * 0.10);
+            ctx.fillRect(px + W * 0.80, py + H * 0.62, W * 0.18, H * 0.10);
+            // Pelvis/legs — blue
+            ctx.fillStyle = '#3366cc';
+            ctx.fillRect(px + W * 0.22, py + H * 0.70, W * 0.56, H * 0.20);
+            // Boot toes — red
+            ctx.fillStyle = '#aa1133';
+            ctx.fillRect(px + W * 0.20, py + H * 0.88, W * 0.26, H * 0.10);
+            ctx.fillRect(px + W * 0.54, py + H * 0.88, W * 0.26, H * 0.10);
+            // Energon pulse on chest core
+            const pulse = 0.6 + Math.sin(t * 0.005) * 0.4;
+            ctx.fillStyle = '#88ffaa';
+            ctx.shadowColor = '#88ffaa';
+            ctx.shadowBlur = 10 * pulse;
+            ctx.beginPath();
+            ctx.arc(cx, py + H * 0.45, 4 + pulse * 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+    };
+
+    // ============================================================
+    // 8. DEATH REPLAY SLOW-MO — auto-trigger on player death
+    // ============================================================
+    const deathReplay = {
+        active: false,
+        timer: 0,
+        maxTimer: 90,
+        deathPos: null,
+        bannerTimer: 0,
+        // Called once when gameState transitions to 'dead'
+        trigger() {
+            if (!flags.deathReplay) return;
+            if (this.active) return;
+            this.active = true;
+            this.timer = this.maxTimer;
+            if (typeof player !== 'undefined') {
+                this.deathPos = {
+                    x: player.x + player.w / 2,
+                    y: player.y + player.h / 2
+                };
+            }
+            this.bannerTimer = 60;
+            if (typeof screenShake !== 'undefined') screenShake = 18;
+        },
+        // Returns slow-mo factor — 0..1, where 1 = normal speed
+        // Used by main loop / particle systems if they want to scale dt.
+        slowFactor() {
+            if (!this.active) return 1;
+            const t = this.timer / this.maxTimer;     // 1..0
+            // Slowest at start, ease back to 1 by end
+            return 0.18 + (1 - t) * 0.82;
+        },
+        update() {
+            if (!this.active) return;
+            this.timer -= 1;
+            if (this.timer <= 0) {
+                this.active = false;
+                this.deathPos = null;
+                this.bannerTimer = 0;
+            }
+            if (this.bannerTimer > 0) this.bannerTimer--;
+        },
+        // Draw the SLOW-MO banner + red vignette while active
+        draw() {
+            if (!this.active) return;
+            if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
+            // Red vignette
+            const t = this.timer / this.maxTimer;
+            const grd = ctx.createRadialGradient(
+                canvas.width / 2, canvas.height / 2, 0,
+                canvas.width / 2, canvas.height / 2, canvas.width * 0.7
+            );
+            grd.addColorStop(0, 'rgba(255, 0, 0, 0)');
+            grd.addColorStop(0.6, `rgba(255, 0, 0, ${0.1 * t})`);
+            grd.addColorStop(1, `rgba(255, 0, 0, ${0.5 * t})`);
+            ctx.fillStyle = grd;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            // Slow-mo banner
+            if (this.bannerTimer > 0) {
+                const a = Math.min(1, this.bannerTimer / 30);
+                ctx.save();
+                ctx.globalAlpha = a;
+                ctx.fillStyle = '#ff3333';
+                ctx.shadowColor = '#ff0000';
+                ctx.shadowBlur = 18;
+                ctx.font = 'bold 36px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText('▼ SLOW-MO ▼', canvas.width / 2, 80);
+                ctx.shadowBlur = 0;
+                ctx.restore();
+            }
+        }
+    };
+
+    // ============================================================
+    // 9. LOCAL CO-OP — P2 companion bot with WASD+QE input
+    //    Pragmatic version: P2 is a tethered ally that fires/melees
+    //    in the main camera view. Activate with P key.
+    // ============================================================
+    const coop = {
+        enabled: false,
+        p2: null,
+        // Per-frame input state for P2
+        keys2: {
+            left: false, right: false, jump: false,
+            shoot: false, melee: false, dash: false
+        },
+        spawn() {
+            if (!flags.coop) return;
+            if (this.enabled) {
+                // Already on — toggle off
+                this.disable();
+                return;
+            }
+            if (typeof player === 'undefined') return;
+            this.p2 = {
+                x: player.x - 60, y: player.y, w: 28, h: 40,
+                vx: 0, vy: 0,
+                onGround: false,
+                hp: 200, maxHp: 200,
+                shootCooldown: 0,
+                meleeCooldown: 0,
+                dashCooldown: 0, dashing: false, dashTimer: 0,
+                facing: 1,
+                color: '#ff44dd', accent: '#ffaa00',
+                jumps: 0, maxJumps: 2,
+                invincible: 60,
+                respawnTimer: 0
+            };
+            this.enabled = true;
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = {
+                    text: '⚔ CO-OP ON — P2: WASD move, Q shoot, E melee, T jump',
+                    timer: 240, color: '#ff44dd'
+                };
+            }
+            if (typeof spawnParticles === 'function') {
+                spawnParticles(this.p2.x + 14, this.p2.y, '#ff44dd', 30, 5);
+            }
+        },
+        disable() {
+            this.enabled = false;
+            this.p2 = null;
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: 'Co-op disabled', timer: 90, color: '#aaa' };
+            }
+        },
+        // Read current input state — uses WASD/Q/E/T for P2
+        readInput() {
+            if (typeof keys === 'undefined') return;
+            // P2 movement: W=jump, A=left, D=right, S=dash, Q=shoot, E=melee, T=alt-jump
+            // (W/A/S/D conflict with P1; but P1 uses arrows or A/D too)
+            // To avoid conflict, P2 uses TGFH or similar. Let's use:
+            //   T = jump, F = left, H = right, G = melee (P1's melee...)
+            // Actually safer: use keypad-style — Numpad keys if avail,
+            // otherwise the IJKL block.
+            // I = up/jump, J = left, L = right, K = down/dash
+            // U = shoot, O = melee
+            this.keys2.left  = !!(keys['KeyJ']);
+            this.keys2.right = !!(keys['KeyL']);
+            this.keys2.jump  = !!(keys['KeyI']);
+            this.keys2.shoot = !!(keys['KeyU']);
+            this.keys2.melee = !!(keys['KeyP']);   // P doubles as melee for P2
+            this.keys2.dash  = !!(keys['KeyK']);
+        },
+        update() {
+            if (!this.enabled || !this.p2) return;
+            this.readInput();
+            const p2 = this.p2;
+            // Respawn after death
+            if (p2.respawnTimer > 0) {
+                p2.respawnTimer--;
+                if (p2.respawnTimer === 0) {
+                    p2.hp = p2.maxHp;
+                    p2.x = (typeof player !== 'undefined') ? player.x - 60 : 100;
+                    p2.y = (typeof player !== 'undefined') ? player.y : 400;
+                    p2.invincible = 90;
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: 'P2 RESPAWN', timer: 60, color: '#ff44dd' };
+                    }
+                }
+                return;
+            }
+            // Move
+            if (this.keys2.left) { p2.vx = -3.6; p2.facing = -1; }
+            else if (this.keys2.right) { p2.vx = 3.6; p2.facing = 1; }
+            else { p2.vx *= 0.85; }
+            // Jump
+            if (this.keys2.jump && !p2.jumpHeld && p2.jumps < p2.maxJumps) {
+                p2.vy = -10.5;
+                p2.jumps++;
+                p2.jumpHeld = true;
+                if (typeof audio !== 'undefined' && audio.play) audio.play('jump');
+            }
+            if (!this.keys2.jump) p2.jumpHeld = false;
+            // Dash (briefly faster + invincible)
+            if (this.keys2.dash && !p2.dashHeld && p2.dashCooldown <= 0) {
+                p2.dashing = true;
+                p2.dashTimer = 8;
+                p2.dashCooldown = 60;
+                p2.invincible = 12;
+                p2.dashHeld = true;
+                if (typeof audio !== 'undefined' && audio.play) audio.play('dash');
+            }
+            if (!this.keys2.dash) p2.dashHeld = false;
+            if (p2.dashCooldown > 0) p2.dashCooldown--;
+            if (p2.dashing) {
+                p2.dashTimer--;
+                p2.vx = p2.facing * 8;
+                if (p2.dashTimer <= 0) p2.dashing = false;
+            }
+            // Gravity
+            p2.vy += 0.45;
+            if (p2.vy > 12) p2.vy = 12;
+            p2.x += p2.vx;
+            p2.y += p2.vy;
+            // Platform collision (simple — ground at y=600 + platforms array)
+            p2.onGround = false;
+            if (typeof platforms !== 'undefined') {
+                for (const plat of platforms) {
+                    if (p2.x + p2.w > plat.x && p2.x < plat.x + plat.w &&
+                        p2.y + p2.h > plat.y && p2.y + p2.h < plat.y + plat.h + 14 &&
+                        p2.vy >= 0) {
+                        p2.y = plat.y - p2.h;
+                        p2.vy = 0;
+                        p2.onGround = true;
+                        p2.jumps = 0;
+                    }
+                }
+            }
+            // Fallback ground at y=600
+            if (p2.y + p2.h > 600) {
+                p2.y = 600 - p2.h;
+                p2.vy = 0;
+                p2.onGround = true;
+                p2.jumps = 0;
+            }
+            // Tether — keep P2 within 800px of P1 to prevent off-screen drift
+            if (typeof player !== 'undefined') {
+                const dx = p2.x - player.x;
+                if (Math.abs(dx) > 800) {
+                    p2.x = player.x + Math.sign(dx) * 800;
+                    p2.vx = 0;
+                }
+            }
+            // Shoot
+            if (p2.shootCooldown > 0) p2.shootCooldown--;
+            if (this.keys2.shoot && p2.shootCooldown <= 0) {
+                this.shoot();
+                p2.shootCooldown = 16;
+            }
+            // Melee
+            if (p2.meleeCooldown > 0) p2.meleeCooldown--;
+            if (this.keys2.melee && p2.meleeCooldown <= 0) {
+                this.melee();
+                p2.meleeCooldown = 30;
+            }
+            // i-frames
+            if (p2.invincible > 0) p2.invincible--;
+            // Take damage from enemy bullets
+            if (p2.invincible <= 0 && typeof enemyBullets !== 'undefined') {
+                for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                    const b = enemyBullets[i];
+                    if (!b) continue;
+                    if (b.x > p2.x && b.x < p2.x + p2.w && b.y > p2.y && b.y < p2.y + p2.h) {
+                        p2.hp -= b.damage || 10;
+                        p2.invincible = 30;
+                        enemyBullets.splice(i, 1);
+                        if (typeof spawnParticles === 'function') {
+                            spawnParticles(p2.x + p2.w/2, p2.y + p2.h/2, '#ff4444', 6, 3);
+                        }
+                        if (p2.hp <= 0) {
+                            p2.respawnTimer = 240;
+                            if (typeof shopMessage !== 'undefined') {
+                                shopMessage = { text: 'P2 DOWN — respawn in 4s', timer: 90, color: '#ff4444' };
+                            }
+                            if (typeof spawnExplosion === 'function') {
+                                spawnExplosion(p2.x + p2.w/2, p2.y + p2.h/2);
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        },
+        shoot() {
+            if (!this.p2) return;
+            if (typeof bullets === 'undefined') return;
+            const cx = this.p2.x + this.p2.w / 2;
+            const cy = this.p2.y + this.p2.h / 2;
+            bullets.push({
+                x: cx + this.p2.facing * 18, y: cy,
+                vx: this.p2.facing * 12, vy: 0,
+                life: 80,
+                damage: 35,
+                color: '#ff44dd', glow: '#ffaa00', size: 6,
+                pierce: false, hitEnemies: new Set(),
+                fromP2: true
+            });
+            if (typeof audio !== 'undefined' && audio.play) audio.play('shoot');
+        },
+        melee() {
+            if (!this.p2) return;
+            if (typeof enemies === 'undefined') return;
+            const reach = 60;
+            const dmg = 60;
+            const cx = this.p2.x + this.p2.w / 2;
+            const cy = this.p2.y + this.p2.h / 2;
+            const ax = cx + this.p2.facing * (reach / 2);
+            for (const e of enemies) {
+                if (!e || e.hp <= 0) continue;
+                const ex = e.x + e.w / 2;
+                const ey = e.y + e.h / 2;
+                if (Math.abs(ex - ax) < (reach + e.w / 2) && Math.abs(ey - cy) < 50) {
+                    e.hp -= dmg;
+                    if (typeof spawnParticles === 'function') {
+                        spawnParticles(ex, ey, '#ff44dd', 6, 4);
+                    }
+                }
+            }
+            if (typeof audio !== 'undefined' && audio.play) audio.play('melee');
+        },
+        draw() {
+            if (!this.enabled || !this.p2) return;
+            if (typeof ctx === 'undefined' || typeof camera === 'undefined') return;
+            const p2 = this.p2;
+            if (p2.respawnTimer > 0) return;   // hidden during respawn
+            const sx = p2.x - camera.x;
+            const sy = p2.y - camera.y;
+            ctx.save();
+            // Body
+            const flicker = (p2.invincible > 0 && (p2.invincible % 6) < 3);
+            if (flicker) ctx.globalAlpha = 0.4;
+            ctx.fillStyle = p2.color;
+            ctx.shadowColor = p2.color;
+            ctx.shadowBlur = 12;
+            ctx.fillRect(sx, sy, p2.w, p2.h);
+            ctx.shadowBlur = 0;
+            // Accent stripe
+            ctx.fillStyle = p2.accent;
+            ctx.fillRect(sx + 4, sy + 8, p2.w - 8, 4);
+            // Eye
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(sx + (p2.facing > 0 ? p2.w - 10 : 4), sy + 14, 6, 4);
+            // Name tag
+            ctx.fillStyle = '#ff44dd';
+            ctx.font = 'bold 9px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('P2', sx + p2.w / 2, sy - 4);
+            // HP bar
+            const hpFrac = Math.max(0, p2.hp / p2.maxHp);
+            ctx.fillStyle = '#330011';
+            ctx.fillRect(sx - 4, sy - 14, p2.w + 8, 4);
+            ctx.fillStyle = hpFrac > 0.5 ? '#88ff88' : (hpFrac > 0.25 ? '#ffd744' : '#ff4444');
+            ctx.fillRect(sx - 4, sy - 14, (p2.w + 8) * hpFrac, 4);
+            ctx.restore();
+        },
+        // Tether-pull bullets fired by P2 hit a boss → counts toward kill
+        // (handled implicitly because b.fromP2 doesn't change normal flow)
+        toggle() { this.spawn(); }
+    };
+
+    // ============================================================
+    // BOSS TRANSFORMATION FORMS — DRAGON, KAIJU, MONSTER
+    // Add as alt rush-transformations on NG+ loop 2+ (or at random in
+    // loop 1 with low odds). They REPLACE the standard rush-form for
+    // a randomly-picked subset of bosses each loop.
+    // ============================================================
+    const bossForms = {
+        // Three new monstrous forms with custom render layers + abilities
+        forms: {
+            dragon: {
+                name: 'BLOOD DRAGON', color: '#ff2244', accent: '#ffd744',
+                drawOverlay: (e, ex, ey) => {
+                    if (typeof ctx === 'undefined') return;
+                    const t = performance.now() * 0.003;
+                    const cx = ex + e.w / 2;
+                    const cy = ey + e.h / 2;
+                    ctx.save();
+                    ctx.shadowColor = '#ff2244';
+                    ctx.shadowBlur = 14;
+                    // Dragon wings — leathery, segmented
+                    for (const side of [-1, 1]) {
+                        ctx.fillStyle = 'rgba(170, 30, 30, 0.85)';
+                        ctx.beginPath();
+                        ctx.moveTo(cx, cy - 10);
+                        const wingFlap = Math.sin(t * 4) * 0.3;
+                        for (let s = 1; s <= 3; s++) {
+                            const ang = side * (Math.PI / 6) * s + wingFlap * side;
+                            const ext = 50 + s * 20;
+                            const wx = cx + Math.cos(Math.PI + ang) * ext;
+                            const wy = cy - 30 + Math.sin(Math.PI + ang) * ext * 0.6;
+                            ctx.lineTo(wx, wy);
+                        }
+                        ctx.lineTo(cx + side * 30, cy + 30);
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                    // Dragon horns rising from head
+                    ctx.fillStyle = '#ffd744';
+                    for (let h = -1; h <= 1; h += 2) {
+                        ctx.beginPath();
+                        ctx.moveTo(cx + h * 24, ey - 4);
+                        ctx.lineTo(cx + h * 30, ey - 26);
+                        ctx.lineTo(cx + h * 18, ey - 10);
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                    // Tail — wavy red trail behind boss
+                    ctx.strokeStyle = '#ff2244';
+                    ctx.lineWidth = 8;
+                    ctx.beginPath();
+                    ctx.moveTo(cx, cy + e.h * 0.4);
+                    for (let s = 1; s <= 8; s++) {
+                        const tx = cx - 30 * s * Math.cos(t + s * 0.4);
+                        const ty = cy + e.h * 0.4 + 4 * s + Math.sin(t * 2 + s) * 12;
+                        ctx.lineTo(tx, ty);
+                    }
+                    ctx.stroke();
+                    ctx.lineWidth = 1;
+                    ctx.shadowBlur = 0;
+                    ctx.restore();
+                },
+                ability: (e) => {
+                    // Fire breath — cone of fire bullets toward player
+                    if (typeof player === 'undefined' || typeof enemyBullets === 'undefined') return;
+                    if (!e._dragonTimer) e._dragonTimer = 0;
+                    e._dragonTimer--;
+                    if (e._dragonTimer <= 0) {
+                        e._dragonTimer = 60;
+                        const baseAng = Math.atan2(
+                            (player.y + player.h / 2) - (e.y + e.h / 2),
+                            (player.x + player.w / 2) - (e.x + e.w / 2)
+                        );
+                        for (let b = -3; b <= 3; b++) {
+                            const ang = baseAng + b * 0.10;
+                            enemyBullets.push({
+                                x: e.x + e.w / 2,
+                                y: e.y + e.h / 2,
+                                vx: Math.cos(ang) * 8,
+                                vy: Math.sin(ang) * 8,
+                                life: 120,
+                                color: '#ff4422', glow: '#ffaa00',
+                                damage: 14, big: false, fire: true
+                            });
+                        }
+                        if (typeof spawnParticles === 'function') {
+                            spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#ffaa00', 8, 5);
+                        }
+                    }
+                }
+            },
+            kaiju: {
+                name: 'KAIJU LORD', color: '#22ff44', accent: '#ffd744',
+                drawOverlay: (e, ex, ey) => {
+                    if (typeof ctx === 'undefined') return;
+                    const t = performance.now() * 0.003;
+                    const cx = ex + e.w / 2;
+                    const cy = ey + e.h / 2;
+                    ctx.save();
+                    ctx.shadowColor = '#22ff44';
+                    ctx.shadowBlur = 18;
+                    // Spiked back row
+                    for (let s = 0; s < 6; s++) {
+                        const sx = cx - e.w * 0.3 + s * (e.w * 0.6 / 5);
+                        const sy = ey - 4 - Math.abs(Math.sin(s * 0.8 + t)) * 6;
+                        const sh = 14 + Math.sin(s) * 6;
+                        ctx.fillStyle = '#118822';
+                        ctx.beginPath();
+                        ctx.moveTo(sx - 5, sy);
+                        ctx.lineTo(sx, sy - sh);
+                        ctx.lineTo(sx + 5, sy);
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                    // Glowing radioactive eyes
+                    ctx.fillStyle = '#22ff44';
+                    ctx.shadowBlur = 12;
+                    for (let h = -1; h <= 1; h += 2) {
+                        ctx.beginPath();
+                        ctx.arc(cx + h * 20, ey + 16, 6 + Math.sin(t * 3) * 1.5, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    // Tail — chunky and wavy
+                    ctx.strokeStyle = '#118822';
+                    ctx.lineWidth = 14;
+                    ctx.beginPath();
+                    ctx.moveTo(cx, cy + e.h * 0.4);
+                    for (let s = 1; s <= 5; s++) {
+                        const tx = cx - 50 - 30 * s;
+                        const ty = cy + e.h * 0.4 + Math.sin(t * 2 + s * 0.5) * 18;
+                        ctx.lineTo(tx, ty);
+                    }
+                    ctx.stroke();
+                    ctx.lineWidth = 1;
+                    ctx.shadowBlur = 0;
+                    ctx.restore();
+                },
+                ability: (e) => {
+                    // Kaiju roar — periodic shockwave that knocks player back
+                    if (typeof player === 'undefined') return;
+                    if (!e._kaijuTimer) e._kaijuTimer = 0;
+                    e._kaijuTimer--;
+                    if (e._kaijuTimer <= 0) {
+                        e._kaijuTimer = 200;
+                        const dx = (player.x + player.w / 2) - (e.x + e.w / 2);
+                        const dy = (player.y + player.h / 2) - (e.y + e.h / 2);
+                        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                        if (d < 600) {
+                            // Knockback
+                            player.vx = (dx / d) * 18;
+                            player.vy = -8;
+                            if (typeof screenShake !== 'undefined') screenShake = 24;
+                        }
+                        // Shockwave visual
+                        if (typeof shockwaves !== 'undefined') {
+                            shockwaves.push({
+                                x: e.x + e.w / 2, y: e.y + e.h / 2,
+                                radius: 30, maxRadius: 600, life: 30,
+                                color: '#22ff44'
+                            });
+                        }
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '☠ KAIJU ROAR ☠', timer: 60, color: '#22ff44' };
+                        }
+                    }
+                }
+            },
+            monster: {
+                name: 'NIGHTMARE BEAST', color: '#aa00ff', accent: '#ffffff',
+                drawOverlay: (e, ex, ey) => {
+                    if (typeof ctx === 'undefined') return;
+                    const t = performance.now() * 0.003;
+                    const cx = ex + e.w / 2;
+                    const cy = ey + e.h / 2;
+                    ctx.save();
+                    ctx.shadowColor = '#aa00ff';
+                    ctx.shadowBlur = 20;
+                    // Multiple eyes — 6 randomly placed glowing purple pupils
+                    ctx.fillStyle = '#ff44ff';
+                    for (let i = 0; i < 6; i++) {
+                        const ang = (Math.PI * 2 / 6) * i + t * 0.3;
+                        const r = 14 + Math.sin(t * 2 + i) * 4;
+                        const px = cx + Math.cos(ang) * 22;
+                        const py = ey + 18 + Math.sin(ang) * 12;
+                        ctx.beginPath();
+                        ctx.arc(px, py, 4 + Math.sin(t * 4 + i) * 1.5, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    // Tendrils — 4 wavy purple tendrils whipping around
+                    ctx.strokeStyle = 'rgba(170, 0, 255, 0.7)';
+                    ctx.lineWidth = 6;
+                    for (let tt = 0; tt < 4; tt++) {
+                        ctx.beginPath();
+                        ctx.moveTo(cx, cy);
+                        for (let s = 1; s <= 6; s++) {
+                            const phase = t + tt * 1.5 + s * 0.4;
+                            const ext = 14 * s;
+                            const ang = (Math.PI * 2 / 4) * tt + Math.sin(phase) * 0.4;
+                            const px = cx + Math.cos(ang) * ext;
+                            const py = cy + Math.sin(ang) * ext * 0.7 + Math.cos(phase) * 6;
+                            ctx.lineTo(px, py);
+                        }
+                        ctx.stroke();
+                    }
+                    ctx.lineWidth = 1;
+                    // Floating skull halo — 3 small skulls orbiting
+                    ctx.fillStyle = '#ffffff';
+                    for (let s = 0; s < 3; s++) {
+                        const ang = t + (Math.PI * 2 / 3) * s;
+                        const sx = cx + Math.cos(ang) * 60;
+                        const sy = cy - 20 + Math.sin(ang) * 30;
+                        ctx.beginPath();
+                        ctx.arc(sx, sy, 6, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.fillStyle = '#000';
+                        ctx.fillRect(sx - 3, sy - 1, 2, 2);
+                        ctx.fillRect(sx + 1, sy - 1, 2, 2);
+                        ctx.fillStyle = '#ffffff';
+                    }
+                    ctx.shadowBlur = 0;
+                    ctx.restore();
+                },
+                ability: (e) => {
+                    // Spawn dark void rifts that pull the player toward boss
+                    if (typeof player === 'undefined') return;
+                    if (!e._monsterTimer) e._monsterTimer = 0;
+                    e._monsterTimer--;
+                    if (e._monsterTimer <= 0) {
+                        e._monsterTimer = 180;
+                        const dx = (e.x + e.w / 2) - (player.x + player.w / 2);
+                        const dy = (e.y + e.h / 2) - (player.y + player.h / 2);
+                        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+                        if (d < 500) {
+                            player.vx += (dx / d) * 6;
+                            player.vy += (dy / d) * 4;
+                        }
+                        // Spawn 4 dark void bullets
+                        if (typeof enemyBullets !== 'undefined') {
+                            for (let i = 0; i < 4; i++) {
+                                const ang = (Math.PI * 2 / 4) * i + Math.random() * 0.3;
+                                enemyBullets.push({
+                                    x: e.x + e.w / 2,
+                                    y: e.y + e.h / 2,
+                                    vx: Math.cos(ang) * 5,
+                                    vy: Math.sin(ang) * 5,
+                                    life: 200,
+                                    color: '#aa00ff', glow: '#ff44ff',
+                                    damage: 18, big: true
+                                });
+                            }
+                        }
+                        if (typeof shopMessage !== 'undefined') {
+                            shopMessage = { text: '☠ NIGHTMARE PULL ☠', timer: 60, color: '#aa00ff' };
+                        }
+                    }
+                }
+            }
+        },
+        // Pick a form for a given boss based on rush loop + boss subtype
+        pickForm(e) {
+            if (!flags.bossForms) return null;
+            if (typeof bossRush === 'undefined' || !bossRush) return null;
+            const loop = bossRush.loop || 0;
+            // Loop 0: 20% chance any boss gets a monster form
+            // Loop 1+: 50% chance, with deterministic selection per boss subtype
+            if (loop === 0 && Math.random() > 0.2) return null;
+            if (loop > 0 && Math.random() > 0.5) return null;
+            const formIds = Object.keys(this.forms);
+            // Deterministic-ish per subtype: hash subtype to pick form
+            const subtype = e.subtype || 'mech';
+            let h = 0;
+            for (const c of subtype) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+            const idx = (h + loop) % formIds.length;
+            return formIds[idx];
+        },
+        // Apply form to a boss when it transforms (called from hook below)
+        applyForm(e) {
+            if (!flags.bossForms) return;
+            if (e._wlBossForm) return;   // already applied
+            const formId = this.pickForm(e);
+            if (!formId) return;
+            const form = this.forms[formId];
+            if (!form) return;
+            e._wlBossForm = formId;
+            e._wlBossFormName = form.name;
+            // Override rush form name + color so the cinematic banner uses it
+            e._rushFormName = form.name;
+            e._rushTransformColor = form.color;
+            e._rushFormAccent = form.accent;
+            // Tag the boss for HP boost (these forms are tougher)
+            e.maxHp = Math.round(e.maxHp * 1.25);
+            e.hp = Math.min(e.hp + Math.round(e.hp * 0.25), e.maxHp);
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: `☠ TRANSFORMS INTO ${form.name} ☠`, timer: 240, color: form.color };
+            }
+            if (typeof spawnParticles === 'function') {
+                for (let i = 0; i < 40; i++) {
+                    const ang = Math.random() * Math.PI * 2;
+                    spawnParticles(
+                        e.x + e.w / 2 + Math.cos(ang) * 60,
+                        e.y + e.h / 2 + Math.sin(ang) * 60,
+                        form.color, 3, 6
+                    );
+                }
+            }
+        },
+        // Per-frame tick: run form ability + draw overlay
+        tickAndDraw(e, ex, ey) {
+            if (!flags.bossForms) return;
+            if (!e._wlBossForm) return;
+            const form = this.forms[e._wlBossForm];
+            if (!form) return;
+            // Run ability
+            if (form.ability) form.ability(e);
+            // Draw overlay
+            if (form.drawOverlay) form.drawOverlay(e, ex, ey);
+        }
+    };
+
+    return { convoyMech, deathReplay, coop, bossForms };
+})());
+
+
+// ============================================================================
+// ===== WISHLIST WIRE-UP — hooks into existing game systems =================
+// ============================================================================
+(function() {
+
+    // ---- INIT ----
+    // Initialize all WL submodules. Done at module-load time so storage
+    // is available immediately. Some inits (newChar) push to global
+    // arrays so they must run before character select renders.
+    if (WL.leaderboard) WL.leaderboard.init();
+    if (WL.skins) WL.skins.init();
+    if (WL.mods) WL.mods.init();
+    if (WL.newChar) WL.newChar.init();
+    if (WL.convoyMech) WL.convoyMech.init();
+
+    // ---- APPLY CHARACTER → APPLY SKIN ----
+    // After applyCharacter sets player.charColor / charAccent, our skin
+    // overrides them if a skin is selected. PRINCE character also routes
+    // his Q ability through royalDecree.
+    if (typeof applyCharacter === 'function') {
+        const _origApplyChar = applyCharacter;
+        applyCharacter = function(idx) {
+            _origApplyChar.apply(this, arguments);
+            if (WL.skins) WL.skins.apply();
+        };
+    }
+
+    // ---- BUILD LEVEL → SPAWN DECOR + RECORD STAGE START ----
+    if (typeof buildLevel === 'function') {
+        const _origBuild = buildLevel;
+        let _wlLastBuiltStage = -1;
+        buildLevel = function() {
+            _origBuild.apply(this, arguments);
+            const cs = (typeof currentStage !== 'undefined') ? currentStage : 0;
+            if (WL.decor) WL.decor.spawn(cs);
+            // Only reset the leaderboard timer when the stage actually
+            // changes — buildLevel is called many times within a single
+            // stage (boss arena rebuilds, rush spawns) and we want the
+            // timer to track the entire stage attempt, not each rebuild.
+            if (WL.leaderboard && cs !== _wlLastBuiltStage) {
+                WL.leaderboard.startStage();
+                _wlLastBuiltStage = cs;
+            }
+        };
+    }
+
+    // ---- DRAW BACKGROUND → APPEND DECORATIONS ----
+    // Decor draws between background and entities. Wrap drawBackground.
+    if (typeof drawBackground === 'function') {
+        const _origDrawBg = drawBackground;
+        drawBackground = function() {
+            _origDrawBg.apply(this, arguments);
+            if (WL.decor) WL.decor.draw();
+        };
+    }
+
+    // ---- DRAW HUD → APPEND MENUS, P2, DEATH REPLAY, LEADERBOARD ----
+    if (typeof drawHUD === 'function') {
+        const _origDrawHud = drawHUD;
+        drawHUD = function() {
+            _origDrawHud.apply(this, arguments);
+            // Co-op P2 sprite (drawn as part of world but cheap to put here)
+            // Skin menu
+            if (WL.skins) WL.skins.draw();
+            // Weapon mods menu
+            if (WL.mods) WL.mods.draw();
+            // Death replay overlay (red vignette + slow-mo banner)
+            if (WL.deathReplay) WL.deathReplay.draw();
+            // Co-op help text — small banner at bottom-left when active
+            if (WL.coop && WL.coop.enabled) {
+                ctx.save();
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+                ctx.fillRect(8, canvas.height - 56, 280, 48);
+                ctx.fillStyle = '#ff44dd';
+                ctx.font = 'bold 11px Courier New';
+                ctx.textAlign = 'left';
+                ctx.fillText('CO-OP — P2 CONTROLS', 18, canvas.height - 38);
+                ctx.fillStyle = '#aaa';
+                ctx.font = '9px Courier New';
+                ctx.fillText('I=jump  J=left  L=right  K=dash  U=shoot  P=melee', 18, canvas.height - 22);
+                ctx.fillText('[P toggle co-op]', 18, canvas.height - 10);
+                ctx.restore();
+            }
+        };
+    }
+
+    // ---- DRAW WORLD → DRAW P2 (in world space, after entities) ----
+    // Wrap drawPlayer so P2 renders right after P1.
+    if (typeof drawPlayer === 'function') {
+        const _origDrawPlayer = drawPlayer;
+        drawPlayer = function() {
+            _origDrawPlayer.apply(this, arguments);
+            if (WL.coop) WL.coop.draw();
+        };
+    }
+
+    // ---- HANDLE ENEMY KILLED → MECH KING UNLOCK + LEADERBOARD ----
+    if (typeof handleEnemyKilled === 'function') {
+        const _origHandleKill = handleEnemyKilled;
+        handleEnemyKilled = function(e, j) {
+            _origHandleKill.apply(this, arguments);
+            // Mech King defeated → unlock PRINCE
+            if (e && e.type === 'boss' && e.subtype === 'mechking' && WL.newChar) {
+                WL.newChar.onMechKingDefeated();
+            }
+            // Stage boss kill → record leaderboard for that stage (only outside rush)
+            if (e && e.type === 'boss' && WL.leaderboard) {
+                const inRush = (typeof bossRush !== 'undefined' && bossRush && bossRush.active);
+                if (!inRush && typeof currentStage !== 'undefined') {
+                    WL.leaderboard.onStageClear(currentStage);
+                }
+            }
+            // Void god kill → record boss rush leaderboard
+            if (e && e.type === 'boss' && e.subtype === 'voidgod' && WL.leaderboard) {
+                WL.leaderboard.onBossRushClear();
+            }
+        };
+    }
+
+    // ---- TRIGGER BOSS RUSH TRANSFORM → APPLY DRAGON/KAIJU/MONSTER FORM ----
+    if (typeof triggerBossRushTransform === 'function') {
+        const _origTrigger = triggerBossRushTransform;
+        triggerBossRushTransform = function(e) {
+            _origTrigger.apply(this, arguments);
+            if (WL.bossForms) WL.bossForms.applyForm(e);
+        };
+    }
+
+    // ---- DRAW BOSS BODY → ADD FORM OVERLAY ----
+    if (typeof drawBossBody === 'function') {
+        const _origDrawBoss = drawBossBody;
+        drawBossBody = function(ex, ey, e) {
+            _origDrawBoss.apply(this, arguments);
+            if (WL.bossForms) WL.bossForms.tickAndDraw(e, ex, ey);
+        };
+    }
+
+    // ---- SPAWN BOSS RUSH BOSS → CHECK FOR MINI-BOSS ANTECHAMBER ----
+    if (typeof spawnBossRushBoss === 'function') {
+        // Don't wrap — instead intercept advanceBossRush to insert wave
+    }
+    if (typeof advanceBossRush === 'function') {
+        const _origAdvance = advanceBossRush;
+        advanceBossRush = function() {
+            // bossRush.index already incremented when called; check if a wave should fire
+            if (typeof bossRush !== 'undefined' && bossRush && bossRush.active) {
+                const nextIdx = bossRush.index;
+                // Only insert mini-boss waves between regular gauntlet bosses (idx 1..7)
+                if (nextIdx >= 1 && nextIdx <= 7 && WL.miniBoss) {
+                    if (WL.miniBoss.trigger(nextIdx)) {
+                        // Wave triggered — defer the actual boss spawn until wave clears
+                        return;
+                    }
+                }
+            }
+            _origAdvance.apply(this, arguments);
+        };
+    }
+
+    // ---- START BOSS RUSH → RECORD LEADERBOARD START ----
+    if (typeof startBossRush === 'function') {
+        const _origStartRush = startBossRush;
+        startBossRush = function() {
+            _origStartRush.apply(this, arguments);
+            if (WL.leaderboard) WL.leaderboard.startBossRush();
+        };
+    }
+
+    // ---- SHOOT BULLET → APPLY WEAPON MODS ----
+    // We track bullet array length before/after to apply mods to new ones.
+    if (typeof shootBullet === 'function') {
+        const _origShoot = shootBullet;
+        shootBullet = function() {
+            const before = (typeof bullets !== 'undefined') ? bullets.length : 0;
+            _origShoot.apply(this, arguments);
+            const after = (typeof bullets !== 'undefined') ? bullets.length : 0;
+            if (WL.mods && typeof bullets !== 'undefined' && typeof player !== 'undefined') {
+                for (let i = before; i < after; i++) {
+                    WL.mods.applyToBullet(bullets[i], player.weaponTier);
+                }
+            }
+        };
+    }
+
+    // ---- DRAW GAME OVER → APPEND LEADERBOARD PANEL ----
+    if (typeof drawGameOver === 'function') {
+        const _origDrawGameOver = drawGameOver;
+        drawGameOver = function() {
+            _origDrawGameOver.apply(this, arguments);
+            if (WL.leaderboard) WL.leaderboard.drawFullPanel();
+        };
+    }
+
+    // ---- DRAW STAGE COMPLETE → APPEND LEADERBOARD ROW ----
+    if (typeof drawStageComplete === 'function') {
+        const _origDrawSc = drawStageComplete;
+        drawStageComplete = function() {
+            _origDrawSc.apply(this, arguments);
+            if (WL.leaderboard && typeof currentStage !== 'undefined') {
+                WL.leaderboard.drawForStage(currentStage);
+            }
+        };
+    }
+
+    // ---- KEYBOARD HOOKS — K, O, P toggle menus / co-op ----
+    if (typeof document !== 'undefined') {
+        document.addEventListener('keydown', e => {
+            // Skip when shop is open — preserve normal shop hotkeys
+            if (typeof shopOpen !== 'undefined' && shopOpen) return;
+            // Skip when name prompt is showing
+            const np = document.getElementById('name-prompt');
+            if (np && np.style.display !== 'none') return;
+            // Menu input handling — first try mods menu, then skins menu
+            if (WL.mods && WL.mods.menuOpen) {
+                if (WL.mods.handleKey(e.code)) {
+                    e.preventDefault();
+                    return;
+                }
+            }
+            if (WL.skins && WL.skins.menuOpen) {
+                if (WL.skins.handleKey(e.code)) {
+                    e.preventDefault();
+                    return;
+                }
+            }
+            // Toggle keys
+            if (e.code === 'KeyK' && WL.skins) {
+                // Don't fire if any other menu is up or in cutscene
+                if (typeof gameState !== 'undefined' && (gameState === 'cutscene' || gameState === 'intro')) return;
+                if (WL.mods && WL.mods.menuOpen) return;
+                WL.skins.toggleMenu();
+                e.preventDefault();
+            } else if (e.code === 'KeyO' && WL.mods) {
+                if (typeof gameState !== 'undefined' && (gameState === 'cutscene' || gameState === 'intro')) return;
+                if (WL.skins && WL.skins.menuOpen) return;
+                WL.mods.toggleMenu();
+                e.preventDefault();
+            } else if (e.code === 'KeyP' && WL.coop) {
+                // P toggles co-op (but only when not in a menu / not P2 melee)
+                if (typeof gameState !== 'undefined' && (gameState === 'cutscene' || gameState === 'intro' || gameState === 'charSelect')) return;
+                if (WL.skins && WL.skins.menuOpen) return;
+                if (WL.mods && WL.mods.menuOpen) return;
+                // Only toggle if SHIFT is held to disambiguate from P2 melee
+                if (e.shiftKey) {
+                    WL.coop.toggle();
+                    e.preventDefault();
+                }
+            }
+        }, true);    // capture phase so we run before the main game keydown
+    }
+
+    // ---- PER-FRAME UPDATE / DRAW HOOK via requestAnimationFrame ----
+    // Wrap the running gameLoop. Since gameLoop is invoked via
+    // requestAnimationFrame internally, we hook via a wrapper that
+    // both runs the original and then ticks WL subsystems.
+    if (typeof gameLoop === 'function') {
+        const _origLoop = gameLoop;
+        let _wlPrevState = null;
+        gameLoop = function(ts) {
+            _origLoop.apply(this, arguments);
+            // Detect dead-state transition for death replay
+            if (typeof gameState !== 'undefined') {
+                if (gameState !== _wlPrevState) {
+                    if (gameState === 'dead' && WL.deathReplay) {
+                        WL.deathReplay.trigger();
+                    }
+                    _wlPrevState = gameState;
+                }
+            }
+            // Tick continuous subsystems while playing
+            if (typeof gameState !== 'undefined' && gameState === 'playing') {
+                if (WL.mods) {
+                    WL.mods.tickBullets();
+                    WL.mods.tickEnemies();
+                }
+                if (WL.coop) WL.coop.update();
+                if (WL.miniBoss) WL.miniBoss.update();
+                // Re-apply rainbow skin per-frame (only one that's animated)
+                if (WL.skins && WL.skins.selected === 'rainbow') WL.skins.apply();
+            }
+            // Death replay always ticks
+            if (WL.deathReplay) WL.deathReplay.update();
+        };
+    }
+
+    // ---- BOSS OFF-SCREEN INDICATOR ----
+    // Renders an arrow pointing toward the boss when it's off-camera.
+    // Helps with the "can't see 8th boss" complaint.
+    if (typeof drawHUD === 'function') {
+        const _origDrawHudArrow = drawHUD;
+        drawHUD = function() {
+            _origDrawHudArrow.apply(this, arguments);
+            if (typeof gameState !== 'undefined' && gameState !== 'playing') return;
+            if (typeof enemies === 'undefined' || typeof camera === 'undefined') return;
+            const boss = enemies.find(e => e && e.type === 'boss' && e.hp > 0);
+            if (!boss) return;
+            const bx = boss.x + boss.w / 2;
+            const by = boss.y + boss.h / 2;
+            const sx = bx - camera.x;
+            const sy = by - camera.y;
+            const cw = canvas.width, ch = canvas.height;
+            const margin = 60;
+            // Only draw if boss is off-screen
+            if (sx >= -margin && sx <= cw + margin && sy >= -margin && sy <= ch + margin) return;
+            // Clamp arrow position to screen edge
+            const ax = Math.max(40, Math.min(cw - 40, sx));
+            const ay = Math.max(80, Math.min(ch - 60, sy));
+            const dx = sx - cw / 2;
+            const dy = sy - ch / 2;
+            const ang = Math.atan2(dy, dx);
+            ctx.save();
+            ctx.translate(ax, ay);
+            ctx.rotate(ang);
+            // Pulsing
+            const pulse = 0.7 + Math.sin(performance.now() * 0.01) * 0.3;
+            ctx.fillStyle = boss.color || '#ff4422';
+            ctx.shadowColor = boss.color || '#ff4422';
+            ctx.shadowBlur = 16 * pulse;
+            ctx.beginPath();
+            ctx.moveTo(20, 0);
+            ctx.lineTo(-12, -10);
+            ctx.lineTo(-6, 0);
+            ctx.lineTo(-12, 10);
+            ctx.closePath();
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.restore();
+            // Distance label
+            ctx.save();
+            const dist = Math.round(Math.sqrt(dx * dx + dy * dy));
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 11px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText(`BOSS ${dist}px`, ax, ay + 24);
+            ctx.restore();
+        };
+    }
+
+    console.log('[WL] Wishlist features loaded — leaderboard, decor, miniBoss, skins, PRINCE, mods, CONVOY mech, death replay, co-op, boss forms.');
+})();
