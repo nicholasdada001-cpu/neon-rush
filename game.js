@@ -39722,7 +39722,7 @@ const WL = (function() {
             this.currentStageStart = performance.now();
         },
         onStageClear(stageIdx) {
-            if (!flags.leaderboard) return;
+            if (!WL.flags.leaderboard) return;
             const elapsed = performance.now() - this.currentStageStart;
             const hpPct = (typeof player !== 'undefined' && player.maxHp)
                 ? Math.max(0, player.hp) / player.maxHp
@@ -39739,7 +39739,7 @@ const WL = (function() {
             this.bossRushStart = performance.now();
         },
         onBossRushClear() {
-            if (!flags.leaderboard) return;
+            if (!WL.flags.leaderboard) return;
             const elapsed = performance.now() - this.bossRushStart;
             const hpPct = (typeof player !== 'undefined' && player.maxHp)
                 ? Math.max(0, player.hp) / player.maxHp
@@ -39762,7 +39762,7 @@ const WL = (function() {
         },
         // Draw best-time/HP banner on stage clear screen.
         drawForStage(stageIdx) {
-            if (!flags.leaderboard) return;
+            if (!WL.flags.leaderboard) return;
             if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
             const t = this.bestTimes[stageIdx];
             const h = this.bestHpPct[stageIdx];
@@ -39784,7 +39784,7 @@ const WL = (function() {
         },
         // Full leaderboard panel — drawn on game over screen
         drawFullPanel() {
-            if (!flags.leaderboard) return;
+            if (!WL.flags.leaderboard) return;
             if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
             const cx = canvas.width / 2;
             const yBase = canvas.height / 2 + 140;
@@ -39837,7 +39837,7 @@ const WL = (function() {
             7: { kinds: ['satellite', 'beacon', 'panel'], colors: ['#66ffff', '#aaffff', '#ffffff'] }
         },
         spawn(stageIdx) {
-            if (!flags.decor) return;
+            if (!WL.flags.decor) return;
             this.items = [];
             const theme = this.themes[stageIdx] || this.themes[0];
             const count = 8 + Math.floor(Math.random() * 6);   // 8-13 props
@@ -39861,7 +39861,7 @@ const WL = (function() {
             }
         },
         draw() {
-            if (!flags.decor) return;
+            if (!WL.flags.decor) return;
             if (typeof ctx === 'undefined' || typeof camera === 'undefined') return;
             this.ensure();
             const t = performance.now() * 0.002;
@@ -40043,7 +40043,7 @@ const WL = (function() {
         // Trigger between rush bosses (called from advanceBossRush). Spawns
         // a wave of 4-6 mid-tier enemies to fight before the next boss.
         trigger(nextRushIdx) {
-            if (!flags.miniBoss) return false;
+            if (!WL.flags.miniBoss) return false;
             if (this.active) return false;
             // Only trigger every other rush round (idx 1, 3, 5, 7) to keep pacing
             if (nextRushIdx % 2 !== 1) return false;
@@ -40172,7 +40172,7 @@ const WL = (function() {
         },
         // Return the active skin override, or null if no skin selected
         active() {
-            if (!flags.skins || !this.selected) return null;
+            if (!WL.flags.skins || !this.selected) return null;
             const s = this.list.find(x => x.id === this.selected);
             if (!s || !this.unlocked[s.id]) return null;
             return s;
@@ -40466,7 +40466,7 @@ Object.assign(WL, (function() {
         },
         // Apply mods to a freshly-fired bullet. Called from a hook below.
         applyToBullet(bullet, weaponTier) {
-            if (!flags.mods) return;
+            if (!WL.flags.mods) return;
             const ml = this.getModsForWeapon(weaponTier);
             if (!ml || ml.length === 0) return;
             bullet._wlMods = ml.slice();
@@ -40494,7 +40494,7 @@ Object.assign(WL, (function() {
         },
         // Tick homing/ricochet/glow on bullets each frame
         tickBullets() {
-            if (!flags.mods) return;
+            if (!WL.flags.mods) return;
             if (typeof bullets === 'undefined') return;
             for (const b of bullets) {
                 if (!b._wlMods) continue;
@@ -40533,7 +40533,7 @@ Object.assign(WL, (function() {
         },
         // Apply mod-specific effects on enemy hit. Called from hook.
         onBulletHitEnemy(bullet, enemy) {
-            if (!flags.mods) return;
+            if (!WL.flags.mods) return;
             if (!bullet._wlMods) return;
             for (const m of bullet._wlMods) {
                 if (m === 'cryo') {
@@ -40577,7 +40577,7 @@ Object.assign(WL, (function() {
         },
         // Per-frame tick on enemies for DoT / freeze
         tickEnemies() {
-            if (!flags.mods) return;
+            if (!WL.flags.mods) return;
             if (typeof enemies === 'undefined') return;
             for (const e of enemies) {
                 if (!e || e.hp <= 0) continue;
@@ -40922,7 +40922,7 @@ Object.assign(WL, (function() {
         bannerTimer: 0,
         // Called once when gameState transitions to 'dead'
         trigger() {
-            if (!flags.deathReplay) return;
+            if (!WL.flags.deathReplay) return;
             if (this.active) return;
             this.active = true;
             this.timer = this.maxTimer;
@@ -40999,7 +40999,7 @@ Object.assign(WL, (function() {
             shoot: false, melee: false, dash: false
         },
         spawn() {
-            if (!flags.coop) return;
+            if (!WL.flags.coop) return;
             if (this.enabled) {
                 // Already on — toggle off
                 this.disable();
@@ -41512,7 +41512,7 @@ Object.assign(WL, (function() {
         },
         // Pick a form for a given boss based on rush loop + boss subtype
         pickForm(e) {
-            if (!flags.bossForms) return null;
+            if (!WL.flags.bossForms) return null;
             if (typeof bossRush === 'undefined' || !bossRush) return null;
             const loop = bossRush.loop || 0;
             // Loop 0: 20% chance any boss gets a monster form
@@ -41529,7 +41529,7 @@ Object.assign(WL, (function() {
         },
         // Apply form to a boss when it transforms (called from hook below)
         applyForm(e) {
-            if (!flags.bossForms) return;
+            if (!WL.flags.bossForms) return;
             if (e._wlBossForm) return;   // already applied
             const formId = this.pickForm(e);
             if (!formId) return;
@@ -41560,7 +41560,7 @@ Object.assign(WL, (function() {
         },
         // Per-frame tick: run form ability + draw overlay
         tickAndDraw(e, ex, ey) {
-            if (!flags.bossForms) return;
+            if (!WL.flags.bossForms) return;
             if (!e._wlBossForm) return;
             const form = this.forms[e._wlBossForm];
             if (!form) return;
@@ -41577,28 +41577,42 @@ Object.assign(WL, (function() {
 
 // ============================================================================
 // ===== WISHLIST WIRE-UP — hooks into existing game systems =================
+// Every wrapper runs the original FIRST, then catches any WL-side error so
+// a bug in this module can NEVER freeze the original game loop.
 // ============================================================================
 (function() {
 
+    // Safety helper — runs `fn` and swallows + logs any thrown error so the
+    // original game's frame loop never gets broken by a WL-side bug. Errors
+    // are reported via console.warn with a label so they're easy to spot.
+    function safe(label, fn) {
+        try { return fn(); }
+        catch (e) {
+            // Throttle log spam — print each label at most once per second
+            const now = Date.now();
+            if (!safe._last) safe._last = {};
+            if (!safe._last[label] || now - safe._last[label] > 1000) {
+                safe._last[label] = now;
+                console.warn('[WL safe] ' + label + ' error:', e && e.message ? e.message : e);
+            }
+        }
+    }
+
     // ---- INIT ----
-    // Initialize all WL submodules. Done at module-load time so storage
-    // is available immediately. Some inits (newChar) push to global
-    // arrays so they must run before character select renders.
-    if (WL.leaderboard) WL.leaderboard.init();
-    if (WL.skins) WL.skins.init();
-    if (WL.mods) WL.mods.init();
-    if (WL.newChar) WL.newChar.init();
-    if (WL.convoyMech) WL.convoyMech.init();
+    safe('init', () => {
+        if (WL.leaderboard) WL.leaderboard.init();
+        if (WL.skins) WL.skins.init();
+        if (WL.mods) WL.mods.init();
+        if (WL.newChar) WL.newChar.init();
+        if (WL.convoyMech) WL.convoyMech.init();
+    });
 
     // ---- APPLY CHARACTER → APPLY SKIN ----
-    // After applyCharacter sets player.charColor / charAccent, our skin
-    // overrides them if a skin is selected. PRINCE character also routes
-    // his Q ability through royalDecree.
     if (typeof applyCharacter === 'function') {
         const _origApplyChar = applyCharacter;
         applyCharacter = function(idx) {
             _origApplyChar.apply(this, arguments);
-            if (WL.skins) WL.skins.apply();
+            safe('applyCharacter:skins', () => { if (WL.skins) WL.skins.apply(); });
         };
     }
 
@@ -41608,43 +41622,43 @@ Object.assign(WL, (function() {
         let _wlLastBuiltStage = -1;
         buildLevel = function() {
             _origBuild.apply(this, arguments);
-            const cs = (typeof currentStage !== 'undefined') ? currentStage : 0;
-            if (WL.decor) WL.decor.spawn(cs);
-            // Only reset the leaderboard timer when the stage actually
-            // changes — buildLevel is called many times within a single
-            // stage (boss arena rebuilds, rush spawns) and we want the
-            // timer to track the entire stage attempt, not each rebuild.
-            if (WL.leaderboard && cs !== _wlLastBuiltStage) {
-                WL.leaderboard.startStage();
-                _wlLastBuiltStage = cs;
-            }
+            safe('buildLevel:decor', () => {
+                const cs = (typeof currentStage !== 'undefined') ? currentStage : 0;
+                if (WL.decor) WL.decor.spawn(cs);
+                if (WL.leaderboard && cs !== _wlLastBuiltStage) {
+                    WL.leaderboard.startStage();
+                    _wlLastBuiltStage = cs;
+                }
+            });
         };
     }
 
     // ---- DRAW BACKGROUND → APPEND DECORATIONS ----
-    // Decor draws between background and entities. Wrap drawBackground.
     if (typeof drawBackground === 'function') {
         const _origDrawBg = drawBackground;
         drawBackground = function() {
             _origDrawBg.apply(this, arguments);
-            if (WL.decor) WL.decor.draw();
+            safe('drawBackground:decor', () => { if (WL.decor) WL.decor.draw(); });
         };
     }
 
-    // ---- DRAW HUD → APPEND MENUS, P2, DEATH REPLAY, LEADERBOARD ----
+    // ---- DRAW HUD → APPEND MENUS, REPLAY, COOP HELP, BOSS ARROW ----
+    // Single wrap (was two — the boss arrow was a separate wrap; merging
+    // makes the chain shallower and the per-frame code easier to reason
+    // about).
     if (typeof drawHUD === 'function') {
         const _origDrawHud = drawHUD;
         drawHUD = function() {
             _origDrawHud.apply(this, arguments);
-            // Co-op P2 sprite (drawn as part of world but cheap to put here)
-            // Skin menu
-            if (WL.skins) WL.skins.draw();
-            // Weapon mods menu
-            if (WL.mods) WL.mods.draw();
-            // Death replay overlay (red vignette + slow-mo banner)
-            if (WL.deathReplay) WL.deathReplay.draw();
-            // Co-op help text — small banner at bottom-left when active
-            if (WL.coop && WL.coop.enabled) {
+            // Skin / mod menus, death replay overlay
+            safe('drawHUD:menus', () => {
+                if (WL.skins) WL.skins.draw();
+                if (WL.mods) WL.mods.draw();
+                if (WL.deathReplay) WL.deathReplay.draw();
+            });
+            // Co-op help banner
+            safe('drawHUD:coopBanner', () => {
+                if (!(WL.coop && WL.coop.enabled)) return;
                 ctx.save();
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
                 ctx.fillRect(8, canvas.height - 56, 280, 48);
@@ -41655,19 +41669,60 @@ Object.assign(WL, (function() {
                 ctx.fillStyle = '#aaa';
                 ctx.font = '9px Courier New';
                 ctx.fillText('I=jump  J=left  L=right  K=dash  U=shoot  P=melee', 18, canvas.height - 22);
-                ctx.fillText('[P toggle co-op]', 18, canvas.height - 10);
+                ctx.fillText('[Shift+P toggle co-op]', 18, canvas.height - 10);
                 ctx.restore();
-            }
+            });
+            // Boss off-screen indicator
+            safe('drawHUD:bossArrow', () => {
+                if (typeof gameState !== 'undefined' && gameState !== 'playing') return;
+                if (typeof enemies === 'undefined' || typeof camera === 'undefined') return;
+                const boss = enemies.find(e => e && e.type === 'boss' && e.hp > 0);
+                if (!boss) return;
+                const bx = boss.x + boss.w / 2;
+                const by = boss.y + boss.h / 2;
+                const sx = bx - camera.x;
+                const sy = by - camera.y;
+                const cw = canvas.width, ch = canvas.height;
+                const margin = 60;
+                if (sx >= -margin && sx <= cw + margin && sy >= -margin && sy <= ch + margin) return;
+                const ax = Math.max(40, Math.min(cw - 40, sx));
+                const ay = Math.max(80, Math.min(ch - 60, sy));
+                const dx = sx - cw / 2;
+                const dy = sy - ch / 2;
+                const ang = Math.atan2(dy, dx);
+                ctx.save();
+                ctx.translate(ax, ay);
+                ctx.rotate(ang);
+                const pulse = 0.7 + Math.sin(performance.now() * 0.01) * 0.3;
+                ctx.fillStyle = boss.color || '#ff4422';
+                ctx.shadowColor = boss.color || '#ff4422';
+                ctx.shadowBlur = 16 * pulse;
+                ctx.beginPath();
+                ctx.moveTo(20, 0);
+                ctx.lineTo(-12, -10);
+                ctx.lineTo(-6, 0);
+                ctx.lineTo(-12, 10);
+                ctx.closePath();
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.restore();
+                ctx.save();
+                const dist = Math.round(Math.sqrt(dx * dx + dy * dy));
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 11px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText(`BOSS ${dist}px`, ax, ay + 24);
+                ctx.restore();
+            });
         };
     }
 
-    // ---- DRAW WORLD → DRAW P2 (in world space, after entities) ----
-    // Wrap drawPlayer so P2 renders right after P1.
+    // ---- DRAW PLAYER → DRAW P2 ----
     if (typeof drawPlayer === 'function') {
         const _origDrawPlayer = drawPlayer;
         drawPlayer = function() {
             _origDrawPlayer.apply(this, arguments);
-            if (WL.coop) WL.coop.draw();
+            safe('drawPlayer:coop', () => { if (WL.coop) WL.coop.draw(); });
         };
     }
 
@@ -41676,21 +41731,20 @@ Object.assign(WL, (function() {
         const _origHandleKill = handleEnemyKilled;
         handleEnemyKilled = function(e, j) {
             _origHandleKill.apply(this, arguments);
-            // Mech King defeated → unlock PRINCE
-            if (e && e.type === 'boss' && e.subtype === 'mechking' && WL.newChar) {
-                WL.newChar.onMechKingDefeated();
-            }
-            // Stage boss kill → record leaderboard for that stage (only outside rush)
-            if (e && e.type === 'boss' && WL.leaderboard) {
-                const inRush = (typeof bossRush !== 'undefined' && bossRush && bossRush.active);
-                if (!inRush && typeof currentStage !== 'undefined') {
-                    WL.leaderboard.onStageClear(currentStage);
+            safe('handleEnemyKilled:wl', () => {
+                if (e && e.type === 'boss' && e.subtype === 'mechking' && WL.newChar) {
+                    WL.newChar.onMechKingDefeated();
                 }
-            }
-            // Void god kill → record boss rush leaderboard
-            if (e && e.type === 'boss' && e.subtype === 'voidgod' && WL.leaderboard) {
-                WL.leaderboard.onBossRushClear();
-            }
+                if (e && e.type === 'boss' && WL.leaderboard) {
+                    const inRush = (typeof bossRush !== 'undefined' && bossRush && bossRush.active);
+                    if (!inRush && typeof currentStage !== 'undefined') {
+                        WL.leaderboard.onStageClear(currentStage);
+                    }
+                }
+                if (e && e.type === 'boss' && e.subtype === 'voidgod' && WL.leaderboard) {
+                    WL.leaderboard.onBossRushClear();
+                }
+            });
         };
     }
 
@@ -41699,7 +41753,9 @@ Object.assign(WL, (function() {
         const _origTrigger = triggerBossRushTransform;
         triggerBossRushTransform = function(e) {
             _origTrigger.apply(this, arguments);
-            if (WL.bossForms) WL.bossForms.applyForm(e);
+            safe('triggerBossRushTransform:form', () => {
+                if (WL.bossForms) WL.bossForms.applyForm(e);
+            });
         };
     }
 
@@ -41708,28 +41764,26 @@ Object.assign(WL, (function() {
         const _origDrawBoss = drawBossBody;
         drawBossBody = function(ex, ey, e) {
             _origDrawBoss.apply(this, arguments);
-            if (WL.bossForms) WL.bossForms.tickAndDraw(e, ex, ey);
+            safe('drawBossBody:form', () => {
+                if (WL.bossForms) WL.bossForms.tickAndDraw(e, ex, ey);
+            });
         };
     }
 
-    // ---- SPAWN BOSS RUSH BOSS → CHECK FOR MINI-BOSS ANTECHAMBER ----
-    if (typeof spawnBossRushBoss === 'function') {
-        // Don't wrap — instead intercept advanceBossRush to insert wave
-    }
+    // ---- ADVANCE BOSS RUSH → CHECK FOR MINI-BOSS ANTECHAMBER ----
     if (typeof advanceBossRush === 'function') {
         const _origAdvance = advanceBossRush;
         advanceBossRush = function() {
-            // bossRush.index already incremented when called; check if a wave should fire
-            if (typeof bossRush !== 'undefined' && bossRush && bossRush.active) {
-                const nextIdx = bossRush.index;
-                // Only insert mini-boss waves between regular gauntlet bosses (idx 1..7)
-                if (nextIdx >= 1 && nextIdx <= 7 && WL.miniBoss) {
-                    if (WL.miniBoss.trigger(nextIdx)) {
-                        // Wave triggered — defer the actual boss spawn until wave clears
-                        return;
+            const intercepted = safe('advanceBossRush:miniBoss', () => {
+                if (typeof bossRush !== 'undefined' && bossRush && bossRush.active) {
+                    const nextIdx = bossRush.index;
+                    if (nextIdx >= 1 && nextIdx <= 7 && WL.miniBoss) {
+                        return WL.miniBoss.trigger(nextIdx);
                     }
                 }
-            }
+                return false;
+            });
+            if (intercepted) return;   // wave deferred boss spawn
             _origAdvance.apply(this, arguments);
         };
     }
@@ -41739,23 +41793,25 @@ Object.assign(WL, (function() {
         const _origStartRush = startBossRush;
         startBossRush = function() {
             _origStartRush.apply(this, arguments);
-            if (WL.leaderboard) WL.leaderboard.startBossRush();
+            safe('startBossRush:lb', () => {
+                if (WL.leaderboard) WL.leaderboard.startBossRush();
+            });
         };
     }
 
     // ---- SHOOT BULLET → APPLY WEAPON MODS ----
-    // We track bullet array length before/after to apply mods to new ones.
     if (typeof shootBullet === 'function') {
         const _origShoot = shootBullet;
         shootBullet = function() {
             const before = (typeof bullets !== 'undefined') ? bullets.length : 0;
             _origShoot.apply(this, arguments);
-            const after = (typeof bullets !== 'undefined') ? bullets.length : 0;
-            if (WL.mods && typeof bullets !== 'undefined' && typeof player !== 'undefined') {
+            safe('shootBullet:mods', () => {
+                if (!WL.mods || typeof bullets === 'undefined' || typeof player === 'undefined') return;
+                const after = bullets.length;
                 for (let i = before; i < after; i++) {
                     WL.mods.applyToBullet(bullets[i], player.weaponTier);
                 }
-            }
+            });
         };
     }
 
@@ -41764,7 +41820,9 @@ Object.assign(WL, (function() {
         const _origDrawGameOver = drawGameOver;
         drawGameOver = function() {
             _origDrawGameOver.apply(this, arguments);
-            if (WL.leaderboard) WL.leaderboard.drawFullPanel();
+            safe('drawGameOver:lb', () => {
+                if (WL.leaderboard) WL.leaderboard.drawFullPanel();
+            });
         };
     }
 
@@ -41773,143 +41831,86 @@ Object.assign(WL, (function() {
         const _origDrawSc = drawStageComplete;
         drawStageComplete = function() {
             _origDrawSc.apply(this, arguments);
-            if (WL.leaderboard && typeof currentStage !== 'undefined') {
-                WL.leaderboard.drawForStage(currentStage);
-            }
+            safe('drawStageComplete:lb', () => {
+                if (WL.leaderboard && typeof currentStage !== 'undefined') {
+                    WL.leaderboard.drawForStage(currentStage);
+                }
+            });
         };
     }
 
-    // ---- KEYBOARD HOOKS — K, O, P toggle menus / co-op ----
+    // ---- KEYBOARD HOOKS — K, O, Shift+P toggle menus / co-op ----
     if (typeof document !== 'undefined') {
         document.addEventListener('keydown', e => {
-            // Skip when shop is open — preserve normal shop hotkeys
-            if (typeof shopOpen !== 'undefined' && shopOpen) return;
-            // Skip when name prompt is showing
-            const np = document.getElementById('name-prompt');
-            if (np && np.style.display !== 'none') return;
-            // Menu input handling — first try mods menu, then skins menu
-            if (WL.mods && WL.mods.menuOpen) {
-                if (WL.mods.handleKey(e.code)) {
-                    e.preventDefault();
-                    return;
+            safe('keydown', () => {
+                if (typeof shopOpen !== 'undefined' && shopOpen) return;
+                const np = document.getElementById('name-prompt');
+                if (np && np.style.display !== 'none') return;
+                if (WL.mods && WL.mods.menuOpen) {
+                    if (WL.mods.handleKey(e.code)) {
+                        e.preventDefault();
+                        return;
+                    }
                 }
-            }
-            if (WL.skins && WL.skins.menuOpen) {
-                if (WL.skins.handleKey(e.code)) {
-                    e.preventDefault();
-                    return;
+                if (WL.skins && WL.skins.menuOpen) {
+                    if (WL.skins.handleKey(e.code)) {
+                        e.preventDefault();
+                        return;
+                    }
                 }
-            }
-            // Toggle keys
-            if (e.code === 'KeyK' && WL.skins) {
-                // Don't fire if any other menu is up or in cutscene
-                if (typeof gameState !== 'undefined' && (gameState === 'cutscene' || gameState === 'intro')) return;
-                if (WL.mods && WL.mods.menuOpen) return;
-                WL.skins.toggleMenu();
-                e.preventDefault();
-            } else if (e.code === 'KeyO' && WL.mods) {
-                if (typeof gameState !== 'undefined' && (gameState === 'cutscene' || gameState === 'intro')) return;
-                if (WL.skins && WL.skins.menuOpen) return;
-                WL.mods.toggleMenu();
-                e.preventDefault();
-            } else if (e.code === 'KeyP' && WL.coop) {
-                // P toggles co-op (but only when not in a menu / not P2 melee)
-                if (typeof gameState !== 'undefined' && (gameState === 'cutscene' || gameState === 'intro' || gameState === 'charSelect')) return;
-                if (WL.skins && WL.skins.menuOpen) return;
-                if (WL.mods && WL.mods.menuOpen) return;
-                // Only toggle if SHIFT is held to disambiguate from P2 melee
-                if (e.shiftKey) {
-                    WL.coop.toggle();
+                if (e.code === 'KeyK' && WL.skins) {
+                    if (typeof gameState !== 'undefined' && (gameState === 'cutscene' || gameState === 'intro')) return;
+                    if (WL.mods && WL.mods.menuOpen) return;
+                    WL.skins.toggleMenu();
                     e.preventDefault();
+                } else if (e.code === 'KeyO' && WL.mods) {
+                    if (typeof gameState !== 'undefined' && (gameState === 'cutscene' || gameState === 'intro')) return;
+                    if (WL.skins && WL.skins.menuOpen) return;
+                    WL.mods.toggleMenu();
+                    e.preventDefault();
+                } else if (e.code === 'KeyP' && WL.coop) {
+                    if (typeof gameState !== 'undefined' && (gameState === 'cutscene' || gameState === 'intro' || gameState === 'charSelect')) return;
+                    if (WL.skins && WL.skins.menuOpen) return;
+                    if (WL.mods && WL.mods.menuOpen) return;
+                    if (e.shiftKey) {
+                        WL.coop.toggle();
+                        e.preventDefault();
+                    }
                 }
-            }
-        }, true);    // capture phase so we run before the main game keydown
+            });
+        }, true);
     }
 
     // ---- PER-FRAME UPDATE / DRAW HOOK via requestAnimationFrame ----
-    // Wrap the running gameLoop. Since gameLoop is invoked via
-    // requestAnimationFrame internally, we hook via a wrapper that
-    // both runs the original and then ticks WL subsystems.
+    // CRITICAL: the original gameLoop schedules requestAnimationFrame for
+    // the next frame. If the original throws, the rAF chain breaks. We
+    // can't safely catch errors INSIDE the original. But MY tick code is
+    // safe-wrapped so a WL bug can never freeze the game.
     if (typeof gameLoop === 'function') {
         const _origLoop = gameLoop;
         let _wlPrevState = null;
         gameLoop = function(ts) {
             _origLoop.apply(this, arguments);
-            // Detect dead-state transition for death replay
-            if (typeof gameState !== 'undefined') {
-                if (gameState !== _wlPrevState) {
-                    if (gameState === 'dead' && WL.deathReplay) {
-                        WL.deathReplay.trigger();
+            safe('gameLoop:tick', () => {
+                if (typeof gameState !== 'undefined') {
+                    if (gameState !== _wlPrevState) {
+                        if (gameState === 'dead' && WL.deathReplay) {
+                            WL.deathReplay.trigger();
+                        }
+                        _wlPrevState = gameState;
                     }
-                    _wlPrevState = gameState;
                 }
-            }
-            // Tick continuous subsystems while playing
-            if (typeof gameState !== 'undefined' && gameState === 'playing') {
-                if (WL.mods) {
-                    WL.mods.tickBullets();
-                    WL.mods.tickEnemies();
+                if (typeof gameState !== 'undefined' && gameState === 'playing') {
+                    if (WL.mods) {
+                        WL.mods.tickBullets();
+                        WL.mods.tickEnemies();
+                    }
+                    if (WL.coop) WL.coop.update();
+                    if (WL.miniBoss) WL.miniBoss.update();
+                    if (WL.skins && WL.skins.selected === 'rainbow') WL.skins.apply();
                 }
-                if (WL.coop) WL.coop.update();
-                if (WL.miniBoss) WL.miniBoss.update();
-                // Re-apply rainbow skin per-frame (only one that's animated)
-                if (WL.skins && WL.skins.selected === 'rainbow') WL.skins.apply();
-            }
-            // Death replay always ticks
-            if (WL.deathReplay) WL.deathReplay.update();
-        };
-    }
-
-    // ---- BOSS OFF-SCREEN INDICATOR ----
-    // Renders an arrow pointing toward the boss when it's off-camera.
-    // Helps with the "can't see 8th boss" complaint.
-    if (typeof drawHUD === 'function') {
-        const _origDrawHudArrow = drawHUD;
-        drawHUD = function() {
-            _origDrawHudArrow.apply(this, arguments);
-            if (typeof gameState !== 'undefined' && gameState !== 'playing') return;
-            if (typeof enemies === 'undefined' || typeof camera === 'undefined') return;
-            const boss = enemies.find(e => e && e.type === 'boss' && e.hp > 0);
-            if (!boss) return;
-            const bx = boss.x + boss.w / 2;
-            const by = boss.y + boss.h / 2;
-            const sx = bx - camera.x;
-            const sy = by - camera.y;
-            const cw = canvas.width, ch = canvas.height;
-            const margin = 60;
-            // Only draw if boss is off-screen
-            if (sx >= -margin && sx <= cw + margin && sy >= -margin && sy <= ch + margin) return;
-            // Clamp arrow position to screen edge
-            const ax = Math.max(40, Math.min(cw - 40, sx));
-            const ay = Math.max(80, Math.min(ch - 60, sy));
-            const dx = sx - cw / 2;
-            const dy = sy - ch / 2;
-            const ang = Math.atan2(dy, dx);
-            ctx.save();
-            ctx.translate(ax, ay);
-            ctx.rotate(ang);
-            // Pulsing
-            const pulse = 0.7 + Math.sin(performance.now() * 0.01) * 0.3;
-            ctx.fillStyle = boss.color || '#ff4422';
-            ctx.shadowColor = boss.color || '#ff4422';
-            ctx.shadowBlur = 16 * pulse;
-            ctx.beginPath();
-            ctx.moveTo(20, 0);
-            ctx.lineTo(-12, -10);
-            ctx.lineTo(-6, 0);
-            ctx.lineTo(-12, 10);
-            ctx.closePath();
-            ctx.fill();
-            ctx.shadowBlur = 0;
-            ctx.restore();
-            // Distance label
-            ctx.save();
-            const dist = Math.round(Math.sqrt(dx * dx + dy * dy));
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 11px Courier New';
-            ctx.textAlign = 'center';
-            ctx.fillText(`BOSS ${dist}px`, ax, ay + 24);
-            ctx.restore();
+                if (WL.deathReplay) WL.deathReplay.update();
+            });
         };
     }
 
