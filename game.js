@@ -11454,32 +11454,36 @@ function spawnBossRushBoss(idx) {
         // Custom subtype 'mechking' — uses titan as AI base for the heavy
         // attacks but rendered as a TOTALLY DIFFERENT silhouette: massive
         // throne-king with crown, cape, scepter, and twin shoulder pylons.
-        // Stats are stronger than every gauntlet boss combined: 24000 HP,
-        // 90% damage boost, very fast fire rate, all phases unlocked.
+        // Stats are stronger than every gauntlet boss combined: 50000 HP,
+        // 180% damage boost, very fast fire rate, all phases unlocked.
+        // (Buffed Jun 7 v3: kid said "stronger and more HP" — 24k -> 50k,
+        // 1.9x -> 2.8x dmg, 40f -> 26f shoot cooldown.)
         const ngLoopK = (bossRush && bossRush.loop) || 0;
         const ngHpMulK = 1 + ngLoopK * 0.5;
         const ngDmgMulK = 1 + ngLoopK * 0.2;
         bossDef = {
             type: 'boss', subtype: 'mechking',
-            x: 4700, y: 240, w: 240, h: 260,
-            hp: Math.round(24000 * ngHpMulK),
-            maxHp: Math.round(24000 * ngHpMulK),
+            x: 4700, y: 240, w: 280, h: 300,    // also bigger silhouette
+            hp: Math.round(50000 * ngHpMulK),
+            maxHp: Math.round(50000 * ngHpMulK),
             phase: 3,                       // start in rage protocol
             phase2Triggered: true,
             phase3Triggered: true,
-            shootTimer: 40,                 // very fast attack rate
+            shootTimer: 26,                 // fast attack rate (was 40)
             moveTimer: 0,
             baseX: 4700, baseY: 240,
             color: '#ff2244',
             attackPattern: 0,
-            dmgMul: 1.9 * ngDmgMulK,
+            dmgMul: 2.8 * ngDmgMulK,        // was 1.9
             displayName: 'MECH KING',
             isMechKing: true,
             bossRush: true,
             // MECH KING uses the TITAN AI under the hood — set the alias
             // so updateEnemies routes to updateBossTitan when subtype is
             // 'mechking' (handled by the dispatch fallthrough below).
-            aiSubtype: 'titan'
+            aiSubtype: 'titan',
+            // Trigger the anime entrance overlay on first spawn
+            _animeEntrance: true
         };
         currentStage = STAGES.length - 1;   // keep stage-8 theming for final
     }
@@ -11774,7 +11778,9 @@ function spawnSecretBoss() {
         // void minions every 8 seconds. New attack flags handled below.
         _vgBigBoss: true,
         _vgMinionTimer: 480,
-        _vgRageBarrageTimer: 360
+        _vgRageBarrageTimer: 360,
+        // Trigger the anime entrance overlay on first spawn (Jun 7 v3)
+        _animeEntrance: true
     };
     enemies.push(bossDef);
     camera.x = 0;
@@ -41513,15 +41519,21 @@ Object.assign(WL, (function() {
         // Pick a form for a given boss based on rush loop + boss subtype
         pickForm(e) {
             if (!WL.flags.bossForms) return null;
+            // === FINAL BOSS ONLY === (Jun 7 v3) — the kid asked for the
+            // dragon/kaiju/monster transformations to fire ONLY on the
+            // FINAL BOSS PHASE, not on every gauntlet boss. So we now
+            // gate strictly on subtype = mechking or voidgod. The 8
+            // regular gauntlet bosses use the existing per-subtype rush
+            // forms (RIOT KING, BOMBER PRIME, etc.) without the monster
+            // overlay.
+            const subtype = e.subtype || 'mech';
+            if (subtype !== 'mechking' && subtype !== 'voidgod') return null;
+            // Always pick a form for finals — no random gating, since
+            // this IS the climactic moment. Loop number deterministically
+            // rotates through DRAGON / KAIJU / MONSTER each NG+ run.
             if (typeof bossRush === 'undefined' || !bossRush) return null;
             const loop = bossRush.loop || 0;
-            // Loop 0: 20% chance any boss gets a monster form
-            // Loop 1+: 50% chance, with deterministic selection per boss subtype
-            if (loop === 0 && Math.random() > 0.2) return null;
-            if (loop > 0 && Math.random() > 0.5) return null;
             const formIds = Object.keys(this.forms);
-            // Deterministic-ish per subtype: hash subtype to pick form
-            const subtype = e.subtype || 'mech';
             let h = 0;
             for (const c of subtype) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
             const idx = (h + loop) % formIds.length;
@@ -42624,4 +42636,497 @@ Object.assign(WL, (function() {
     }
 
     console.log('[WL] Obstacles loaded — laser sweep, acid bombs, spike traps, buzzsaws, pendulum hammers, proximity mines.');
+})();
+
+
+// ============================================================================
+// ===== WISHLIST PART 5 — ANIME FINAL BOSS ENTRANCE ===========================
+// Multi-stage cinematic overlay that fires when MECH KING or VOID GOD spawn.
+// Phases:
+//   0  (0-60f)    BLACKOUT — full-screen darkness with white energy crackle
+//   1  (60-150f)  SILHOUETTE — boss outline visible through fog, slow zoom-in
+//   2  (150-240f) NAME REVEAL — giant katakana-style title with red glow
+//   3  (240-330f) DIALOGUE — three quick lines from the boss
+//   4  (330-380f) FINAL FLASH — blinding white pulse, hand-off to gameplay
+// During phases 0-3 the game is paused (boss can't attack, player input
+// muted to non-movement keys). Phase 4 fades and resumes normal play.
+// ============================================================================
+Object.assign(WL, (function() {
+
+    const animeEntrance = {
+        active: false,
+        boss: null,                  // reference to the boss entity
+        phase: 0,
+        phaseTimer: 0,
+        phaseDurations: [60, 90, 90, 90, 50],   // total 380 frames ~ 6.3s
+        lightning: [],               // dramatic lightning bolts
+        sparks: [],                  // shower particles
+        dialogueLines: [],
+        currentLine: 0,
+        // Per-boss dramatic dialogue
+        BOSS_DIALOGUES: {
+            mechking: [
+                { text: 'YOU\'VE COME FAR, INTRUDER...', color: '#ff2244' },
+                { text: 'BUT THIS THRONE WILL BE YOUR GRAVE.', color: '#ffd744' },
+                { text: '⚜  R I S E ,  M E C H   K I N G  ⚜', color: '#ff8800' }
+            ],
+            voidgod: [
+                { text: 'I HAVE WAITED AT THE EDGE OF EVERYTHING...', color: '#aa00ff' },
+                { text: 'I WHISPERED TO MECH KING. AND OMEGA. AND BEFORE.', color: '#ff44ff' },
+                { text: '☠  W I T N E S S   T H E   E N D  ☠', color: '#ff00ff' }
+            ]
+        },
+        BOSS_TITLES: {
+            mechking: { text: 'M E C H   K I N G', subtitle: 'THE THRONE DESCENDS', color: '#ff2244', glow: '#ffd744' },
+            voidgod:  { text: 'V O I D   G O D',   subtitle: 'THE COSMIC TRUTH',   color: '#aa00ff', glow: '#ff44ff' }
+        },
+
+        trigger(boss) {
+            if (!WL.flags.animeEntrance) return;
+            if (this.active) return;
+            const subtype = boss && boss.subtype;
+            if (subtype !== 'mechking' && subtype !== 'voidgod') return;
+            this.active = true;
+            this.boss = boss;
+            this.phase = 0;
+            this.phaseTimer = this.phaseDurations[0];
+            this.lightning = [];
+            this.sparks = [];
+            this.dialogueLines = this.BOSS_DIALOGUES[subtype] || [];
+            this.currentLine = 0;
+            // Freeze the boss so its attacks don't fire mid-cinematic
+            boss._animeFrozen = true;
+            // Big initial shake + sound
+            if (typeof screenShake !== 'undefined') screenShake = 36;
+            if (typeof audio !== 'undefined' && audio.play) {
+                audio.play('bossIntro');
+                audio.play('explosion', { throttle: 60 });
+            }
+        },
+
+        update() {
+            if (!this.active) return;
+            this.phaseTimer--;
+            // Spawn ambient lightning + sparks during cinematic
+            if (Math.random() < 0.12) this.spawnLightning();
+            if (Math.random() < 0.4) this.spawnSpark();
+            for (let i = this.lightning.length - 1; i >= 0; i--) {
+                const l = this.lightning[i];
+                l.life--;
+                if (l.life <= 0) this.lightning.splice(i, 1);
+            }
+            for (let i = this.sparks.length - 1; i >= 0; i--) {
+                const s = this.sparks[i];
+                s.x += s.vx;
+                s.y += s.vy;
+                s.vy += 0.15;
+                s.life--;
+                if (s.life <= 0) this.sparks.splice(i, 1);
+            }
+            // Phase advance
+            if (this.phaseTimer <= 0) {
+                this.phase++;
+                if (this.phase >= this.phaseDurations.length) {
+                    // End cinematic
+                    this.active = false;
+                    if (this.boss) {
+                        this.boss._animeFrozen = false;
+                        this.boss._animeEntrance = false;
+                    }
+                    // Big payload — final flash already happened in phase 4
+                    if (typeof shopMessage !== 'undefined' && this.boss) {
+                        const title = this.BOSS_TITLES[this.boss.subtype];
+                        if (title) {
+                            shopMessage = {
+                                text: `⚔ ${title.text} — FIGHT! ⚔`,
+                                timer: 180,
+                                color: title.color
+                            };
+                        }
+                    }
+                    return;
+                }
+                this.phaseTimer = this.phaseDurations[this.phase];
+                this.onPhaseEnter(this.phase);
+            }
+            // Per-phase tick
+            if (this.phase === 3) {
+                // Cycle dialogue lines — one line per ~30 frames
+                const totalDur = this.phaseDurations[3];
+                const elapsed = totalDur - this.phaseTimer;
+                const linesPerLine = totalDur / Math.max(1, this.dialogueLines.length);
+                this.currentLine = Math.min(this.dialogueLines.length - 1, Math.floor(elapsed / linesPerLine));
+            }
+        },
+
+        onPhaseEnter(phase) {
+            switch (phase) {
+                case 1:
+                    // Silhouette begin — burst of sparks
+                    for (let i = 0; i < 30; i++) this.spawnSpark();
+                    if (typeof screenShake !== 'undefined') screenShake = 18;
+                    break;
+                case 2:
+                    // Name reveal — heavy shake + lightning
+                    for (let i = 0; i < 8; i++) this.spawnLightning();
+                    if (typeof screenShake !== 'undefined') screenShake = 26;
+                    if (typeof audio !== 'undefined' && audio.play) audio.play('explosion');
+                    break;
+                case 3:
+                    // Dialogue start
+                    if (typeof audio !== 'undefined' && audio.play) audio.play('warning');
+                    break;
+                case 4:
+                    // Final flash — biggest shake
+                    if (typeof screenShake !== 'undefined') screenShake = 40;
+                    if (typeof audio !== 'undefined' && audio.play) audio.play('explosion');
+                    for (let i = 0; i < 60; i++) this.spawnSpark();
+                    break;
+            }
+        },
+
+        spawnLightning() {
+            if (typeof canvas === 'undefined') return;
+            const cx = canvas.width / 2 + (Math.random() - 0.5) * 200;
+            this.lightning.push({
+                x: cx,
+                segments: this.makeLightningSegments(cx, 40, cx + (Math.random() - 0.5) * 400, canvas.height - 60),
+                life: 14,
+                color: this.boss && this.boss.subtype === 'voidgod' ? '#ff44ff' : '#ffd744'
+            });
+        },
+
+        makeLightningSegments(x1, y1, x2, y2) {
+            const segs = [];
+            const steps = 8;
+            let lx = x1, ly = y1;
+            for (let i = 1; i <= steps; i++) {
+                const t = i / steps;
+                const ix = x1 + (x2 - x1) * t + (Math.random() - 0.5) * 40;
+                const iy = y1 + (y2 - y1) * t + (Math.random() - 0.5) * 20;
+                segs.push({ x1: lx, y1: ly, x2: ix, y2: iy });
+                lx = ix; ly = iy;
+            }
+            return segs;
+        },
+
+        spawnSpark() {
+            if (typeof canvas === 'undefined') return;
+            this.sparks.push({
+                x: Math.random() * canvas.width,
+                y: 100 + Math.random() * 400,
+                vx: (Math.random() - 0.5) * 4,
+                vy: -2 - Math.random() * 4,
+                life: 30 + Math.floor(Math.random() * 30),
+                color: this.boss && this.boss.subtype === 'voidgod'
+                    ? ['#aa00ff', '#ff44ff', '#ffffff'][Math.floor(Math.random() * 3)]
+                    : ['#ff2244', '#ffd744', '#ffffff'][Math.floor(Math.random() * 3)]
+            });
+        },
+
+        draw() {
+            if (!this.active) return;
+            if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
+            const cw = canvas.width, ch = canvas.height;
+            const subtype = this.boss && this.boss.subtype;
+            const title = this.BOSS_TITLES[subtype] || this.BOSS_TITLES.mechking;
+            const phaseDur = this.phaseDurations[this.phase] || 1;
+            const phaseProgress = 1 - (this.phaseTimer / phaseDur);
+
+            ctx.save();
+            // Black backdrop for ALL phases
+            const bgAlpha =
+                this.phase === 0 ? 0.95 :
+                this.phase === 1 ? 0.92 :
+                this.phase === 2 ? 0.85 :
+                this.phase === 3 ? 0.78 :
+                /* phase 4 */     Math.max(0, 0.78 - phaseProgress * 0.78);
+            ctx.fillStyle = `rgba(0, 0, 0, ${bgAlpha})`;
+            ctx.fillRect(0, 0, cw, ch);
+
+            // Phase 0 — black with crackling white energy lines
+            if (this.phase === 0) {
+                ctx.strokeStyle = `rgba(255, 255, 255, ${0.5 + Math.random() * 0.5})`;
+                ctx.lineWidth = 1;
+                for (let i = 0; i < 6; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(Math.random() * cw, Math.random() * ch);
+                    ctx.lineTo(Math.random() * cw, Math.random() * ch);
+                    ctx.stroke();
+                }
+                // "FINAL BOSS" label fading in
+                const a = Math.min(1, phaseProgress * 2);
+                ctx.globalAlpha = a;
+                ctx.fillStyle = title.color;
+                ctx.shadowColor = title.glow;
+                ctx.shadowBlur = 24;
+                ctx.font = 'bold 36px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText('▼ FINAL BOSS ▼', cw / 2, ch / 2);
+                ctx.shadowBlur = 0;
+                ctx.globalAlpha = 1;
+            }
+
+            // Phase 1 — silhouette zoom-in (use a darker overlay with light
+            // fog particles and a faint outline of the boss)
+            if (this.phase === 1) {
+                // Spotlight gradient
+                const grd = ctx.createRadialGradient(
+                    cw / 2, ch / 2, 50,
+                    cw / 2, ch / 2, cw * 0.6
+                );
+                grd.addColorStop(0, `rgba(${title.color === '#ff2244' ? '255,30,50' : '170,0,255'}, ${0.18 + phaseProgress * 0.2})`);
+                grd.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                ctx.fillStyle = grd;
+                ctx.fillRect(0, 0, cw, ch);
+                // Boss silhouette — drawn at center, growing
+                if (this.boss) {
+                    const scale = 0.4 + phaseProgress * 0.6;
+                    const bw = this.boss.w * scale;
+                    const bh = this.boss.h * scale;
+                    const bx = cw / 2 - bw / 2;
+                    const by = ch / 2 - bh / 2;
+                    ctx.fillStyle = `rgba(0, 0, 0, 0.85)`;
+                    ctx.fillRect(bx, by, bw, bh);
+                    // Glowing eyes
+                    ctx.fillStyle = title.color;
+                    ctx.shadowColor = title.glow;
+                    ctx.shadowBlur = 18;
+                    ctx.beginPath();
+                    ctx.arc(bx + bw * 0.30, by + bh * 0.25, 4 + phaseProgress * 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(bx + bw * 0.70, by + bh * 0.25, 4 + phaseProgress * 4, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                }
+                // "APPROACHING..." label
+                ctx.fillStyle = '#ff8866';
+                ctx.shadowColor = '#ff2244';
+                ctx.shadowBlur = 12;
+                ctx.font = 'bold 18px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText(subtype === 'voidgod' ? '▼ THE COSMOS BREAKS ▼' : '▼ THE THRONE DESCENDS ▼', cw / 2, 90);
+                ctx.shadowBlur = 0;
+            }
+
+            // Phase 2 — NAME REVEAL — giant title with red lightning aura
+            if (this.phase === 2) {
+                // Title scales up + glows brighter as phase progresses
+                const titleScale = 0.3 + phaseProgress * 0.7;
+                ctx.save();
+                ctx.translate(cw / 2, ch / 2);
+                ctx.scale(titleScale, titleScale);
+                ctx.fillStyle = title.color;
+                ctx.shadowColor = title.glow;
+                ctx.shadowBlur = 32 * phaseProgress;
+                ctx.font = 'bold 72px Courier New';
+                ctx.textAlign = 'center';
+                // Draw stroke first for outline effect
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 6;
+                ctx.strokeText(title.text, 0, 0);
+                ctx.fillText(title.text, 0, 0);
+                // Subtitle
+                ctx.fillStyle = title.glow;
+                ctx.font = 'bold 22px Courier New';
+                ctx.fillText(title.subtitle, 0, 50);
+                ctx.shadowBlur = 0;
+                ctx.restore();
+                // Lightning bolts crackle through
+                ctx.strokeStyle = title.color;
+                ctx.shadowColor = title.glow;
+                ctx.shadowBlur = 14;
+                ctx.lineWidth = 2;
+                for (const l of this.lightning) {
+                    ctx.globalAlpha = l.life / 14;
+                    for (const seg of l.segments) {
+                        ctx.beginPath();
+                        ctx.moveTo(seg.x1, seg.y1);
+                        ctx.lineTo(seg.x2, seg.y2);
+                        ctx.stroke();
+                    }
+                }
+                ctx.globalAlpha = 1;
+                ctx.lineWidth = 1;
+                ctx.shadowBlur = 0;
+            }
+
+            // Phase 3 — DIALOGUE — three quick lines, anime style
+            if (this.phase === 3) {
+                // Boss silhouette stays in upper-right
+                if (this.boss) {
+                    const bw = this.boss.w * 0.8;
+                    const bh = this.boss.h * 0.8;
+                    const bx = cw - bw - 60;
+                    const by = 60;
+                    // Subtle silhouette
+                    ctx.fillStyle = `rgba(0, 0, 0, 0.85)`;
+                    ctx.fillRect(bx, by, bw, bh);
+                    ctx.strokeStyle = title.color;
+                    ctx.shadowColor = title.glow;
+                    ctx.shadowBlur = 14;
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(bx, by, bw, bh);
+                    ctx.shadowBlur = 0;
+                    ctx.lineWidth = 1;
+                    // Eyes
+                    ctx.fillStyle = title.color;
+                    ctx.shadowColor = title.glow;
+                    ctx.shadowBlur = 12;
+                    ctx.beginPath();
+                    ctx.arc(bx + bw * 0.30, by + bh * 0.25, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(bx + bw * 0.70, by + bh * 0.25, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                }
+                // Dialogue panel — black box with thick gold border (anime style)
+                const panelX = 40, panelY = ch - 200, panelW = cw - 80, panelH = 120;
+                ctx.fillStyle = 'rgba(10, 0, 14, 0.96)';
+                ctx.fillRect(panelX, panelY, panelW, panelH);
+                ctx.strokeStyle = title.glow;
+                ctx.shadowColor = title.color;
+                ctx.shadowBlur = 18;
+                ctx.lineWidth = 4;
+                ctx.strokeRect(panelX, panelY, panelW, panelH);
+                ctx.shadowBlur = 0;
+                ctx.lineWidth = 1;
+                // Speaker
+                ctx.fillStyle = title.color;
+                ctx.font = 'bold 22px Courier New';
+                ctx.textAlign = 'left';
+                ctx.fillText(title.text, panelX + 24, panelY + 32);
+                // Current dialogue line
+                const line = this.dialogueLines[this.currentLine];
+                if (line) {
+                    ctx.fillStyle = line.color;
+                    ctx.shadowColor = line.color;
+                    ctx.shadowBlur = 6;
+                    ctx.font = 'bold 26px Courier New';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(line.text, cw / 2, panelY + 78);
+                    ctx.shadowBlur = 0;
+                }
+                // Dialogue progress dots
+                ctx.fillStyle = '#888';
+                ctx.font = '14px Courier New';
+                ctx.textAlign = 'right';
+                for (let i = 0; i < this.dialogueLines.length; i++) {
+                    const dotX = panelX + panelW - 20 - (this.dialogueLines.length - 1 - i) * 16;
+                    ctx.fillStyle = i === this.currentLine ? title.glow : '#444';
+                    ctx.beginPath();
+                    ctx.arc(dotX, panelY + 96, 5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            // Phase 4 — final flash
+            if (this.phase === 4) {
+                // White-out flash that fades to clear
+                const a = 1 - phaseProgress;
+                ctx.fillStyle = `rgba(255, 255, 255, ${a})`;
+                ctx.fillRect(0, 0, cw, ch);
+            }
+
+            // Sparks — drawn over everything in phases 0-3
+            if (this.phase < 4) {
+                for (const s of this.sparks) {
+                    ctx.fillStyle = s.color;
+                    ctx.shadowColor = s.color;
+                    ctx.shadowBlur = 6;
+                    ctx.beginPath();
+                    ctx.arc(s.x, s.y, 2 + (s.life / 60) * 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.shadowBlur = 0;
+            }
+
+            ctx.restore();
+        }
+    };
+
+    // Add the flag
+    if (WL.flags) WL.flags.animeEntrance = true;
+
+    return { animeEntrance };
+})());
+
+// ============================================================================
+// ===== ANIME ENTRANCE WIRE-UP ===============================================
+// ============================================================================
+(function() {
+    if (!WL || !WL.animeEntrance) return;
+    function safe(label, fn) {
+        try { return fn(); }
+        catch (e) {
+            const now = Date.now();
+            if (!safe._last) safe._last = {};
+            if (!safe._last[label] || now - safe._last[label] > 1000) {
+                safe._last[label] = now;
+                console.warn('[WL safe] ' + label + ' error:', e && e.message ? e.message : e);
+            }
+        }
+    }
+
+    // Detect anime-entrance triggers via gameLoop tick — every frame check
+    // for newly-spawned mechking/voidgod with the _animeEntrance flag.
+    // (Cleaner than wrapping spawnBossRushBoss + spawnSecretBoss separately.)
+    if (typeof gameLoop === 'function') {
+        const _origLoop3 = gameLoop;
+        gameLoop = function(ts) {
+            _origLoop3.apply(this, arguments);
+            safe('gameLoop:animeEntrance', () => {
+                // Look for a boss flagged for anime entrance
+                if (typeof gameState === 'undefined' || gameState !== 'playing') return;
+                if (typeof enemies === 'undefined') return;
+                if (!WL.animeEntrance.active) {
+                    for (const e of enemies) {
+                        if (e && e._animeEntrance && (e.subtype === 'mechking' || e.subtype === 'voidgod')) {
+                            WL.animeEntrance.trigger(e);
+                            break;
+                        }
+                    }
+                }
+                WL.animeEntrance.update();
+            });
+        };
+    }
+
+    // Draw on top of HUD via the existing drawHUD wrap
+    if (typeof drawHUD === 'function') {
+        const _origDrawHud3 = drawHUD;
+        drawHUD = function() {
+            _origDrawHud3.apply(this, arguments);
+            safe('drawHUD:animeEntrance', () => {
+                if (WL.animeEntrance) WL.animeEntrance.draw();
+            });
+        };
+    }
+
+    // Freeze the boss's attacks while anime entrance is active. This
+    // works by pre-empting updateEnemies for the affected boss. We hook
+    // via wrapping the gameLoop again — when entrance is active, zero
+    // out player invincibility-relevant flags and pause boss timers.
+    // Simpler approach: just wrap updateEnemies to skip the flagged boss.
+    if (typeof updateEnemies === 'function') {
+        const _origUpdateEnemies = updateEnemies;
+        updateEnemies = function() {
+            // If anime entrance is active, freeze the boss for the duration.
+            if (WL.animeEntrance && WL.animeEntrance.active) {
+                // Buff the boss's i-frames so it can't take damage during entrance
+                if (WL.animeEntrance.boss) {
+                    WL.animeEntrance.boss.invincible = 60;
+                }
+                // Skip the entire update — boss/enemies wait for cinematic end.
+                // Other enemies are paused too which is fine since the rush
+                // arena only has the boss.
+                return;
+            }
+            _origUpdateEnemies.apply(this, arguments);
+        };
+    }
+
+    console.log('[WL] Anime final-boss entrance loaded — MECH KING / VOID GOD spawn cinematic.');
 })();
