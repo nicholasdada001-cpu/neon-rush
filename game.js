@@ -43130,3 +43130,689 @@ Object.assign(WL, (function() {
 
     console.log('[WL] Anime final-boss entrance loaded — MECH KING / VOID GOD spawn cinematic.');
 })();
+
+
+// ============================================================================
+// ===== WISHLIST PART 6 — POWER-UPS, COMBO FINISHERS, WEATHER ==============
+// 1) POWER-UPS — drop from defeated enemies (10% chance), apply timed buffs
+//    SPEED · DAMAGE · SHIELD · RAPID-FIRE · MEGA-JUMP · GHOST
+// 2) COMBO FINISHERS — at kill counts 10/25/50/100/200, trigger reward effects
+//    HEAL · AOE NUKE · COIN/RC BURST · TIME SLOW
+// 3) WEATHER — per-stage ambient particle effects:
+//    rain (stage 1) · embers (stage 3) · snow (stage 5) · void rifts (stage 6)
+//    leaves (stage 4) · sand (stage 2) · neon dust (stage 7) · stars (stage 8)
+// All wired via safe() helper. Per-frame cost low — particle pools cap at 100.
+// ============================================================================
+Object.assign(WL, (function() {
+
+    // ============================================================
+    // 1. POWER-UPS
+    // ============================================================
+    const powerups = {
+        DROP_CHANCE: 0.08,            // 8% per non-boss kill
+        BOSS_DROP_CHANCE: 1.0,        // bosses always drop
+        MINIBOSS_DROP_CHANCE: 0.5,    // 50% on miniboss
+        items: [],                    // active ground pickups: { x, y, vy, kind, life }
+        active: {},                   // { kind: ticksRemaining }
+        // Type definitions — duration in frames (60fps), effect on player.
+        defs: {
+            speed:    { name: 'SPEED',     dur: 480, color: '#88ff88', glow: '#22ff44', icon: '⚡' },
+            damage:   { name: 'DAMAGE',    dur: 480, color: '#ff4422', glow: '#ffaa00', icon: '✦' },
+            shield:   { name: 'SHIELD',    dur: 360, color: '#88ddff', glow: '#aaeeff', icon: '⛨' },
+            rapid:    { name: 'RAPID',     dur: 360, color: '#ffaa44', glow: '#ffdd88', icon: '↯' },
+            megajump: { name: 'MEGA-JUMP', dur: 480, color: '#aa44ff', glow: '#ff88ff', icon: '↟' },
+            ghost:    { name: 'GHOST',     dur: 240, color: '#ddddee', glow: '#ffffff', icon: '◈' }
+        },
+        kindOrder: ['speed', 'damage', 'shield', 'rapid', 'megajump', 'ghost'],
+
+        // Called when an enemy dies — chance-based drop.
+        rollDrop(enemy) {
+            if (!WL.flags.powerups) return;
+            if (!enemy) return;
+            let chance = this.DROP_CHANCE;
+            if (enemy.type === 'boss') chance = this.BOSS_DROP_CHANCE;
+            else if (enemy.type === 'miniboss') chance = this.MINIBOSS_DROP_CHANCE;
+            else if (enemy.type === 'mech' || enemy.type === 'sentinel' || enemy.type === 'heavy') {
+                chance = this.DROP_CHANCE * 2;     // elites drop more often
+            }
+            if (Math.random() > chance) return;
+            this.spawn(enemy.x + (enemy.w || 30) / 2, enemy.y + (enemy.h || 30) / 2);
+        },
+
+        spawn(x, y, kind) {
+            if (!WL.flags.powerups) return;
+            if (!kind) {
+                kind = this.kindOrder[Math.floor(Math.random() * this.kindOrder.length)];
+            }
+            this.items.push({
+                x, y,
+                vy: -3 - Math.random() * 2,    // pop up
+                vx: (Math.random() - 0.5) * 4,
+                kind,
+                life: 600,                       // 10 seconds before despawn
+                onGround: false,
+                bobPhase: Math.random() * Math.PI * 2
+            });
+        },
+
+        // Per-frame physics + pickup detection
+        tick() {
+            if (!WL.flags.powerups) return;
+            if (typeof gameState !== 'undefined' && gameState !== 'playing') return;
+            // Tick existing buffs
+            for (const k of Object.keys(this.active)) {
+                this.active[k]--;
+                if (this.active[k] <= 0) {
+                    this.deactivate(k);
+                    delete this.active[k];
+                }
+            }
+            // Items
+            for (let i = this.items.length - 1; i >= 0; i--) {
+                const p = this.items[i];
+                if (!p.onGround) {
+                    p.vy += 0.45;
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    if (p.vx) p.vx *= 0.95;
+                    if (p.y > 580) {
+                        p.y = 580;
+                        p.vy = 0;
+                        p.onGround = true;
+                    }
+                }
+                p.bobPhase += 0.06;
+                p.life--;
+                if (p.life <= 0) {
+                    this.items.splice(i, 1);
+                    continue;
+                }
+                // Player pickup
+                if (typeof player === 'undefined') continue;
+                const dx = (player.x + player.w / 2) - p.x;
+                const dy = (player.y + player.h / 2) - (p.y + (p.onGround ? Math.sin(p.bobPhase) * 4 : 0));
+                if (dx * dx + dy * dy < 30 * 30) {
+                    this.activate(p.kind);
+                    this.items.splice(i, 1);
+                }
+            }
+        },
+
+        activate(kind) {
+            const def = this.defs[kind];
+            if (!def) return;
+            this.active[kind] = def.dur;
+            // Apply effect to player
+            if (typeof player === 'undefined') return;
+            switch (kind) {
+                case 'speed':
+                    if (typeof player._wlOrigSpeed === 'undefined') player._wlOrigSpeed = player.speed;
+                    player.speed = player._wlOrigSpeed * 1.6;
+                    break;
+                case 'damage':
+                    if (typeof player._wlOrigDmgMul === 'undefined') player._wlOrigDmgMul = player.dmgMul;
+                    player.dmgMul = player._wlOrigDmgMul * 1.8;
+                    break;
+                case 'shield':
+                    player.invincible = Math.max(player.invincible || 0, def.dur);
+                    break;
+                case 'rapid':
+                    if (typeof player._wlOrigFireRate === 'undefined') player._wlOrigFireRate = player.fireRateMul;
+                    player.fireRateMul = (player._wlOrigFireRate || 1) * 0.45;
+                    break;
+                case 'megajump':
+                    if (typeof player._wlOrigJump === 'undefined') player._wlOrigJump = player.jumpForce;
+                    player.jumpForce = player._wlOrigJump * 1.45;
+                    if (typeof player._wlOrigMaxJumps === 'undefined') player._wlOrigMaxJumps = player.maxJumps;
+                    player.maxJumps = (player._wlOrigMaxJumps || 2) + 2;
+                    break;
+                case 'ghost':
+                    // Phasing — invincibility + faded sprite
+                    player.invincible = Math.max(player.invincible || 0, def.dur);
+                    player._wlGhost = true;
+                    break;
+            }
+            // Pickup feedback
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: `★ POWER-UP: ${def.name} ★`, timer: 90, color: def.color };
+            }
+            if (typeof spawnParticles === 'function') {
+                spawnParticles(player.x + player.w / 2, player.y + player.h / 2, def.glow, 18, 5);
+            }
+            if (typeof audio !== 'undefined' && audio.play) audio.play('coin');
+        },
+
+        deactivate(kind) {
+            if (typeof player === 'undefined') return;
+            switch (kind) {
+                case 'speed':
+                    if (typeof player._wlOrigSpeed !== 'undefined') {
+                        player.speed = player._wlOrigSpeed;
+                        delete player._wlOrigSpeed;
+                    }
+                    break;
+                case 'damage':
+                    if (typeof player._wlOrigDmgMul !== 'undefined') {
+                        player.dmgMul = player._wlOrigDmgMul;
+                        delete player._wlOrigDmgMul;
+                    }
+                    break;
+                case 'rapid':
+                    if (typeof player._wlOrigFireRate !== 'undefined') {
+                        player.fireRateMul = player._wlOrigFireRate;
+                        delete player._wlOrigFireRate;
+                    }
+                    break;
+                case 'megajump':
+                    if (typeof player._wlOrigJump !== 'undefined') {
+                        player.jumpForce = player._wlOrigJump;
+                        delete player._wlOrigJump;
+                    }
+                    if (typeof player._wlOrigMaxJumps !== 'undefined') {
+                        player.maxJumps = player._wlOrigMaxJumps;
+                        delete player._wlOrigMaxJumps;
+                    }
+                    break;
+                case 'ghost':
+                    player._wlGhost = false;
+                    break;
+            }
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: `${this.defs[kind].name} expired`, timer: 60, color: '#888' };
+            }
+        },
+
+        // Draw items in world space + active buff icons in HUD
+        drawWorld() {
+            if (!WL.flags.powerups) return;
+            if (typeof ctx === 'undefined' || typeof camera === 'undefined') return;
+            for (const p of this.items) {
+                const def = this.defs[p.kind];
+                if (!def) continue;
+                const sx = p.x - camera.x;
+                if (sx < -50 || sx > canvas.width + 50) continue;
+                const bobY = p.onGround ? Math.sin(p.bobPhase) * 4 : 0;
+                const sy = p.y + bobY;
+                // Outer pulsing halo
+                const pulse = 0.6 + Math.sin(performance.now() * 0.005) * 0.4;
+                ctx.save();
+                ctx.globalAlpha = 0.3 * pulse;
+                ctx.fillStyle = def.glow;
+                ctx.beginPath();
+                ctx.arc(sx, sy, 18, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+                // Diamond capsule
+                ctx.fillStyle = def.color;
+                ctx.shadowColor = def.glow;
+                ctx.shadowBlur = 12;
+                ctx.beginPath();
+                ctx.moveTo(sx, sy - 12);
+                ctx.lineTo(sx + 10, sy);
+                ctx.lineTo(sx, sy + 12);
+                ctx.lineTo(sx - 10, sy);
+                ctx.closePath();
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                // Icon glyph
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 14px Courier New';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(def.icon, sx, sy + 1);
+                ctx.textBaseline = 'alphabetic';
+                // Despawn warning when life < 120
+                if (p.life < 120 && Math.floor(p.life / 8) % 2 === 0) {
+                    ctx.globalAlpha = 0.5;
+                    ctx.strokeStyle = '#ff6644';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(sx - 14, sy - 14, 28, 28);
+                    ctx.lineWidth = 1;
+                    ctx.globalAlpha = 1;
+                }
+                ctx.restore();
+            }
+        },
+
+        drawHUD() {
+            if (!WL.flags.powerups) return;
+            if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
+            const keys = Object.keys(this.active);
+            if (keys.length === 0) return;
+            // Stack icons top-right under the dev button area
+            const yBase = 70;
+            for (let i = 0; i < keys.length; i++) {
+                const k = keys[i];
+                const def = this.defs[k];
+                if (!def) continue;
+                const ticksLeft = this.active[k];
+                const fullDur = def.dur;
+                const frac = ticksLeft / fullDur;
+                const x = canvas.width - 180;
+                const y = yBase + i * 38;
+                ctx.save();
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+                ctx.fillRect(x, y, 160, 30);
+                ctx.strokeStyle = def.color;
+                ctx.lineWidth = 2;
+                ctx.shadowColor = def.glow;
+                ctx.shadowBlur = 6;
+                ctx.strokeRect(x, y, 160, 30);
+                ctx.shadowBlur = 0;
+                // Icon
+                ctx.fillStyle = def.color;
+                ctx.font = 'bold 18px Courier New';
+                ctx.textAlign = 'left';
+                ctx.fillText(def.icon, x + 8, y + 22);
+                // Name
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 11px Courier New';
+                ctx.fillText(def.name, x + 30, y + 14);
+                // Timer bar
+                ctx.fillStyle = '#222';
+                ctx.fillRect(x + 30, y + 18, 120, 6);
+                ctx.fillStyle = def.color;
+                ctx.fillRect(x + 30, y + 18, 120 * frac, 6);
+                ctx.restore();
+            }
+        }
+    };
+
+    // ============================================================
+    // 2. COMBO FINISHERS — kill-streak rewards
+    // ============================================================
+    const comboFinish = {
+        // Streak thresholds and their rewards. Triggered when player reaches
+        // each threshold during a single combo (combo decays in normal game
+        // logic — we passively detect the rising edge).
+        thresholds: [
+            { count: 10,  name: 'STREAK ×10',   reward: 'heal',  color: '#88ff88' },
+            { count: 25,  name: 'KILLER ×25',   reward: 'rc',    color: '#ffd744' },
+            { count: 50,  name: 'RAMPAGE ×50',  reward: 'aoe',   color: '#ff4422' },
+            { count: 100, name: 'GODLIKE ×100', reward: 'ult',   color: '#ff44dd' },
+            { count: 200, name: 'LEGENDARY ×200', reward: 'all', color: '#ffffff' }
+        ],
+        triggered: {},        // { count: true } — for current run
+        bannerTimer: 0,
+        bannerText: '',
+        bannerColor: '',
+        // Reset on death / restart
+        reset() {
+            this.triggered = {};
+            this.bannerTimer = 0;
+        },
+        // Per-frame check — read combo from existing global
+        tick() {
+            if (!WL.flags.comboFinish) return;
+            if (typeof gameState !== 'undefined' && gameState !== 'playing') return;
+            if (typeof comboCount === 'undefined') return;
+            for (const th of this.thresholds) {
+                if (comboCount >= th.count && !this.triggered[th.count]) {
+                    this.triggered[th.count] = true;
+                    this.fire(th);
+                }
+            }
+            // If combo decayed back below ANY threshold's recovery point,
+            // clear that threshold so it can re-fire later in the run
+            // — but only if combo is well below
+            if (comboCount < 5) {
+                this.triggered = {};
+            }
+            if (this.bannerTimer > 0) this.bannerTimer--;
+        },
+        fire(th) {
+            this.bannerText = `★ ${th.name} ★`;
+            this.bannerColor = th.color;
+            this.bannerTimer = 150;
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: `★ ${th.name} — ${th.reward.toUpperCase()} REWARD ★`, timer: 180, color: th.color };
+            }
+            if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake || 0, 14);
+            if (typeof audio !== 'undefined' && audio.play) audio.play('explosion');
+            this.applyReward(th.reward);
+        },
+        applyReward(reward) {
+            if (typeof player === 'undefined') return;
+            switch (reward) {
+                case 'heal':
+                    player.hp = Math.min(player.maxHp, player.hp + Math.round(player.maxHp * 0.5));
+                    if (typeof spawnParticles === 'function') {
+                        spawnParticles(player.x + player.w / 2, player.y + player.h / 2, '#88ff88', 30, 6);
+                    }
+                    break;
+                case 'rc':
+                    player.robotCoins = (player.robotCoins || 0) + 5;
+                    player.coins = (player.coins || 0) + 200;
+                    if (typeof spawnParticles === 'function') {
+                        spawnParticles(player.x + player.w / 2, player.y + player.h / 2, '#ffd744', 30, 5);
+                    }
+                    break;
+                case 'aoe':
+                    // AOE nuke — damage all enemies on screen
+                    if (typeof enemies !== 'undefined' && typeof camera !== 'undefined') {
+                        for (const e of enemies) {
+                            if (!e || e.hp <= 0) continue;
+                            if (e.type === 'boss') {
+                                e.hp -= Math.round(e.maxHp * 0.05);   // bosses take 5% max
+                            } else {
+                                e.hp -= 200;
+                                if (typeof spawnParticles === 'function') {
+                                    spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#ff4422', 8, 4);
+                                }
+                            }
+                        }
+                    }
+                    if (typeof shockwaves !== 'undefined' && typeof player !== 'undefined') {
+                        shockwaves.push({
+                            x: player.x + player.w / 2, y: player.y + player.h / 2,
+                            radius: 30, maxRadius: 800, life: 30, color: '#ff4422'
+                        });
+                    }
+                    break;
+                case 'ult':
+                    // Ultimate — all power-ups at once
+                    if (WL.powerups) {
+                        WL.powerups.activate('damage');
+                        WL.powerups.activate('rapid');
+                        WL.powerups.activate('shield');
+                    }
+                    break;
+                case 'all':
+                    // Legendary — heal + RC + AOE + all power-ups
+                    this.applyReward('heal');
+                    this.applyReward('rc');
+                    this.applyReward('aoe');
+                    this.applyReward('ult');
+                    break;
+            }
+        },
+        draw() {
+            if (!WL.flags.comboFinish) return;
+            if (this.bannerTimer <= 0) return;
+            if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
+            const a = Math.min(1, this.bannerTimer / 30);
+            const t = (150 - this.bannerTimer) / 150;
+            const scale = 1 + Math.sin(t * Math.PI) * 0.3;
+            ctx.save();
+            ctx.translate(canvas.width / 2, 130);
+            ctx.scale(scale, scale);
+            ctx.globalAlpha = a;
+            ctx.fillStyle = this.bannerColor;
+            ctx.shadowColor = this.bannerColor;
+            ctx.shadowBlur = 24;
+            ctx.font = 'bold 36px Courier New';
+            ctx.textAlign = 'center';
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 4;
+            ctx.strokeText(this.bannerText, 0, 0);
+            ctx.fillText(this.bannerText, 0, 0);
+            ctx.shadowBlur = 0;
+            ctx.restore();
+        }
+    };
+
+    // ============================================================
+    // 3. WEATHER / AMBIENT EFFECTS — per-stage particle pools
+    // ============================================================
+    const weather = {
+        particles: [],
+        lastBuiltStage: -1,
+        // Stage → preset
+        presets: {
+            0: { kind: 'rain',    spawnRate: 0.6, color: '#88ccff', count: 80 },   // facility
+            1: { kind: 'sand',    spawnRate: 0.2, color: '#ddccaa', count: 40 },   // sky
+            2: { kind: 'embers',  spawnRate: 0.4, color: '#ff6622', count: 50 },   // inferno
+            3: { kind: 'leaves',  spawnRate: 0.2, color: '#88ff44', count: 30 },   // lab/forest
+            4: { kind: 'snow',    spawnRate: 0.5, color: '#ffffff', count: 70 },   // cryo
+            5: { kind: 'voidrift',spawnRate: 0.3, color: '#aa00ff', count: 40 },   // nullifier
+            6: { kind: 'neon',    spawnRate: 0.4, color: '#ff44dd', count: 50 },   // throne
+            7: { kind: 'stars',   spawnRate: 0.3, color: '#ffffff', count: 60 }    // orbital
+        },
+        ensure() {
+            if (typeof currentStage === 'undefined') return;
+            if (currentStage !== this.lastBuiltStage) {
+                this.particles = [];
+                this.lastBuiltStage = currentStage;
+            }
+        },
+        tick() {
+            if (!WL.flags.weather) return;
+            if (typeof gameState !== 'undefined' && gameState !== 'playing') return;
+            this.ensure();
+            const preset = this.presets[this.lastBuiltStage];
+            if (!preset) return;
+            // Spawn new particles up to count cap
+            while (this.particles.length < preset.count && Math.random() < preset.spawnRate) {
+                this.particles.push(this.makeParticle(preset.kind));
+            }
+            // Tick existing
+            for (let i = this.particles.length - 1; i >= 0; i--) {
+                const p = this.particles[i];
+                this.tickParticle(p);
+                if (p.life <= 0) this.particles.splice(i, 1);
+            }
+        },
+        makeParticle(kind) {
+            const cw = (typeof canvas !== 'undefined') ? canvas.width : 1000;
+            const ch = (typeof canvas !== 'undefined') ? canvas.height : 600;
+            switch (kind) {
+                case 'rain':
+                    return { kind, x: Math.random() * cw, y: -10, vx: -1, vy: 12 + Math.random() * 4, life: 100, w: 1, h: 12 };
+                case 'snow':
+                    return { kind, x: Math.random() * cw, y: -10, vx: (Math.random() - 0.5) * 2, vy: 1.5 + Math.random() * 1, life: 600, size: 2 + Math.random() * 2 };
+                case 'embers':
+                    return { kind, x: Math.random() * cw, y: ch + 10, vx: (Math.random() - 0.5) * 1.5, vy: -1.5 - Math.random() * 1.5, life: 200 + Math.random() * 100, size: 2 + Math.random() * 2 };
+                case 'leaves':
+                    return { kind, x: Math.random() * cw, y: -10, vx: (Math.random() - 0.5) * 3, vy: 0.8 + Math.random() * 1.5, life: 400, size: 4 + Math.random() * 3, rot: Math.random() * Math.PI * 2, rotV: (Math.random() - 0.5) * 0.05 };
+                case 'sand':
+                    return { kind, x: cw + 10, y: 100 + Math.random() * 400, vx: -3 - Math.random() * 2, vy: (Math.random() - 0.5) * 0.5, life: 400, size: 1 + Math.random() * 1 };
+                case 'voidrift':
+                    return { kind, x: Math.random() * cw, y: Math.random() * ch, vx: 0, vy: 0, life: 60 + Math.random() * 60, size: 1 + Math.random() * 4, phase: Math.random() * Math.PI * 2 };
+                case 'neon':
+                    return { kind, x: Math.random() * cw, y: ch + 10, vx: (Math.random() - 0.5) * 0.5, vy: -1 - Math.random() * 1.5, life: 400 + Math.random() * 200, size: 1 + Math.random() * 2, hue: Math.random() * 360 };
+                case 'stars':
+                    return { kind, x: Math.random() * cw, y: Math.random() * ch, vx: 0, vy: 0, life: 600, size: 1 + Math.random() * 1.5, phase: Math.random() * Math.PI * 2 };
+                default:
+                    return { kind, x: 0, y: 0, vx: 0, vy: 0, life: 1 };
+            }
+        },
+        tickParticle(p) {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life--;
+            if (p.kind === 'leaves' && typeof p.rot === 'number') p.rot += p.rotV;
+            if (p.kind === 'embers') p.vy *= 0.99;          // slow down floating ember
+            if (p.kind === 'voidrift' || p.kind === 'stars') p.phase = (p.phase || 0) + 0.04;
+            // Off-screen cleanup
+            if (typeof canvas !== 'undefined') {
+                if (p.y > canvas.height + 30 || p.y < -50 || p.x > canvas.width + 30 || p.x < -50) {
+                    p.life = 0;
+                }
+            }
+        },
+        draw() {
+            if (!WL.flags.weather) return;
+            if (typeof ctx === 'undefined') return;
+            this.ensure();
+            const preset = this.presets[this.lastBuiltStage];
+            if (!preset) return;
+            const baseColor = preset.color;
+            ctx.save();
+            for (const p of this.particles) {
+                this.drawParticle(p, baseColor);
+            }
+            ctx.restore();
+        },
+        drawParticle(p, baseColor) {
+            ctx.globalAlpha = Math.min(1, p.life / 60);
+            switch (p.kind) {
+                case 'rain':
+                    ctx.fillStyle = baseColor;
+                    ctx.fillRect(p.x, p.y, p.w, p.h);
+                    break;
+                case 'snow':
+                    ctx.fillStyle = baseColor;
+                    ctx.shadowColor = baseColor;
+                    ctx.shadowBlur = 4;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    break;
+                case 'embers':
+                    ctx.fillStyle = baseColor;
+                    ctx.shadowColor = '#ffaa00';
+                    ctx.shadowBlur = 8;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    break;
+                case 'leaves':
+                    ctx.save();
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate(p.rot || 0);
+                    ctx.fillStyle = baseColor;
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, p.size, p.size * 0.5, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                    break;
+                case 'sand':
+                    ctx.fillStyle = baseColor;
+                    ctx.fillRect(p.x, p.y, p.size, p.size);
+                    break;
+                case 'voidrift':
+                    const a = 0.3 + Math.sin(p.phase) * 0.3;
+                    ctx.globalAlpha = Math.min(a, p.life / 60);
+                    ctx.fillStyle = baseColor;
+                    ctx.shadowColor = baseColor;
+                    ctx.shadowBlur = 8;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size + Math.sin(p.phase) * 1, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    break;
+                case 'neon':
+                    ctx.fillStyle = `hsl(${p.hue}, 100%, 60%)`;
+                    ctx.shadowColor = `hsl(${p.hue}, 100%, 70%)`;
+                    ctx.shadowBlur = 6;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    break;
+                case 'stars':
+                    const pulse = 0.3 + Math.sin(p.phase) * 0.7;
+                    ctx.globalAlpha = pulse;
+                    ctx.fillStyle = baseColor;
+                    ctx.fillRect(p.x, p.y, p.size, p.size);
+                    break;
+            }
+            ctx.globalAlpha = 1;
+        }
+    };
+
+    // Add the flags
+    if (WL.flags) {
+        WL.flags.powerups = true;
+        WL.flags.comboFinish = true;
+        WL.flags.weather = true;
+    }
+
+    return { powerups, comboFinish, weather };
+})());
+
+// ============================================================================
+// ===== POWER-UPS / COMBO / WEATHER WIRE-UP ==================================
+// ============================================================================
+(function() {
+    if (!WL || !WL.powerups) return;
+    function safe(label, fn) {
+        try { return fn(); }
+        catch (e) {
+            const now = Date.now();
+            if (!safe._last) safe._last = {};
+            if (!safe._last[label] || now - safe._last[label] > 1000) {
+                safe._last[label] = now;
+                console.warn('[WL safe] ' + label + ' error:', e && e.message ? e.message : e);
+            }
+        }
+    }
+
+    // Roll power-up drops on enemy kill
+    if (typeof handleEnemyKilled === 'function') {
+        const _origHK = handleEnemyKilled;
+        handleEnemyKilled = function(e, j) {
+            _origHK.apply(this, arguments);
+            safe('handleEnemyKilled:powerup', () => {
+                if (WL.powerups) WL.powerups.rollDrop(e);
+            });
+        };
+    }
+
+    // Tick all three subsystems from gameLoop
+    if (typeof gameLoop === 'function') {
+        const _origLoop4 = gameLoop;
+        gameLoop = function(ts) {
+            _origLoop4.apply(this, arguments);
+            safe('gameLoop:powerups', () => {
+                if (WL.powerups) WL.powerups.tick();
+                if (WL.comboFinish) WL.comboFinish.tick();
+                if (WL.weather) WL.weather.tick();
+            });
+        };
+    }
+
+    // Draw weather + power-ups in world space (after bg, before entities)
+    if (typeof drawBackground === 'function') {
+        const _origDrawBg3 = drawBackground;
+        drawBackground = function() {
+            _origDrawBg3.apply(this, arguments);
+            safe('drawBackground:weather', () => {
+                if (WL.weather) WL.weather.draw();
+            });
+        };
+    }
+    // Draw power-ups in world space (after entities) — use drawPlayer wrap
+    if (typeof drawPlayer === 'function') {
+        const _origDP = drawPlayer;
+        drawPlayer = function() {
+            _origDP.apply(this, arguments);
+            safe('drawPlayer:powerupItems', () => {
+                if (WL.powerups) WL.powerups.drawWorld();
+            });
+        };
+    }
+
+    // Draw HUD elements (active buff icons + combo banner)
+    if (typeof drawHUD === 'function') {
+        const _origDH = drawHUD;
+        drawHUD = function() {
+            _origDH.apply(this, arguments);
+            safe('drawHUD:powerupHud', () => {
+                if (WL.powerups) WL.powerups.drawHUD();
+                if (WL.comboFinish) WL.comboFinish.draw();
+            });
+        };
+    }
+
+    // Reset combo finishers on death
+    if (typeof gameLoop === 'function') {
+        const _origLoop5 = gameLoop;
+        let _wlComboPrevState = null;
+        gameLoop = function(ts) {
+            _origLoop5.apply(this, arguments);
+            safe('gameLoop:comboReset', () => {
+                if (typeof gameState !== 'undefined' && gameState !== _wlComboPrevState) {
+                    if (gameState === 'dead' || gameState === 'won') {
+                        if (WL.comboFinish) WL.comboFinish.reset();
+                    }
+                    _wlComboPrevState = gameState;
+                }
+            });
+        };
+    }
+
+    console.log('[WL] Power-ups, combo finishers, weather effects loaded.');
+})();
