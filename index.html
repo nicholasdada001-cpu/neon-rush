@@ -872,21 +872,42 @@
             const voidBtn = document.getElementById('dev-voidgod-btn');
             if (voidBtn) {
                 voidBtn.addEventListener('click', () => {
-                    if (typeof gameState !== 'undefined' &&
-                        (gameState === 'intro' || gameState === 'charSelect' || gameState === 'midCharSelect')) {
+                    // Force gameState to 'playing' regardless of current
+                    // state so the button works from intro / dead / won
+                    // screens too. (Fixed Jun 7 v3 — was failing silently
+                    // when called from dead/won/cutscene state.)
+                    if (typeof gameState !== 'undefined') {
                         gameState = 'playing';
                     }
+                    // Reset cutscene flags that would otherwise pause input
+                    if (typeof cutscene !== 'undefined') cutscene = null;
+                    if (typeof throneCutscene !== 'undefined') throneCutscene = null;
+                    if (typeof bossIntro !== 'undefined') bossIntro = null;
+                    if (typeof hitStop !== 'undefined') hitStop = 0;
+                    if (typeof shopOpen !== 'undefined') shopOpen = false;
                     if (typeof applyCharacter === 'function' && typeof charSelectIndex !== 'undefined') {
                         applyCharacter(charSelectIndex || 0);
                     }
                     if (typeof currentStage !== 'undefined') currentStage = 0;
                     if (typeof buildLevel === 'function') buildLevel();
+                    // Position player so they can see the boss right away
+                    if (typeof player !== 'undefined') {
+                        player.x = 200;
+                        player.y = 380;
+                        player.vx = 0; player.vy = 0;
+                        player.hp = player.maxHp;
+                        player.invincible = 120;
+                    }
                     // Bootstrap the bossRush state object so advance/death
                     // routing works correctly during the void god fight.
                     if (typeof bossRush !== 'undefined') {
-                        bossRush = { active: true, index: STAGES.length + 1 };
+                        bossRush = { active: true, index: STAGES.length + 1, loop: 0, bossesKilledThisLoop: 0 };
                     }
                     if (typeof spawnSecretBoss === 'function') spawnSecretBoss();
+                    // Hide the name prompt if it's still up (button could
+                    // be reachable before name lock)
+                    const np = document.getElementById('name-prompt');
+                    if (np) np.style.display = 'none';
                     if (devPanel) devPanel.classList.add('hidden');
                     if (devToggle) devToggle.textContent = '🛠 DEV';
                 });

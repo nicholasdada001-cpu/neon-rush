@@ -41783,6 +41783,14 @@ Object.assign(WL, (function() {
     }
 
     // ---- ADVANCE BOSS RUSH → CHECK FOR MINI-BOSS ANTECHAMBER ----
+    // DISABLED: this wrap was buggy — it intercepted advanceBossRush
+    // BEFORE bossRush.index incremented, so the wave's "next boss" was
+    // the same boss that just died and the index never advanced. The
+    // rush stalled out after the 8th boss because nextIdx=7 always
+    // triggered a wave that would re-spawn TITAN-LORD instead of
+    // proceeding to MECH KING. Mini-boss waves can be re-introduced
+    // later with a proper "intercept-after-increment" hook.
+    /*
     if (typeof advanceBossRush === 'function') {
         const _origAdvance = advanceBossRush;
         advanceBossRush = function() {
@@ -41795,10 +41803,11 @@ Object.assign(WL, (function() {
                 }
                 return false;
             });
-            if (intercepted) return;   // wave deferred boss spawn
+            if (intercepted) return;
             _origAdvance.apply(this, arguments);
         };
     }
+    */
 
     // ---- START BOSS RUSH → RECORD LEADERBOARD START ----
     if (typeof startBossRush === 'function') {
@@ -41941,17 +41950,20 @@ Object.assign(WL, (function() {
     const obstacles = {
         items: [],                      // { kind, x, y, w, h, ... }
         lastBuiltStage: -1,
-        // Per-stage spawn budget — higher stages get more obstacles
+        // Per-stage spawn budget — every stage gets enough obstacles to
+        // be noticeable. Earlier stages used to have near-zero budgets
+        // which made it look like obstacles only appeared on final boss
+        // phases. Fixed Jun 7 v3.
         // [stage] = { laser, acid, spike, saw, pendulum, mine }
         spawnBudgets: [
-            { laser: 0, acid: 0, spike: 1, saw: 0, pendulum: 0, mine: 0 },   // 1
-            { laser: 1, acid: 0, spike: 2, saw: 0, pendulum: 0, mine: 0 },   // 2
-            { laser: 1, acid: 1, spike: 2, saw: 1, pendulum: 0, mine: 1 },   // 3
-            { laser: 2, acid: 1, spike: 2, saw: 1, pendulum: 1, mine: 1 },   // 4
-            { laser: 2, acid: 2, spike: 3, saw: 1, pendulum: 1, mine: 2 },   // 5
-            { laser: 3, acid: 2, spike: 3, saw: 2, pendulum: 1, mine: 2 },   // 6
-            { laser: 3, acid: 3, spike: 4, saw: 2, pendulum: 2, mine: 3 },   // 7
-            { laser: 4, acid: 3, spike: 4, saw: 3, pendulum: 2, mine: 3 }    // 8
+            { laser: 1, acid: 1, spike: 3, saw: 1, pendulum: 0, mine: 1 },   // stage 1
+            { laser: 2, acid: 1, spike: 3, saw: 1, pendulum: 1, mine: 1 },   // stage 2
+            { laser: 2, acid: 2, spike: 4, saw: 2, pendulum: 1, mine: 2 },   // stage 3
+            { laser: 3, acid: 2, spike: 4, saw: 2, pendulum: 2, mine: 2 },   // stage 4
+            { laser: 3, acid: 3, spike: 4, saw: 3, pendulum: 2, mine: 3 },   // stage 5
+            { laser: 4, acid: 3, spike: 5, saw: 3, pendulum: 3, mine: 3 },   // stage 6
+            { laser: 4, acid: 4, spike: 5, saw: 4, pendulum: 3, mine: 4 },   // stage 7
+            { laser: 5, acid: 4, spike: 6, saw: 4, pendulum: 4, mine: 4 }    // stage 8
         ],
 
         // ---- spawn ----
@@ -42597,18 +42609,17 @@ Object.assign(WL, (function() {
         }
     }
 
-    // Spawn on buildLevel (only when stage actually changes)
+    // Spawn on buildLevel — re-spawn every time so obstacles always
+    // appear in the current arena (boss arena, regular stage, retries).
+    // Was previously gated on stage-change which caused obstacles to
+    // not show up after dev-skip-to-boss + retries.
     if (typeof buildLevel === 'function') {
         const _origBuild2 = buildLevel;
-        let _wlLastObstStage = -1;
         buildLevel = function() {
             _origBuild2.apply(this, arguments);
             safe('buildLevel:obstacles', () => {
                 const cs = (typeof currentStage !== 'undefined') ? currentStage : 0;
-                if (cs !== _wlLastObstStage) {
-                    WL.obstacles.spawn(cs);
-                    _wlLastObstStage = cs;
-                }
+                WL.obstacles.spawn(cs);
             });
         };
     }
@@ -42658,11 +42669,16 @@ Object.assign(WL, (function() {
         boss: null,                  // reference to the boss entity
         phase: 0,
         phaseTimer: 0,
-        phaseDurations: [60, 90, 90, 90, 50],   // total 380 frames ~ 6.3s
+        // Shortened durations Jun 7 v3 — was ~6.3s, kid said "secret boss
+        // doesn't work" because the long blackout phase looked frozen.
+        // Now ~3.5s total with a brief blackout, fast title reveal, and
+        // skippable via Enter / Space / X.
+        phaseDurations: [30, 60, 60, 75, 30],   // total 255 frames ~ 4.25s
         lightning: [],               // dramatic lightning bolts
         sparks: [],                  // shower particles
         dialogueLines: [],
         currentLine: 0,
+        skipHeld: false,             // edge-trigger for skip key
         // Per-boss dramatic dialogue
         BOSS_DIALOGUES: {
             mechking: [
@@ -42706,6 +42722,20 @@ Object.assign(WL, (function() {
 
         update() {
             if (!this.active) return;
+            // Skip via Enter / Space / X — gives the kid an out if they
+            // want to jump straight into the fight (especially when
+            // testing via dev panel).
+            if (typeof keys !== 'undefined') {
+                const skipDown = keys['Enter'] || keys['Space'] || keys['KeyX'];
+                if (skipDown && !this.skipHeld) {
+                    this.skipHeld = true;
+                    // Jump to final phase (so the white flash still plays
+                    // briefly + cleanup runs)
+                    this.phase = this.phaseDurations.length - 1;
+                    this.phaseTimer = 12;
+                }
+                if (!skipDown) this.skipHeld = false;
+            }
             this.phaseTimer--;
             // Spawn ambient lightning + sparks during cinematic
             if (Math.random() < 0.12) this.spawnLightning();
@@ -43030,6 +43060,16 @@ Object.assign(WL, (function() {
                 ctx.fillRect(0, 0, cw, ch);
             }
 
+            // Skip hint at bottom in all phases except final flash
+            if (this.phase < 4) {
+                ctx.globalAlpha = 0.6 + Math.sin(performance.now() * 0.005) * 0.2;
+                ctx.fillStyle = '#aaaaaa';
+                ctx.font = '12px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText('▶ ENTER / SPACE / X to skip', cw / 2, ch - 24);
+                ctx.globalAlpha = 1;
+            }
+
             // Sparks — drawn over everything in phases 0-3
             if (this.phase < 4) {
                 for (const s of this.sparks) {
@@ -43105,26 +43145,27 @@ Object.assign(WL, (function() {
         };
     }
 
-    // Freeze the boss's attacks while anime entrance is active. This
-    // works by pre-empting updateEnemies for the affected boss. We hook
-    // via wrapping the gameLoop again — when entrance is active, zero
-    // out player invincibility-relevant flags and pause boss timers.
-    // Simpler approach: just wrap updateEnemies to skip the flagged boss.
-    if (typeof updateEnemies === 'function') {
-        const _origUpdateEnemies = updateEnemies;
-        updateEnemies = function() {
-            // If anime entrance is active, freeze the boss for the duration.
-            if (WL.animeEntrance && WL.animeEntrance.active) {
-                // Buff the boss's i-frames so it can't take damage during entrance
-                if (WL.animeEntrance.boss) {
-                    WL.animeEntrance.boss.invincible = 60;
-                }
-                // Skip the entire update — boss/enemies wait for cinematic end.
-                // Other enemies are paused too which is fine since the rush
-                // arena only has the boss.
-                return;
-            }
-            _origUpdateEnemies.apply(this, arguments);
+    // Freeze the BOSS specifically while anime entrance is active. We
+    // can't fully skip updateEnemies because that would freeze any
+    // ambient effects like enemy bullets / minecraft mobs / etc. Better
+    // approach: keep all the rest running, just zero-out the boss's
+    // shootTimer + invincibility every frame so it doesn't attack.
+    // (Was: full updateEnemies skip — fixed Jun 7 v3 because that path
+    // made the secret boss button look like it didn't do anything.)
+    if (typeof gameLoop === 'function') {
+        const _origLoopAnime = gameLoop;
+        gameLoop = function(ts) {
+            _origLoopAnime.apply(this, arguments);
+            safe('gameLoop:animeFreeze', () => {
+                if (!WL.animeEntrance || !WL.animeEntrance.active) return;
+                if (!WL.animeEntrance.boss) return;
+                const b = WL.animeEntrance.boss;
+                // Pin the boss in place + invincible + frozen attack timer
+                b.invincible = 60;
+                b.shootTimer = Math.max(b.shootTimer || 0, 60);
+                if (typeof b.vx === 'number') b.vx = 0;
+                if (typeof b.vy === 'number') b.vy = Math.max(b.vy, 0);
+            });
         };
     }
 
