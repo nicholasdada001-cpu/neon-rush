@@ -41916,3 +41916,712 @@ Object.assign(WL, (function() {
 
     console.log('[WL] Wishlist features loaded — leaderboard, decor, miniBoss, skins, PRINCE, mods, CONVOY mech, death replay, co-op, boss forms.');
 })();
+
+
+// ============================================================================
+// ===== WISHLIST PART 4 — OBSTACLES (lasers, acid bombs, spikes, saws...) ====
+// New obstacle types that spawn per-stage, scaling with stage difficulty.
+// All obstacles live in a single array `obstacles[]` per spawn cycle, ticked
+// every frame, drawn in world space, and check player collision for damage.
+// ============================================================================
+Object.assign(WL, (function() {
+
+    const obstacles = {
+        items: [],                      // { kind, x, y, w, h, ... }
+        lastBuiltStage: -1,
+        // Per-stage spawn budget — higher stages get more obstacles
+        // [stage] = { laser, acid, spike, saw, pendulum, mine }
+        spawnBudgets: [
+            { laser: 0, acid: 0, spike: 1, saw: 0, pendulum: 0, mine: 0 },   // 1
+            { laser: 1, acid: 0, spike: 2, saw: 0, pendulum: 0, mine: 0 },   // 2
+            { laser: 1, acid: 1, spike: 2, saw: 1, pendulum: 0, mine: 1 },   // 3
+            { laser: 2, acid: 1, spike: 2, saw: 1, pendulum: 1, mine: 1 },   // 4
+            { laser: 2, acid: 2, spike: 3, saw: 1, pendulum: 1, mine: 2 },   // 5
+            { laser: 3, acid: 2, spike: 3, saw: 2, pendulum: 1, mine: 2 },   // 6
+            { laser: 3, acid: 3, spike: 4, saw: 2, pendulum: 2, mine: 3 },   // 7
+            { laser: 4, acid: 3, spike: 4, saw: 3, pendulum: 2, mine: 3 }    // 8
+        ],
+
+        // ---- spawn ----
+        spawn(stageIdx) {
+            if (!WL.flags.obstacles) return;
+            this.items = [];
+            const budget = this.spawnBudgets[stageIdx] || this.spawnBudgets[0];
+            // Skip stage 8 fortress where the layout is crammed already
+            // (still spawn some, just fewer)
+            for (let i = 0; i < budget.laser; i++)    this.items.push(this.makeLaser(stageIdx, i));
+            for (let i = 0; i < budget.acid; i++)     this.items.push(this.makeAcid(stageIdx, i));
+            for (let i = 0; i < budget.spike; i++)    this.items.push(this.makeSpike(stageIdx, i));
+            for (let i = 0; i < budget.saw; i++)      this.items.push(this.makeSaw(stageIdx, i));
+            for (let i = 0; i < budget.pendulum; i++) this.items.push(this.makePendulum(stageIdx, i));
+            for (let i = 0; i < budget.mine; i++)     this.items.push(this.makeMine(stageIdx, i));
+            this.lastBuiltStage = stageIdx;
+        },
+
+        // ---- factory functions ----
+        // Each obstacle has its own update() + draw() shape. To keep things
+        // simple all functions are top-level and the kind switch happens in
+        // tick() / draw().
+
+        // LASER SWEEP — vertical beam that moves horizontally across an area
+        makeLaser(stageIdx, i) {
+            const x = 700 + i * 800 + Math.random() * 200;
+            return {
+                kind: 'laser',
+                x, y: 80,                       // top of beam
+                length: 480,                    // beam height
+                w: 8,                           // beam thickness
+                vx: (Math.random() < 0.5 ? -1 : 1) * (1.6 + stageIdx * 0.15),
+                rangeStart: x - 250,
+                rangeEnd: x + 250,
+                damage: 12 + stageIdx * 2,
+                phase: 0,                       // for pulsing
+                color: '#ff2244',
+                glow: '#ff8866'
+            };
+        },
+
+        // ACID BOMB DROP — periodically lobs an acid bomb that lands and
+        // creates a green puddle. Player takes contact damage from puddle.
+        makeAcid(stageIdx, i) {
+            const x = 900 + i * 700 + Math.random() * 200;
+            return {
+                kind: 'acid',
+                x, y: 200,                      // emitter position
+                w: 22, h: 22,
+                cooldown: 0,
+                cooldownMax: 200 - stageIdx * 8,
+                puddles: [],                    // active acid puddles
+                damage: 8 + stageIdx,
+                color: '#22ff44',
+                glow: '#88ff88'
+            };
+        },
+
+        // SPIKE TRAP — pops up from the ground for 60f, then retracts for
+        // 90f. Player standing on it takes massive damage.
+        makeSpike(stageIdx, i) {
+            const x = 600 + i * 600 + Math.random() * 200;
+            return {
+                kind: 'spike',
+                x, y: 552,                      // ground level
+                w: 60, h: 24,
+                phase: i * 30 + Math.random() * 60,    // staggered
+                period: 150,
+                upDuration: 60,
+                damage: 30 + stageIdx * 3,
+                color: '#aa8866',
+                glow: '#ff8800'
+            };
+        },
+
+        // BUZZSAW — spinning circular blade that patrols horizontally
+        makeSaw(stageIdx, i) {
+            const x = 850 + i * 900 + Math.random() * 200;
+            const y = 450;
+            return {
+                kind: 'saw',
+                x, y, w: 60, h: 60,
+                radius: 30,
+                vx: (Math.random() < 0.5 ? -1 : 1) * (2 + stageIdx * 0.2),
+                rangeStart: x - 200,
+                rangeEnd: x + 200,
+                damage: 25 + stageIdx * 2,
+                rotation: 0,
+                color: '#aaccdd',
+                glow: '#ffffff'
+            };
+        },
+
+        // PENDULUM HAMMER — swings from ceiling, big AOE on ground impact
+        makePendulum(stageIdx, i) {
+            const x = 1100 + i * 1100 + Math.random() * 300;
+            return {
+                kind: 'pendulum',
+                pivotX: x, pivotY: 60,
+                length: 280,
+                angle: 0,                       // current angle
+                amplitude: Math.PI / 3,         // swing ±60°
+                period: 90 - stageIdx * 4,      // frames per half-swing
+                phase: i * 25,
+                hammerW: 70, hammerH: 50,
+                damage: 35 + stageIdx * 3,
+                color: '#444466',
+                accent: '#ff2244'
+            };
+        },
+
+        // PROXIMITY MINE — sits on the ground, beeps when player within
+        // 120px, then explodes (200px AOE)
+        makeMine(stageIdx, i) {
+            const x = 750 + i * 800 + Math.random() * 250;
+            return {
+                kind: 'mine',
+                x, y: 580, w: 20, h: 12,
+                triggerDist: 120,
+                triggered: false,
+                triggerTimer: 0,
+                triggerDuration: 60,            // frames until detonation
+                aoeRadius: 200,
+                damage: 50 + stageIdx * 4,
+                exploded: false,
+                cooldown: 0,
+                respawnAfter: 360,              // re-arm after 6s
+                color: '#ff2244',
+                glow: '#ffaa00'
+            };
+        },
+
+        // ---- update ----
+        tick() {
+            if (!WL.flags.obstacles) return;
+            if (typeof gameState !== 'undefined' && gameState !== 'playing') return;
+            for (const o of this.items) {
+                switch (o.kind) {
+                    case 'laser':    this.tickLaser(o); break;
+                    case 'acid':     this.tickAcid(o); break;
+                    case 'spike':    this.tickSpike(o); break;
+                    case 'saw':      this.tickSaw(o); break;
+                    case 'pendulum': this.tickPendulum(o); break;
+                    case 'mine':     this.tickMine(o); break;
+                }
+            }
+        },
+
+        tickLaser(o) {
+            o.x += o.vx;
+            if (o.x < o.rangeStart) { o.x = o.rangeStart; o.vx = -o.vx; }
+            if (o.x > o.rangeEnd)   { o.x = o.rangeEnd;   o.vx = -o.vx; }
+            o.phase = (o.phase + 0.15) % (Math.PI * 2);
+            // Player collision — beam is a vertical strip
+            if (typeof player !== 'undefined' && player.invincible <= 0) {
+                if (player.x + player.w > o.x - o.w / 2 &&
+                    player.x < o.x + o.w / 2 &&
+                    player.y + player.h > o.y &&
+                    player.y < o.y + o.length) {
+                    this.hurtPlayer(o.damage, o.color);
+                }
+            }
+        },
+
+        tickAcid(o) {
+            o.cooldown--;
+            if (o.cooldown <= 0) {
+                o.cooldown = o.cooldownMax + Math.floor(Math.random() * 60);
+                // Drop a bomb at o.x + random offset ±60
+                const dropX = o.x + (Math.random() - 0.5) * 120;
+                o.puddles.push({
+                    x: dropX, y: o.y,                  // start at emitter
+                    vy: 4,
+                    landed: false,
+                    landX: dropX,
+                    landY: 0,
+                    radius: 0,
+                    maxRadius: 36,
+                    life: 360
+                });
+            }
+            // Tick falling bombs + puddles
+            for (let i = o.puddles.length - 1; i >= 0; i--) {
+                const p = o.puddles[i];
+                if (!p.landed) {
+                    p.y += p.vy;
+                    p.vy += 0.45;
+                    if (p.y > 560) {
+                        p.landed = true;
+                        p.landY = 580;
+                        p.landX = p.x;
+                        if (typeof spawnParticles === 'function') {
+                            spawnParticles(p.x, p.landY, '#22ff44', 12, 5);
+                        }
+                        if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake, 4);
+                    }
+                } else {
+                    // Grow puddle, then fade
+                    if (p.radius < p.maxRadius) p.radius += 1;
+                    p.life--;
+                    if (p.life <= 0) {
+                        o.puddles.splice(i, 1);
+                        continue;
+                    }
+                    // Damage player on contact
+                    if (typeof player !== 'undefined' && player.invincible <= 0) {
+                        const dx = (player.x + player.w / 2) - p.landX;
+                        const dy = (player.y + player.h) - p.landY;
+                        if (Math.abs(dx) < p.radius && dy > -8 && dy < 16) {
+                            this.hurtPlayer(o.damage, o.color);
+                        }
+                    }
+                }
+            }
+        },
+
+        tickSpike(o) {
+            o.phase++;
+            const cycle = o.phase % o.period;
+            const isUp = cycle < o.upDuration;
+            if (isUp && typeof player !== 'undefined' && player.invincible <= 0) {
+                if (player.x + player.w > o.x &&
+                    player.x < o.x + o.w &&
+                    player.y + player.h > o.y - 20) {
+                    this.hurtPlayer(o.damage, o.glow);
+                }
+            }
+            o._isUp = isUp;       // cache for draw
+        },
+
+        tickSaw(o) {
+            o.x += o.vx;
+            if (o.x < o.rangeStart) { o.x = o.rangeStart; o.vx = -o.vx; }
+            if (o.x > o.rangeEnd)   { o.x = o.rangeEnd;   o.vx = -o.vx; }
+            o.rotation += 0.4;
+            // Circular collision with player
+            if (typeof player !== 'undefined' && player.invincible <= 0) {
+                const dx = (player.x + player.w / 2) - o.x;
+                const dy = (player.y + player.h / 2) - o.y;
+                if (dx * dx + dy * dy < (o.radius + 14) * (o.radius + 14)) {
+                    this.hurtPlayer(o.damage, o.color);
+                }
+            }
+        },
+
+        tickPendulum(o) {
+            o.phase++;
+            // Sin wave swing
+            o.angle = Math.sin(o.phase / o.period) * o.amplitude;
+            // Hammer position
+            const hx = o.pivotX + Math.sin(o.angle) * o.length;
+            const hy = o.pivotY + Math.cos(o.angle) * o.length;
+            o._hx = hx; o._hy = hy;
+            // Box collision with hammer
+            if (typeof player !== 'undefined' && player.invincible <= 0) {
+                if (player.x + player.w > hx - o.hammerW / 2 &&
+                    player.x < hx + o.hammerW / 2 &&
+                    player.y + player.h > hy - o.hammerH / 2 &&
+                    player.y < hy + o.hammerH / 2) {
+                    this.hurtPlayer(o.damage, o.accent);
+                    // Knockback
+                    if (typeof player !== 'undefined') {
+                        player.vx = (player.x < hx ? -1 : 1) * 12;
+                        player.vy = -8;
+                    }
+                }
+            }
+        },
+
+        tickMine(o) {
+            if (o.exploded) {
+                o.cooldown--;
+                if (o.cooldown <= 0) {
+                    // Re-arm
+                    o.exploded = false;
+                    o.triggered = false;
+                    o.triggerTimer = 0;
+                }
+                return;
+            }
+            if (typeof player === 'undefined') return;
+            const dx = (player.x + player.w / 2) - (o.x + o.w / 2);
+            const dy = (player.y + player.h / 2) - (o.y + o.h / 2);
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (!o.triggered && dist < o.triggerDist) {
+                o.triggered = true;
+                o.triggerTimer = o.triggerDuration;
+                if (typeof shopMessage !== 'undefined') {
+                    shopMessage = { text: '⚠ MINE ARMED ⚠', timer: 60, color: '#ff8800' };
+                }
+                if (typeof audio !== 'undefined' && audio.play) audio.play('warning');
+            }
+            if (o.triggered) {
+                o.triggerTimer--;
+                if (o.triggerTimer <= 0) {
+                    // BOOM
+                    o.exploded = true;
+                    o.cooldown = o.respawnAfter;
+                    if (typeof spawnExplosion === 'function') {
+                        spawnExplosion(o.x + o.w / 2, o.y + o.h / 2);
+                    }
+                    if (typeof spawnParticles === 'function') {
+                        for (let i = 0; i < 30; i++) {
+                            const ang = Math.random() * Math.PI * 2;
+                            spawnParticles(
+                                o.x + o.w / 2 + Math.cos(ang) * 30,
+                                o.y + o.h / 2 + Math.sin(ang) * 30,
+                                ['#ff2244', '#ffaa00', '#ffd744'][i % 3],
+                                3, 8
+                            );
+                        }
+                    }
+                    if (typeof screenShake !== 'undefined') screenShake = 18;
+                    // AOE damage
+                    if (player.invincible <= 0 && dist < o.aoeRadius) {
+                        const falloff = 1 - (dist / o.aoeRadius);
+                        this.hurtPlayer(Math.round(o.damage * falloff), o.color);
+                        // Knockback
+                        if (dist > 0.1) {
+                            player.vx = (dx / dist) * 14;
+                            player.vy = -10;
+                        }
+                    }
+                    // Damage nearby enemies too (mines are equal-opportunity)
+                    if (typeof enemies !== 'undefined') {
+                        for (const e of enemies) {
+                            if (!e || e.hp <= 0) continue;
+                            const edx = (e.x + e.w / 2) - (o.x + o.w / 2);
+                            const edy = (e.y + e.h / 2) - (o.y + o.h / 2);
+                            const ed = Math.sqrt(edx * edx + edy * edy);
+                            if (ed < o.aoeRadius) {
+                                const falloff = 1 - (ed / o.aoeRadius);
+                                e.hp -= Math.round(o.damage * falloff);
+                            }
+                        }
+                    }
+                }
+            }
+        },
+
+        // ---- damage helper ----
+        hurtPlayer(amount, color) {
+            if (typeof player === 'undefined') return;
+            // Respect god mode if available
+            if (typeof godMode !== 'undefined' && godMode) return;
+            player.hp -= amount;
+            player.invincible = 30;
+            if (typeof spawnParticles === 'function') {
+                spawnParticles(player.x + player.w / 2, player.y + player.h / 2, color || '#ff4444', 6, 3);
+            }
+            if (typeof screenShake !== 'undefined') screenShake = Math.max(screenShake || 0, 6);
+            if (typeof audio !== 'undefined' && audio.play) audio.play('hit');
+            if (player.hp <= 0 && typeof gameState !== 'undefined') {
+                gameState = 'dead';
+                if (typeof spawnExplosion === 'function') {
+                    spawnExplosion(player.x + player.w / 2, player.y + player.h / 2);
+                }
+            }
+        },
+
+        // ---- draw ----
+        draw() {
+            if (!WL.flags.obstacles) return;
+            if (typeof gameState !== 'undefined' && gameState !== 'playing') return;
+            if (typeof ctx === 'undefined' || typeof camera === 'undefined') return;
+            for (const o of this.items) {
+                const sx = (o.x !== undefined ? o.x : (o.pivotX || 0)) - camera.x;
+                if (sx < -300 || sx > canvas.width + 300) continue;
+                ctx.save();
+                switch (o.kind) {
+                    case 'laser':    this.drawLaser(o); break;
+                    case 'acid':     this.drawAcid(o); break;
+                    case 'spike':    this.drawSpike(o); break;
+                    case 'saw':      this.drawSaw(o); break;
+                    case 'pendulum': this.drawPendulum(o); break;
+                    case 'mine':     this.drawMine(o); break;
+                }
+                ctx.restore();
+            }
+        },
+
+        drawLaser(o) {
+            const sx = o.x - camera.x;
+            // Emitter on ceiling
+            ctx.fillStyle = '#660011';
+            ctx.fillRect(sx - 16, o.y - 14, 32, 14);
+            ctx.fillStyle = o.color;
+            ctx.shadowColor = o.glow;
+            ctx.shadowBlur = 14;
+            ctx.fillRect(sx - 18, o.y - 12, 36, 8);
+            // Beam
+            const flicker = 0.7 + Math.sin(o.phase * 4) * 0.3;
+            ctx.globalAlpha = flicker;
+            ctx.fillStyle = o.color;
+            ctx.fillRect(sx - o.w / 2, o.y, o.w, o.length);
+            // Core hot strip
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(sx - 1, o.y, 2, o.length);
+            ctx.shadowBlur = 0;
+            ctx.globalAlpha = 1;
+            // Floor splash where beam hits
+            ctx.fillStyle = o.glow;
+            ctx.globalAlpha = 0.3;
+            ctx.beginPath();
+            ctx.arc(sx, o.y + o.length, 18, 0, Math.PI);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        },
+
+        drawAcid(o) {
+            const sx = o.x - camera.x;
+            // Emitter — sci-fi nozzle hanging from ceiling
+            ctx.fillStyle = '#226633';
+            ctx.fillRect(sx - 12, o.y - 18, 24, 18);
+            ctx.fillStyle = o.color;
+            ctx.shadowColor = o.glow;
+            ctx.shadowBlur = 8;
+            ctx.fillRect(sx - 8, o.y - 4, 16, 8);
+            ctx.shadowBlur = 0;
+            // Falling bombs
+            for (const p of o.puddles) {
+                const psx = p.x - camera.x;
+                if (!p.landed) {
+                    // Falling drop — green with trail
+                    ctx.fillStyle = o.glow;
+                    ctx.shadowColor = o.color;
+                    ctx.shadowBlur = 10;
+                    ctx.beginPath();
+                    ctx.arc(psx, p.y, 8, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    // Trail
+                    ctx.globalAlpha = 0.4;
+                    ctx.fillStyle = o.color;
+                    for (let t = 1; t < 6; t++) {
+                        ctx.beginPath();
+                        ctx.arc(psx, p.y - t * 6, 8 - t, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    ctx.globalAlpha = 1;
+                } else {
+                    // Acid puddle on ground
+                    ctx.fillStyle = o.color;
+                    ctx.shadowColor = o.glow;
+                    ctx.shadowBlur = 12;
+                    ctx.globalAlpha = 0.7;
+                    ctx.beginPath();
+                    ctx.ellipse(psx, p.landY, p.radius, 8, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    // Bubbles
+                    ctx.fillStyle = o.glow;
+                    for (let b = 0; b < 4; b++) {
+                        const bx = psx + (b - 1.5) * (p.radius / 2);
+                        const by = p.landY - 2 - Math.sin(p.life * 0.1 + b) * 2;
+                        ctx.beginPath();
+                        ctx.arc(bx, by, 2 + Math.sin(p.life * 0.15 + b) * 1, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    ctx.globalAlpha = 1;
+                    ctx.shadowBlur = 0;
+                }
+            }
+        },
+
+        drawSpike(o) {
+            const sx = o.x - camera.x;
+            const yBase = o.y;
+            if (o._isUp) {
+                // Extended spikes — sharp triangles
+                ctx.fillStyle = o.color;
+                ctx.shadowColor = o.glow;
+                ctx.shadowBlur = 6;
+                for (let s = 0; s < 5; s++) {
+                    const tx = sx + s * (o.w / 5) + 6;
+                    ctx.beginPath();
+                    ctx.moveTo(tx - 5, yBase);
+                    ctx.lineTo(tx, yBase - 20);
+                    ctx.lineTo(tx + 5, yBase);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                ctx.shadowBlur = 0;
+                // Base plate
+                ctx.fillStyle = '#553322';
+                ctx.fillRect(sx, yBase, o.w, 4);
+            } else {
+                // Retracted — just the slit in the floor
+                ctx.fillStyle = '#222';
+                ctx.fillRect(sx, yBase - 2, o.w, 4);
+                ctx.fillStyle = '#553322';
+                for (let s = 0; s < 5; s++) {
+                    const tx = sx + s * (o.w / 5) + 6;
+                    ctx.fillRect(tx - 1, yBase - 1, 2, 2);
+                }
+            }
+        },
+
+        drawSaw(o) {
+            const sx = o.x - camera.x;
+            const sy = o.y;
+            ctx.translate(sx, sy);
+            ctx.rotate(o.rotation);
+            // Outer toothed disc
+            ctx.fillStyle = o.color;
+            ctx.shadowColor = o.glow;
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            for (let s = 0; s < 12; s++) {
+                const ang = (Math.PI * 2 / 12) * s;
+                const r1 = o.radius;
+                const r2 = o.radius - 8;
+                ctx.lineTo(Math.cos(ang) * r1, Math.sin(ang) * r1);
+                ctx.lineTo(Math.cos(ang + Math.PI / 12) * r2, Math.sin(ang + Math.PI / 12) * r2);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // Center hub
+            ctx.fillStyle = '#222';
+            ctx.beginPath();
+            ctx.arc(0, 0, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = o.glow;
+            ctx.beginPath();
+            ctx.arc(0, 0, 4, 0, Math.PI * 2);
+            ctx.fill();
+            // Spokes
+            ctx.strokeStyle = '#888';
+            ctx.lineWidth = 2;
+            for (let s = 0; s < 4; s++) {
+                const ang = (Math.PI / 2) * s;
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(Math.cos(ang) * (o.radius - 10), Math.sin(ang) * (o.radius - 10));
+                ctx.stroke();
+            }
+            ctx.lineWidth = 1;
+        },
+
+        drawPendulum(o) {
+            const px = o.pivotX - camera.x;
+            const py = o.pivotY;
+            // Mount on ceiling
+            ctx.fillStyle = '#222';
+            ctx.fillRect(px - 12, py - 14, 24, 20);
+            ctx.fillStyle = '#888';
+            ctx.beginPath();
+            ctx.arc(px, py, 5, 0, Math.PI * 2);
+            ctx.fill();
+            // Rope/chain
+            const hx = px + Math.sin(o.angle) * o.length;
+            const hy = py + Math.cos(o.angle) * o.length;
+            ctx.strokeStyle = '#666';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(hx, hy);
+            ctx.stroke();
+            ctx.lineWidth = 1;
+            // Hammer
+            ctx.fillStyle = o.color;
+            ctx.shadowColor = o.accent;
+            ctx.shadowBlur = 12;
+            ctx.fillRect(hx - o.hammerW / 2, hy - o.hammerH / 2, o.hammerW, o.hammerH);
+            ctx.shadowBlur = 0;
+            // Spike on hammer
+            ctx.fillStyle = o.accent;
+            ctx.beginPath();
+            ctx.moveTo(hx, hy + o.hammerH / 2);
+            ctx.lineTo(hx - 8, hy + o.hammerH / 2 + 14);
+            ctx.lineTo(hx + 8, hy + o.hammerH / 2 + 14);
+            ctx.closePath();
+            ctx.fill();
+            // Glowing eye on hammer
+            ctx.fillStyle = '#ffff44';
+            ctx.shadowColor = '#ffaa00';
+            ctx.shadowBlur = 8;
+            ctx.beginPath();
+            ctx.arc(hx, hy, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        },
+
+        drawMine(o) {
+            const sx = o.x - camera.x;
+            const sy = o.y;
+            if (o.exploded) {
+                // Empty crater
+                ctx.fillStyle = '#222';
+                ctx.fillRect(sx - 4, sy + 4, o.w + 8, 8);
+                return;
+            }
+            // Mine body — black circle with red blink
+            ctx.fillStyle = '#222';
+            ctx.beginPath();
+            ctx.arc(sx + o.w / 2, sy + o.h / 2, o.w / 2 + 2, 0, Math.PI * 2);
+            ctx.fill();
+            // Blinking light — fast when triggered
+            const blinkRate = o.triggered ? 0.4 : 0.05;
+            const lit = Math.sin(performance.now() * blinkRate * 0.01) > 0;
+            ctx.fillStyle = (lit || o.triggered) ? o.color : '#444';
+            ctx.shadowColor = o.color;
+            ctx.shadowBlur = (o.triggered) ? 14 : 6;
+            ctx.beginPath();
+            ctx.arc(sx + o.w / 2, sy + o.h / 2, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            // Triggered count-down ring
+            if (o.triggered) {
+                const frac = o.triggerTimer / o.triggerDuration;
+                ctx.strokeStyle = o.color;
+                ctx.shadowColor = o.glow;
+                ctx.shadowBlur = 10;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(sx + o.w / 2, sy + o.h / 2, 16, 0, Math.PI * 2 * frac);
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                ctx.lineWidth = 1;
+            }
+        }
+    };
+
+    // Add the obstacle flag to WL.flags so it can be toggled
+    if (WL.flags) WL.flags.obstacles = true;
+
+    return { obstacles };
+})());
+
+// Wire obstacles in via the same safe-wrapper pattern. These hooks
+// piggyback on existing wraps (buildLevel, drawBackground, gameLoop).
+(function() {
+    if (!WL || !WL.obstacles) return;
+    function safe(label, fn) {
+        try { return fn(); }
+        catch (e) {
+            const now = Date.now();
+            if (!safe._last) safe._last = {};
+            if (!safe._last[label] || now - safe._last[label] > 1000) {
+                safe._last[label] = now;
+                console.warn('[WL safe] ' + label + ' error:', e && e.message ? e.message : e);
+            }
+        }
+    }
+
+    // Spawn on buildLevel (only when stage actually changes)
+    if (typeof buildLevel === 'function') {
+        const _origBuild2 = buildLevel;
+        let _wlLastObstStage = -1;
+        buildLevel = function() {
+            _origBuild2.apply(this, arguments);
+            safe('buildLevel:obstacles', () => {
+                const cs = (typeof currentStage !== 'undefined') ? currentStage : 0;
+                if (cs !== _wlLastObstStage) {
+                    WL.obstacles.spawn(cs);
+                    _wlLastObstStage = cs;
+                }
+            });
+        };
+    }
+
+    // Tick from gameLoop wrapper
+    if (typeof gameLoop === 'function') {
+        const _origLoop2 = gameLoop;
+        gameLoop = function(ts) {
+            _origLoop2.apply(this, arguments);
+            safe('gameLoop:obstacles', () => {
+                if (WL.obstacles) WL.obstacles.tick();
+            });
+        };
+    }
+
+    // Draw from drawBackground wrapper (between bg and entities)
+    if (typeof drawBackground === 'function') {
+        const _origDrawBg2 = drawBackground;
+        drawBackground = function() {
+            _origDrawBg2.apply(this, arguments);
+            safe('drawBackground:obstacles', () => {
+                if (WL.obstacles) WL.obstacles.draw();
+            });
+        };
+    }
+
+    console.log('[WL] Obstacles loaded — laser sweep, acid bombs, spike traps, buzzsaws, pendulum hammers, proximity mines.');
+})();
