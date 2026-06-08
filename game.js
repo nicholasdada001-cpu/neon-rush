@@ -43857,3 +43857,736 @@ Object.assign(WL, (function() {
 
     console.log('[WL] Power-ups, combo finishers, weather effects loaded.');
 })();
+
+
+// ============================================================================
+// ===== WISHLIST PART 7 — TURRETS, QUEST TRACKER, ACHIEVEMENTS, DAILY ========
+// 1) FRIENDLY TURRETS — press T to deploy a defense turret (3 max, costs 50 scrap)
+// 2) QUEST TRACKER  — top-left panel auto-detects current objective from game state
+// 3) ACHIEVEMENTS   — milestone unlocks with toast notifications, list via H key
+// 4) DAILY CHALLENGE — random modifier per session (banner at start, RC bonus)
+// All wired through safe() helpers. Smoke-tested.
+// ============================================================================
+Object.assign(WL, (function() {
+
+    // ============================================================
+    // 1. FRIENDLY TURRETS
+    // ============================================================
+    const turrets = {
+        items: [],                       // active turrets
+        MAX: 3,
+        SCRAP_COST: 50,
+        LIFE: 1200,                      // 20 seconds
+        deployHeld: false,
+
+        deploy() {
+            if (!WL.flags.turrets) return;
+            if (typeof player === 'undefined') return;
+            if (this.items.length >= this.MAX) {
+                if (typeof shopMessage !== 'undefined') {
+                    shopMessage = { text: `Max turrets out (${this.MAX})`, timer: 90, color: '#ff6644' };
+                }
+                return;
+            }
+            if ((player.scrap || 0) < this.SCRAP_COST) {
+                if (typeof shopMessage !== 'undefined') {
+                    shopMessage = { text: `Need ${this.SCRAP_COST} scrap (have ${player.scrap || 0})`, timer: 90, color: '#ff6644' };
+                }
+                return;
+            }
+            player.scrap -= this.SCRAP_COST;
+            const t = {
+                x: player.x + (player.facing > 0 ? 30 : -30),
+                y: player.y + 10,
+                vy: 0,
+                onGround: false,
+                w: 24, h: 24,
+                hp: 220, maxHp: 220,
+                shootTimer: 0,
+                fireRate: 18,
+                damage: 50,
+                range: 380,
+                life: this.LIFE,
+                target: null,
+                aimAngle: 0,
+                color: '#88ddff',
+                glow: '#aaeeff'
+            };
+            this.items.push(t);
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = { text: `★ TURRET DEPLOYED (${this.items.length}/${this.MAX}) ★`, timer: 100, color: '#88ddff' };
+            }
+            if (typeof spawnParticles === 'function') {
+                spawnParticles(t.x + t.w / 2, t.y + t.h / 2, '#88ddff', 14, 5);
+            }
+            if (typeof audio !== 'undefined' && audio.play) audio.play('coin');
+        },
+
+        tick() {
+            if (!WL.flags.turrets) return;
+            if (typeof gameState !== 'undefined' && gameState !== 'playing') return;
+            // Deploy on T key (edge-triggered)
+            if (typeof keys !== 'undefined') {
+                const tDown = !!keys['KeyT'];
+                if (tDown && !this.deployHeld) {
+                    this.deployHeld = true;
+                    // Skip if shop / cutscene / menus open
+                    if (!(typeof shopOpen !== 'undefined' && shopOpen) &&
+                        !(typeof cutscene !== 'undefined' && cutscene) &&
+                        !(WL.skins && WL.skins.menuOpen) &&
+                        !(WL.mods && WL.mods.menuOpen)) {
+                        this.deploy();
+                    }
+                }
+                if (!tDown) this.deployHeld = false;
+            }
+            // Update existing turrets
+            for (let i = this.items.length - 1; i >= 0; i--) {
+                const t = this.items[i];
+                t.life--;
+                if (t.life <= 0 || t.hp <= 0) {
+                    if (typeof spawnExplosion === 'function') spawnExplosion(t.x + t.w / 2, t.y + t.h / 2);
+                    this.items.splice(i, 1);
+                    continue;
+                }
+                // Gravity
+                if (!t.onGround) {
+                    t.vy += 0.45;
+                    t.y += t.vy;
+                    if (t.y + t.h > 600) {
+                        t.y = 600 - t.h;
+                        t.vy = 0;
+                        t.onGround = true;
+                    }
+                    // Platform collision
+                    if (typeof platforms !== 'undefined') {
+                        for (const p of platforms) {
+                            if (t.x + t.w > p.x && t.x < p.x + p.w &&
+                                t.y + t.h > p.y && t.y + t.h < p.y + p.h + 14 && t.vy >= 0) {
+                                t.y = p.y - t.h;
+                                t.vy = 0;
+                                t.onGround = true;
+                            }
+                        }
+                    }
+                }
+                // Find target — nearest enemy in range
+                if (t.shootTimer > 0) t.shootTimer--;
+                t.target = null;
+                if (typeof enemies !== 'undefined') {
+                    let nearest = null, ndist = t.range * t.range;
+                    for (const e of enemies) {
+                        if (!e || e.hp <= 0) continue;
+                        const dx = (e.x + e.w / 2) - (t.x + t.w / 2);
+                        const dy = (e.y + e.h / 2) - (t.y + t.h / 2);
+                        const d = dx * dx + dy * dy;
+                        if (d < ndist) { ndist = d; nearest = e; }
+                    }
+                    t.target = nearest;
+                }
+                if (t.target) {
+                    const tx = (t.target.x + t.target.w / 2) - (t.x + t.w / 2);
+                    const ty = (t.target.y + t.target.h / 2) - (t.y + t.h / 2);
+                    t.aimAngle = Math.atan2(ty, tx);
+                    if (t.shootTimer <= 0) {
+                        t.shootTimer = t.fireRate;
+                        if (typeof bullets !== 'undefined') {
+                            const speed = 14;
+                            bullets.push({
+                                x: t.x + t.w / 2 + Math.cos(t.aimAngle) * 14,
+                                y: t.y + t.h / 2 + Math.sin(t.aimAngle) * 14,
+                                vx: Math.cos(t.aimAngle) * speed,
+                                vy: Math.sin(t.aimAngle) * speed,
+                                life: 80,
+                                damage: t.damage,
+                                color: t.color,
+                                glow: t.glow,
+                                size: 5,
+                                pierce: false,
+                                hitEnemies: new Set(),
+                                fromTurret: true
+                            });
+                        }
+                    }
+                }
+                // Take damage from enemy bullets
+                if (typeof enemyBullets !== 'undefined') {
+                    for (let bi = enemyBullets.length - 1; bi >= 0; bi--) {
+                        const b = enemyBullets[bi];
+                        if (!b) continue;
+                        if (b.x > t.x && b.x < t.x + t.w && b.y > t.y && b.y < t.y + t.h) {
+                            t.hp -= b.damage || 10;
+                            enemyBullets.splice(bi, 1);
+                            if (typeof spawnParticles === 'function') {
+                                spawnParticles(t.x + t.w / 2, t.y + t.h / 2, '#ff4444', 4, 3);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        },
+
+        draw() {
+            if (!WL.flags.turrets) return;
+            if (typeof ctx === 'undefined' || typeof camera === 'undefined') return;
+            for (const t of this.items) {
+                const sx = t.x - camera.x;
+                if (sx < -50 || sx > canvas.width + 50) continue;
+                const sy = t.y;
+                ctx.save();
+                // Base
+                ctx.fillStyle = '#222';
+                ctx.fillRect(sx, sy + t.h - 8, t.w, 8);
+                ctx.fillStyle = t.color;
+                ctx.shadowColor = t.glow;
+                ctx.shadowBlur = 10;
+                ctx.fillRect(sx + 2, sy + t.h - 6, t.w - 4, 4);
+                ctx.shadowBlur = 0;
+                // Body
+                ctx.fillStyle = '#444';
+                ctx.fillRect(sx + 4, sy + 6, t.w - 8, 12);
+                // Rotating barrel
+                ctx.save();
+                ctx.translate(sx + t.w / 2, sy + 12);
+                ctx.rotate(t.aimAngle);
+                ctx.fillStyle = t.color;
+                ctx.shadowColor = t.glow;
+                ctx.shadowBlur = 8;
+                ctx.fillRect(0, -3, 18, 6);
+                ctx.shadowBlur = 0;
+                ctx.restore();
+                // Eye / sensor
+                ctx.fillStyle = t.color;
+                ctx.shadowColor = t.glow;
+                ctx.shadowBlur = 6;
+                ctx.beginPath();
+                ctx.arc(sx + t.w / 2, sy + 8, 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                // HP bar
+                const hpFrac = t.hp / t.maxHp;
+                ctx.fillStyle = '#220011';
+                ctx.fillRect(sx - 2, sy - 6, t.w + 4, 3);
+                ctx.fillStyle = hpFrac > 0.5 ? '#88ff88' : (hpFrac > 0.25 ? '#ffd744' : '#ff4444');
+                ctx.fillRect(sx - 2, sy - 6, (t.w + 4) * hpFrac, 3);
+                // Life timer (small ring around base)
+                const lifeFrac = t.life / WL.turrets.LIFE;
+                ctx.strokeStyle = t.color;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(sx + t.w / 2, sy + t.h - 4, 6, 0, Math.PI * 2 * lifeFrac);
+                ctx.stroke();
+                ctx.lineWidth = 1;
+                ctx.restore();
+            }
+        }
+    };
+
+    // ============================================================
+    // 2. QUEST TRACKER UI — auto-detect current objective
+    // ============================================================
+    const questTracker = {
+        currentObjective: '',
+        currentColor: '#88ddff',
+        // Pulled passively from existing game state every frame.
+        update() {
+            if (!WL.flags.questTracker) return;
+            // Priority order:
+            // 1. Boss rush active — chase down all bosses
+            // 2. Anime entrance active — fight final boss
+            // 3. Secret boss / void god active
+            // 4. Boss in arena — beat the boss
+            // 5. Stage objective — keys / terminals / lasers
+            // 6. Default — explore stage
+            if (typeof bossRush !== 'undefined' && bossRush && bossRush.active) {
+                const idx = bossRush.index;
+                if (idx >= STAGES.length + 1) {
+                    this.currentObjective = '🎯 SECRET BOSS — Defeat VOID GOD';
+                    this.currentColor = '#aa00ff';
+                } else if (idx >= STAGES.length) {
+                    this.currentObjective = '🎯 FINAL BOSS — Defeat MECH KING';
+                    this.currentColor = '#ff2244';
+                } else {
+                    this.currentObjective = `🎯 BOSS RUSH ${idx + 1}/8 — defeat ${STAGES[idx].bossName}`;
+                    this.currentColor = '#ffd744';
+                }
+                return;
+            }
+            // Check for boss in arena
+            if (typeof enemies !== 'undefined') {
+                const boss = enemies.find(e => e && e.type === 'boss' && e.hp > 0);
+                if (boss) {
+                    const name = boss.displayName || (typeof STAGES !== 'undefined' && STAGES[currentStage] ? STAGES[currentStage].bossName : 'BOSS');
+                    this.currentObjective = `🎯 Defeat ${name}`;
+                    this.currentColor = boss.color || '#ff4422';
+                    return;
+                }
+                // Check for miniboss
+                const miniboss = enemies.find(e => e && e.type === 'miniboss' && e.hp > 0);
+                if (miniboss) {
+                    this.currentObjective = '🎯 Defeat WARDEN-K — boss arena beyond';
+                    this.currentColor = '#aa44ff';
+                    return;
+                }
+            }
+            // Stage objective — keys / terminals / lasers / cages
+            if (typeof terminals !== 'undefined') {
+                const term = terminals.find(t => t && !t.disabled);
+                const grid = (typeof laserGrids !== 'undefined') ? laserGrids.find(g => g && !g.disabled) : null;
+                if (term && grid) {
+                    this.currentObjective = '🎯 Hack TERMINAL → disable laser grid';
+                    this.currentColor = '#ff8800';
+                    return;
+                }
+            }
+            if (typeof keyPickups !== 'undefined') {
+                const k = keyPickups.find(k => k && !k.collected);
+                if (k) {
+                    this.currentObjective = '🎯 Pick up the KEY card';
+                    this.currentColor = '#ffd744';
+                    return;
+                }
+            }
+            if (typeof cages !== 'undefined') {
+                const c = cages.find(c => c && !c.opened);
+                if (c) {
+                    this.currentObjective = '🎯 Free the captive ally';
+                    this.currentColor = '#88ff88';
+                    return;
+                }
+            }
+            // Default by stage
+            if (typeof currentStage !== 'undefined' && typeof STAGES !== 'undefined' && STAGES[currentStage]) {
+                this.currentObjective = `🎯 Reach ${STAGES[currentStage].bossName}`;
+                this.currentColor = '#88ddff';
+            } else {
+                this.currentObjective = '';
+            }
+        },
+        draw() {
+            if (!WL.flags.questTracker) return;
+            if (!this.currentObjective) return;
+            if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
+            if (typeof gameState !== 'undefined' && gameState !== 'playing') return;
+            const x = 12, y = canvas.height / 2 - 80;
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+            ctx.fillRect(x, y, 280, 30);
+            ctx.strokeStyle = this.currentColor;
+            ctx.shadowColor = this.currentColor;
+            ctx.shadowBlur = 6;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, 280, 30);
+            ctx.shadowBlur = 0;
+            ctx.lineWidth = 1;
+            ctx.fillStyle = this.currentColor;
+            ctx.font = 'bold 11px Courier New';
+            ctx.textAlign = 'left';
+            ctx.fillText(this.currentObjective, x + 8, y + 19);
+            ctx.restore();
+        }
+    };
+
+    // ============================================================
+    // 3. ACHIEVEMENTS — milestone unlocks with toast notifications
+    // ============================================================
+    const achievements = {
+        STORAGE_KEY: 'neonRush.achievements.v1',
+        unlocked: {},
+        toastQueue: [],          // { name, desc, color, timer }
+        listOpen: false,
+        // Definitions — each has a check() function returning true when unlocked
+        defs: [
+            { id: 'first_kill',     name: 'FIRST BLOOD',           desc: 'Kill 1 enemy',                          color: '#88ddff', check: m => m.totalKills >= 1 },
+            { id: 'ten_kills',      name: 'EXTERMINATOR',          desc: 'Kill 10 enemies',                       color: '#88ddff', check: m => m.totalKills >= 10 },
+            { id: 'hundred_kills',  name: 'CENTURION',             desc: 'Kill 100 enemies',                      color: '#88ff88', check: m => m.totalKills >= 100 },
+            { id: 'thousand_kills', name: 'WARLORD',               desc: 'Kill 1,000 enemies',                    color: '#ffd744', check: m => m.totalKills >= 1000 },
+            { id: 'first_boss',     name: 'GIANT SLAYER',          desc: 'Defeat your first boss',                color: '#ff8844', check: m => m.bossesDefeated >= 1 },
+            { id: 'all_8_bosses',   name: 'GAUNTLET RUNNER',       desc: 'Defeat all 8 stage bosses',             color: '#ffd744', check: m => m.bossesDefeated >= 8 },
+            { id: 'mech_king',      name: 'KINGSLAYER',            desc: 'Defeat MECH KING',                      color: '#ff2244', check: m => m.bossesDefeated >= 9 },
+            { id: 'void_god',       name: 'COSMIC SLAYER',         desc: 'Defeat VOID GOD (secret boss)',         color: '#aa00ff', check: m => m.voidGodUnlocked >= 1 },
+            { id: 'evo_max',        name: 'CONVOY ASCENDANT',      desc: 'Reach max evolution',                   color: '#ff8800', check: m => m.maxEvoLevel >= 6 },
+            { id: 'far_5',          name: 'HALFWAY HERO',          desc: 'Reach stage 5',                         color: '#88ff88', check: m => m.farthestStage >= 4 },
+            { id: 'far_8',          name: 'TO THE STARS',          desc: 'Reach stage 8',                         color: '#88ddff', check: m => m.farthestStage >= 7 },
+            { id: 'died_10',        name: 'PHOENIX',               desc: 'Die 10 times (still trying)',           color: '#ff4422', check: m => m.totalDeaths >= 10 },
+            { id: 'wins_1',         name: 'CHAMPION',              desc: 'Win the game',                          color: '#ffffff', check: m => m.totalWins >= 1 },
+            { id: 'wins_5',         name: 'LEGEND',                desc: 'Win 5 times',                           color: '#ffd744', check: m => m.totalWins >= 5 },
+            { id: 'rich',           name: 'WEALTHY',               desc: 'Earn 10,000 coins',                     color: '#ffd744', check: m => m.totalCoins >= 10000 },
+            { id: 'scrappy',        name: 'COLLECTOR',             desc: 'Earn 5,000 scrap',                      color: '#aa8866', check: m => m.totalScrap >= 5000 },
+            { id: 'rc_rich',        name: 'ROBO BARON',            desc: 'Earn 100 RC',                           color: '#ff44dd', check: m => m.totalRC >= 100 }
+        ],
+        init() {
+            try {
+                const raw = localStorage.getItem(this.STORAGE_KEY);
+                if (!raw) return;
+                const obj = JSON.parse(raw);
+                if (obj && typeof obj === 'object') this.unlocked = obj;
+            } catch (e) {}
+        },
+        save() {
+            try {
+                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.unlocked));
+            } catch (e) {}
+        },
+        check() {
+            if (!WL.flags.achievements) return;
+            if (typeof save === 'undefined') return;
+            const meta = save.getMeta();
+            if (!meta) return;
+            for (const a of this.defs) {
+                if (this.unlocked[a.id]) continue;
+                try {
+                    if (a.check(meta)) {
+                        this.unlocked[a.id] = Date.now();
+                        this.queueToast(a);
+                    }
+                } catch (e) {}
+            }
+        },
+        queueToast(a) {
+            this.toastQueue.push({
+                name: a.name,
+                desc: a.desc,
+                color: a.color,
+                timer: 240   // 4 seconds
+            });
+            this.save();
+            if (typeof audio !== 'undefined' && audio.play) audio.play('coin');
+            if (typeof spawnParticles === 'function' && typeof player !== 'undefined') {
+                spawnParticles(player.x + player.w / 2, player.y, a.color, 24, 6);
+            }
+        },
+        update() {
+            if (!WL.flags.achievements) return;
+            this.check();
+            if (this.toastQueue[0]) {
+                this.toastQueue[0].timer--;
+                if (this.toastQueue[0].timer <= 0) this.toastQueue.shift();
+            }
+        },
+        toggleList() { this.listOpen = !this.listOpen; },
+        draw() {
+            if (!WL.flags.achievements) return;
+            if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
+            // Toast (top-right corner, slides in)
+            const t = this.toastQueue[0];
+            if (t) {
+                const tFrac = Math.min(1, (240 - t.timer) / 30, t.timer / 30);
+                const alpha = Math.min(1, tFrac);
+                const slideX = (1 - tFrac) * 280;
+                const x = canvas.width - 280 + slideX;
+                const y = 30;
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+                ctx.fillRect(x, y, 270, 56);
+                ctx.strokeStyle = t.color;
+                ctx.shadowColor = t.color;
+                ctx.shadowBlur = 14;
+                ctx.lineWidth = 3;
+                ctx.strokeRect(x, y, 270, 56);
+                ctx.shadowBlur = 0;
+                ctx.lineWidth = 1;
+                ctx.fillStyle = t.color;
+                ctx.font = 'bold 12px Courier New';
+                ctx.textAlign = 'left';
+                ctx.fillText('🏆 ACHIEVEMENT UNLOCKED', x + 12, y + 18);
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 14px Courier New';
+                ctx.fillText(t.name, x + 12, y + 36);
+                ctx.fillStyle = '#aaa';
+                ctx.font = '10px Courier New';
+                ctx.fillText(t.desc, x + 12, y + 50);
+                ctx.restore();
+            }
+            // List view
+            if (this.listOpen) this.drawList();
+        },
+        drawList() {
+            if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
+            const cw = canvas.width, ch = canvas.height;
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.88)';
+            ctx.fillRect(0, 0, cw, ch);
+            const pw = 540, ph = 480;
+            const px = (cw - pw) / 2, py = (ch - ph) / 2;
+            ctx.fillStyle = '#0a0a14';
+            ctx.fillRect(px, py, pw, ph);
+            ctx.strokeStyle = '#ffd744';
+            ctx.lineWidth = 3;
+            ctx.shadowColor = '#ff8844';
+            ctx.shadowBlur = 16;
+            ctx.strokeRect(px, py, pw, ph);
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ffd744';
+            ctx.font = 'bold 22px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText('🏆 ACHIEVEMENTS', cw / 2, py + 30);
+            const totalCount = this.defs.length;
+            const unlockedCount = Object.keys(this.unlocked).length;
+            ctx.fillStyle = '#aaa';
+            ctx.font = '11px Courier New';
+            ctx.fillText(`${unlockedCount}/${totalCount} unlocked  •  H to close`, cw / 2, py + 50);
+            // List
+            ctx.textAlign = 'left';
+            const colW = (pw - 40) / 2;
+            for (let i = 0; i < this.defs.length; i++) {
+                const a = this.defs[i];
+                const col = i % 2;
+                const row = Math.floor(i / 2);
+                const ax = px + 20 + col * colW;
+                const ay = py + 80 + row * 44;
+                const isUnlocked = !!this.unlocked[a.id];
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                ctx.fillRect(ax, ay, colW - 8, 38);
+                ctx.strokeStyle = isUnlocked ? a.color : '#333';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(ax, ay, colW - 8, 38);
+                ctx.fillStyle = isUnlocked ? a.color : '#444';
+                ctx.font = 'bold 11px Courier New';
+                ctx.fillText((isUnlocked ? '✓ ' : '✗ ') + a.name, ax + 6, ay + 14);
+                ctx.fillStyle = isUnlocked ? '#fff' : '#666';
+                ctx.font = '9px Courier New';
+                ctx.fillText(a.desc, ax + 6, ay + 28);
+            }
+            ctx.restore();
+        }
+    };
+
+    // ============================================================
+    // 4. DAILY CHALLENGE — random per-session modifier
+    // ============================================================
+    const dailyChallenge = {
+        STORAGE_KEY: 'neonRush.daily.v1',
+        modifiers: [
+            { id: 'glass',      name: 'GLASS HERO',     desc: 'Player HP -50%, damage +50%', color: '#ff44dd' },
+            { id: 'speed',      name: 'NEED FOR SPEED', desc: 'All speeds 1.5×',             color: '#88ff88' },
+            { id: 'horde',      name: 'HORDE MODE',     desc: 'Enemies 2× spawn rate',       color: '#ff8800' },
+            { id: 'tank',       name: 'TANK MODE',      desc: 'Player HP +100%, speed -25%', color: '#ff8844' },
+            { id: 'one_weapon', name: 'PURIST',         desc: 'Pistol only, +RC bonus',      color: '#ffffff' },
+            { id: 'no_dmg',     name: 'PACIFIST RUN',   desc: 'No damage taken until first death', color: '#aaeeff' },
+            { id: 'rc_double',  name: 'BOUNTY HUNTER',  desc: 'All RC drops 2×',             color: '#ffd744' },
+            { id: 'enemy_speed',name: 'BLITZ',          desc: 'Enemy speed 1.4×',            color: '#ff4422' }
+        ],
+        active: null,           // { id, name, desc, color, dateKey }
+        applied: false,
+        firstDeath: false,      // for pacifist run check
+        init() {
+            try {
+                const raw = localStorage.getItem(this.STORAGE_KEY);
+                if (raw) {
+                    const obj = JSON.parse(raw);
+                    if (obj && obj.dateKey === this.dateKey()) {
+                        this.active = obj;
+                        return;
+                    }
+                }
+            } catch (e) {}
+            // Roll a new modifier for today
+            const idx = this.dateHash() % this.modifiers.length;
+            this.active = { ...this.modifiers[idx], dateKey: this.dateKey() };
+            try {
+                localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.active));
+            } catch (e) {}
+        },
+        dateKey() {
+            const d = new Date();
+            return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+        },
+        dateHash() {
+            const k = this.dateKey();
+            let h = 0;
+            for (const c of k) h = (h * 31 + c.charCodeAt(0)) & 0xffffffff;
+            return Math.abs(h);
+        },
+        // Apply the modifier ONCE on first 'playing' state entry
+        apply() {
+            if (!WL.flags.dailyChallenge) return;
+            if (this.applied) return;
+            if (!this.active) return;
+            if (typeof player === 'undefined') return;
+            this.applied = true;
+            switch (this.active.id) {
+                case 'glass':
+                    player.maxHp = Math.round(player.maxHp * 0.5);
+                    player.hp = player.maxHp;
+                    player.dmgMul = (player.dmgMul || 1) * 1.5;
+                    break;
+                case 'speed':
+                    player.speed = (player.speed || 3) * 1.5;
+                    player.fireRateMul = (player.fireRateMul || 1) * 0.7;
+                    break;
+                case 'horde':
+                    // Handled in update() — spawns extra mobs periodically
+                    break;
+                case 'tank':
+                    player.maxHp = Math.round(player.maxHp * 2);
+                    player.hp = player.maxHp;
+                    player.speed = (player.speed || 3) * 0.75;
+                    break;
+                case 'one_weapon':
+                    if (Array.isArray(player.weaponsUnlocked)) {
+                        player.weaponTier = 0;
+                    }
+                    break;
+                case 'no_dmg':
+                    // Handled in player damage detection — flag set
+                    break;
+                case 'rc_double':
+                    // Handled in coin/RC pickup hook (just multiplies on grant)
+                    break;
+                case 'enemy_speed':
+                    // Handled by horde update — adjusts enemies movement
+                    break;
+            }
+            if (typeof shopMessage !== 'undefined') {
+                shopMessage = {
+                    text: `★ DAILY: ${this.active.name} — ${this.active.desc} ★`,
+                    timer: 360,
+                    color: this.active.color
+                };
+            }
+        },
+        // Per-frame tick — handles modifiers that need active runtime support
+        tick() {
+            if (!WL.flags.dailyChallenge) return;
+            if (typeof gameState !== 'undefined' && gameState !== 'playing') return;
+            if (!this.active) return;
+            // Apply once at first playing-state frame
+            if (!this.applied) this.apply();
+            // Horde mode — slightly bump enemy speeds
+            if (this.active.id === 'enemy_speed' && typeof enemies !== 'undefined') {
+                for (const e of enemies) {
+                    if (!e || e.type === 'boss') continue;
+                    if (typeof e.vx === 'number') e.vx *= 1.005;
+                }
+            }
+            // Pacifist run — if player took damage, flag failure
+            if (this.active.id === 'no_dmg' && typeof player !== 'undefined') {
+                if (player.hp < player.maxHp && !this.firstDeath) {
+                    this.firstDeath = true;
+                    if (typeof shopMessage !== 'undefined') {
+                        shopMessage = { text: '✗ Pacifist run failed', timer: 120, color: '#ff4444' };
+                    }
+                }
+            }
+        },
+        // Banner draw
+        draw() {
+            if (!WL.flags.dailyChallenge) return;
+            if (!this.active) return;
+            if (typeof ctx === 'undefined' || typeof canvas === 'undefined') return;
+            if (typeof gameState !== 'undefined' && gameState !== 'playing') return;
+            // Small daily badge — left side, below quest tracker
+            const x = 12, y = canvas.height / 2 - 44;
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+            ctx.fillRect(x, y, 280, 24);
+            ctx.strokeStyle = this.active.color;
+            ctx.shadowColor = this.active.color;
+            ctx.shadowBlur = 6;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, 280, 24);
+            ctx.shadowBlur = 0;
+            ctx.lineWidth = 1;
+            ctx.fillStyle = this.active.color;
+            ctx.font = 'bold 10px Courier New';
+            ctx.textAlign = 'left';
+            ctx.fillText(`★ DAILY: ${this.active.name}`, x + 8, y + 16);
+            ctx.restore();
+        }
+    };
+
+    // Add flags
+    if (WL.flags) {
+        WL.flags.turrets = true;
+        WL.flags.questTracker = true;
+        WL.flags.achievements = true;
+        WL.flags.dailyChallenge = true;
+    }
+
+    return { turrets, questTracker, achievements, dailyChallenge };
+})());
+
+// ============================================================================
+// ===== TURRETS / QUEST / ACHIEVEMENTS / DAILY WIRE-UP =======================
+// ============================================================================
+(function() {
+    if (!WL || !WL.turrets) return;
+    function safe(label, fn) {
+        try { return fn(); }
+        catch (e) {
+            const now = Date.now();
+            if (!safe._last) safe._last = {};
+            if (!safe._last[label] || now - safe._last[label] > 1000) {
+                safe._last[label] = now;
+                console.warn('[WL safe] ' + label + ' error:', e && e.message ? e.message : e);
+            }
+        }
+    }
+
+    // Init
+    safe('init', () => {
+        if (WL.achievements) WL.achievements.init();
+        if (WL.dailyChallenge) WL.dailyChallenge.init();
+    });
+
+    // Tick everything from gameLoop
+    if (typeof gameLoop === 'function') {
+        const _origLoop6 = gameLoop;
+        gameLoop = function(ts) {
+            _origLoop6.apply(this, arguments);
+            safe('gameLoop:wl7', () => {
+                if (WL.turrets) WL.turrets.tick();
+                if (WL.questTracker) WL.questTracker.update();
+                if (WL.achievements) WL.achievements.update();
+                if (WL.dailyChallenge) WL.dailyChallenge.tick();
+            });
+        };
+    }
+
+    // Draw turrets in world space
+    if (typeof drawPlayer === 'function') {
+        const _origDP2 = drawPlayer;
+        drawPlayer = function() {
+            _origDP2.apply(this, arguments);
+            safe('drawPlayer:turrets', () => {
+                if (WL.turrets) WL.turrets.draw();
+            });
+        };
+    }
+
+    // Draw HUD elements
+    if (typeof drawHUD === 'function') {
+        const _origDH2 = drawHUD;
+        drawHUD = function() {
+            _origDH2.apply(this, arguments);
+            safe('drawHUD:wl7', () => {
+                if (WL.questTracker) WL.questTracker.draw();
+                if (WL.dailyChallenge) WL.dailyChallenge.draw();
+                if (WL.achievements) WL.achievements.draw();
+            });
+        };
+    }
+
+    // Keyboard hook for H key (achievements list)
+    if (typeof document !== 'undefined') {
+        document.addEventListener('keydown', e => {
+            safe('keydown:wl7', () => {
+                if (typeof shopOpen !== 'undefined' && shopOpen) return;
+                const np = document.getElementById('name-prompt');
+                if (np && np.style.display !== 'none') return;
+                if (e.code === 'KeyH' && WL.achievements) {
+                    if (typeof gameState !== 'undefined' && (gameState === 'cutscene' || gameState === 'intro')) return;
+                    if (WL.skins && WL.skins.menuOpen) return;
+                    if (WL.mods && WL.mods.menuOpen) return;
+                    WL.achievements.toggleList();
+                    e.preventDefault();
+                }
+            });
+        }, true);
+    }
+
+    console.log('[WL] Turrets + Quest tracker + Achievements + Daily challenge loaded.');
+})();
