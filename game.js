@@ -11454,18 +11454,18 @@ function spawnBossRushBoss(idx) {
         // Custom subtype 'mechking' — uses titan as AI base for the heavy
         // attacks but rendered as a TOTALLY DIFFERENT silhouette: massive
         // throne-king with crown, cape, scepter, and twin shoulder pylons.
-        // Stats are stronger than every gauntlet boss combined: 50000 HP,
-        // 180% damage boost, very fast fire rate, all phases unlocked.
-        // (Buffed Jun 7 v3: kid said "stronger and more HP" — 24k -> 50k,
-        // 1.9x -> 2.8x dmg, 40f -> 26f shoot cooldown.)
+        // Stats stronger than every gauntlet boss combined: 32000 HP,
+        // 180% damage boost, fast fire rate, all phases unlocked.
+        // (Tuned Jun 7 v3.1: kid said 50k was too much, dropped to 32k —
+        // still well above original 24k but no longer feels like a wall.)
         const ngLoopK = (bossRush && bossRush.loop) || 0;
         const ngHpMulK = 1 + ngLoopK * 0.5;
         const ngDmgMulK = 1 + ngLoopK * 0.2;
         bossDef = {
             type: 'boss', subtype: 'mechking',
-            x: 4700, y: 240, w: 280, h: 300,    // also bigger silhouette
-            hp: Math.round(50000 * ngHpMulK),
-            maxHp: Math.round(50000 * ngHpMulK),
+            x: 4700, y: 240, w: 280, h: 300,    // bigger silhouette stays
+            hp: Math.round(32000 * ngHpMulK),
+            maxHp: Math.round(32000 * ngHpMulK),
             phase: 3,                       // start in rage protocol
             phase2Triggered: true,
             phase3Triggered: true,
@@ -42669,11 +42669,17 @@ Object.assign(WL, (function() {
         boss: null,                  // reference to the boss entity
         phase: 0,
         phaseTimer: 0,
-        // Shortened durations Jun 7 v3 — was ~6.3s, kid said "secret boss
-        // doesn't work" because the long blackout phase looked frozen.
-        // Now ~3.5s total with a brief blackout, fast title reveal, and
-        // skippable via Enter / Space / X.
-        phaseDurations: [30, 60, 60, 75, 30],   // total 255 frames ~ 4.25s
+        // Tuned Jun 7 v3.2 — kid said "too fast" after the v3 shortening.
+        // Bumped back up so the dialogue is readable. Still skippable
+        // via Enter / Space / X if the kid wants to speed past.
+        // Phase budgets:
+        //   0 BLACKOUT    50f  (0.83s)  quick black-out + crackle
+        //   1 SILHOUETTE  90f  (1.50s)  spotlight + zoom
+        //   2 NAME REVEAL 100f (1.67s)  giant title + lightning
+        //   3 DIALOGUE    180f (3.00s)  three lines, ~60f each = readable
+        //   4 FINAL FLASH 35f  (0.58s)  white-out fade, hand off to fight
+        // Total ~455 frames ≈ 7.6s
+        phaseDurations: [50, 90, 100, 180, 35],
         lightning: [],               // dramatic lightning bolts
         sparks: [],                  // shower particles
         dialogueLines: [],
