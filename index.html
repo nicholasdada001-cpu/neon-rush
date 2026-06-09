@@ -470,7 +470,9 @@
         let firstName  = localStorage.getItem(FIRST_NAME_KEY) || '';
         // Names that unlock developer mode (case-insensitive). Add/remove
         // here to control who gets the dev panel + hotkeys.
-        const DEV_NAMES = ['nicholas', 'micah', 'jax', 'cayleb'];
+        // Note: kid asked for both 'caleb' (correct spelling) and 'cayleb'
+        // (older alt-spelling) to be accepted so neither breaks if typed.
+        const DEV_NAMES = ['nicholas', 'micah', 'jax', 'caleb', 'cayleb'];
         // True when current playerName matches a dev name.
         // The firstName gate is a SECOND safeguard: if your firstName was
         // a non-dev name (you proved you're a normal player first), trying
